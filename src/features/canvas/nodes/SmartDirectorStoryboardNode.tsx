@@ -24,6 +24,7 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
+import { useCanvasNodeById, useCanvasRelatedGraph } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 
@@ -62,8 +63,8 @@ export const SmartDirectorStoryboardNode = memo(
   ({ id, data, selected, width, height }: SmartDirectorStoryboardNodeProps) => {
     const { t } = useTranslation();
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-    const nodes = useCanvasStore((state) => state.nodes);
-    const edges = useCanvasStore((state) => state.edges);
+    const { nodes: relatedNodes, edges: relatedEdges } = useCanvasRelatedGraph(id);
+    const activeResultNodeCandidate = useCanvasNodeById(data.activeResultNodeId ?? '');
     const focusSmartDirectorStoryboard = useScriptEditorStore(
       (state) => state.focusSmartDirectorStoryboard
     );
@@ -87,33 +88,30 @@ export const SmartDirectorStoryboardNode = memo(
       () =>
         resolveSmartDirectorStoryboardSource({
           nodeId: id,
-          nodes,
-          edges,
+          nodes: relatedNodes,
+          edges: relatedEdges,
         }),
-      [edges, id, nodes]
+      [id, relatedEdges, relatedNodes]
     );
     const bindingState = useMemo(
       () =>
         resolveSmartDirectorStoryboardBindingState({
           nodeId: id,
-          nodes,
-          edges,
+          nodes: relatedNodes,
+          edges: relatedEdges,
         }),
-      [edges, id, nodes]
+      [id, relatedEdges, relatedNodes]
     );
     const activeResultNode = useMemo(
       () =>
-        data.activeResultNodeId
-          ? nodes.find(
-              (node): node is typeof nodes[number] & {
-                type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
-                data: ScriptStoryboardTableNodeData;
-              } =>
-                node.id === data.activeResultNodeId
-                && node.type === CANVAS_NODE_TYPES.scriptStoryboardTable
-            ) ?? null
+        activeResultNodeCandidate?.id === data.activeResultNodeId
+          && activeResultNodeCandidate.type === CANVAS_NODE_TYPES.scriptStoryboardTable
+          ? activeResultNodeCandidate as typeof activeResultNodeCandidate & {
+            type: typeof CANVAS_NODE_TYPES.scriptStoryboardTable;
+            data: ScriptStoryboardTableNodeData;
+          }
           : null,
-      [data.activeResultNodeId, nodes]
+      [activeResultNodeCandidate, data.activeResultNodeId]
     );
     const canUseNode = canUseSmartDirectorStoryboard(bindingState);
     const unavailableReason = resolveSmartDirectorStoryboardUnavailableReason(bindingState);

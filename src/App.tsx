@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useTranslation } from "react-i18next";
@@ -25,7 +25,7 @@ import { useProjectStore } from "./stores/projectStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useCanvasStore } from "./stores/canvasStore";
 import {
-  collectProjectImagePreloadEntries,
+  collectProjectViewportImagePreloadEntries,
   preloadProjectImages,
 } from "./features/canvas/application/projectImagePreloader";
 import { CanvasProjectLoadingScreen } from "./features/canvas/ui/CanvasProjectLoadingScreen";
@@ -89,11 +89,14 @@ import {
   type ClipLibraryPanelProjectContext,
 } from "./features/clip-library/application/clipLibraryPanelBridge";
 import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedClipLibraryWindow";
+import { isTauriRuntime } from "./lib/tauriRuntime";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
 const MIN_CANVAS_ENTRY_LOADING_MS = 420;
 const MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS = 18_000;
+const DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH = 1280;
+const DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT = 720;
 const MAIN_WINDOW_CLOSE_REQUEST_EVENT = "app:request-main-close";
 
 function hasActiveGenerationFlag(data: unknown): boolean {
@@ -102,7 +105,7 @@ function hasActiveGenerationFlag(data: unknown): boolean {
 
 function isWindowsRuntime(): boolean {
   return (
-    isTauri() &&
+    isTauriRuntime() &&
     typeof navigator !== "undefined" &&
     /Windows/i.test(navigator.userAgent)
   );
@@ -110,6 +113,20 @@ function isWindowsRuntime(): boolean {
 
 function isWindowsUpdaterRuntime(): boolean {
   return isWindowsRuntime();
+}
+
+function resolveCanvasEntryPreloadViewportSize(): { width: number; height: number } {
+  if (typeof window === "undefined") {
+    return {
+      width: DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH,
+      height: DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT,
+    };
+  }
+
+  return {
+    width: Math.max(1, window.innerWidth || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH),
+    height: Math.max(1, window.innerHeight - 40 || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT),
+  };
 }
 
 const CanvasScreen = lazy(() =>
@@ -367,7 +384,7 @@ function MainApp() {
   }, [hydrate]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -379,7 +396,7 @@ function MainApp() {
   }, [initializeJimengVideoQueue, isHydrated]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -443,7 +460,12 @@ function MainApp() {
 
     const runId = canvasEntryPreloadRunRef.current + 1;
     canvasEntryPreloadRunRef.current = runId;
-    const imageUrls = collectProjectImagePreloadEntries(currentProject.nodes);
+    const imageUrls = collectProjectViewportImagePreloadEntries(
+      currentProject.nodes,
+      currentProject.viewport ?? { x: 0, y: 0, zoom: 1 },
+      resolveCanvasEntryPreloadViewportSize(),
+      { marginScreens: 1 },
+    );
     void import("./features/canvas/CanvasScreen");
 
     if (imageUrls.length === 0) {
@@ -563,7 +585,7 @@ function MainApp() {
     ],
   );
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -576,7 +598,7 @@ function MainApp() {
 
   useEffect(() => {
     setLatestClipLibraryPanelProjectContext(clipLibraryPanelProjectContext);
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -589,7 +611,7 @@ function MainApp() {
   }, [clipLibraryPanelProjectContext]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -641,7 +663,7 @@ function MainApp() {
   }, [assetPanelProjectContext, setCurrentProjectAssetLibrary]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -803,7 +825,7 @@ function MainApp() {
   }, [dreaminaSetupDetail]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -881,7 +903,7 @@ function MainApp() {
   ]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -919,7 +941,7 @@ function MainApp() {
   }, [settingsHydrated, autoUpdateDreaminaCliOnLaunch]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -1012,7 +1034,7 @@ function MainApp() {
   }, [closeDialogActionState, requestWindowClose]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -1057,7 +1079,7 @@ function MainApp() {
   }, [handleMainWindowCloseIntent]);
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       return;
     }
 
@@ -1344,7 +1366,7 @@ function DetachedClipLibraryPanelApp() {
 }
 
 function App() {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     return <MainApp />;
   }
 

@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
-import { isTauri } from '@tauri-apps/api/core';
 import type { Viewport } from '@xyflow/react';
 import {
   useCanvasStore,
@@ -27,6 +26,7 @@ import {
   type CanvasColorLabelMap,
 } from '@/features/canvas/domain/semanticColors';
 import { setActiveMediaProjectId } from '@/features/canvas/application/mediaPersistenceContext';
+import { isTauriRuntime } from '@/lib/tauriRuntime';
 
 export const DEFAULT_VIEWPORT: Viewport = {
   x: 0,
@@ -341,6 +341,7 @@ function mapHistoryImageReferences(
           nodeId: entry.nodeId,
           node: entry.node ? mapNodeImageReferences([entry.node], mapImageUrl)[0] : null,
         })),
+        edges: snapshot.edges,
       };
     }
 
@@ -987,7 +988,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
 
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       set({
         projects: [],
         currentProjectId: null,

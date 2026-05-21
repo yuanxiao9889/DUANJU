@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { isTauri } from '@tauri-apps/api/core';
 
 import {
   addNodeMediaToClipLibrary,
@@ -47,6 +46,7 @@ import type {
   UpdateClipLibraryChapterPayload,
   UpdateClipLibraryPayload,
 } from '@/features/clip-library/domain/types';
+import { isTauriRuntime } from '@/lib/tauriRuntime';
 
 function sortLibraries(libraries: ClipLibraryRecord[]): ClipLibraryRecord[] {
   return [...libraries].sort((left, right) => right.updatedAt - left.updatedAt);
@@ -115,7 +115,7 @@ export const useClipLibraryStore = create<ClipLibraryState>((set, get) => ({
       return await hydrateRequest;
     }
 
-    if (!isTauri()) {
+    if (!isTauriRuntime()) {
       set({
         libraries: [],
         isHydrated: true,

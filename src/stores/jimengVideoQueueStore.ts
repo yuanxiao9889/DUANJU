@@ -1,4 +1,3 @@
-import { isTauri } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 
@@ -45,6 +44,7 @@ import {
   submitJimengVideoJob,
   type QueryJimengVideoResultResponse,
 } from "@/features/jimeng/application/jimengVideoSubmission";
+import { isTauriRuntime } from "@/lib/tauriRuntime";
 import i18n from "@/i18n";
 import { useCanvasStore } from "@/stores/canvasStore";
 import {
@@ -1261,7 +1261,7 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
         return;
       }
 
-      if (!isTauri()) {
+      if (!isTauriRuntime()) {
         set((state) =>
           syncProjectViewState(state, {
             allJobs: [],

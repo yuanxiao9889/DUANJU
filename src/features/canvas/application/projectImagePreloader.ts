@@ -1,3 +1,4 @@
+import type { Viewport } from '@xyflow/react';
 import type { CanvasNode } from '@/stores/canvasStore';
 
 import {
@@ -6,6 +7,12 @@ import {
   shouldAttemptImageLoad,
 } from './imageLoadState';
 import { loadStableImageDisplaySource } from './imageData';
+import {
+  createCanvasRect,
+  getCanvasNodeRect,
+  rectIntersects,
+  type CanvasRect,
+} from './nodeGeometry';
 
 const DEFAULT_PRELOAD_CONCURRENCY = 6;
 const DEFAULT_SINGLE_IMAGE_PRELOAD_TIMEOUT_MS = 10_000;
@@ -50,15 +57,26 @@ export interface ImagePreloadEntry {
   fallbackUrls: string[];
 }
 
+export interface ImagePreloadViewportSize {
+  width: number;
+  height: number;
+}
+
+export interface ViewportImagePreloadOptions {
+  marginScreens?: number;
+}
+
 type ImagePreloadSource = string | ImagePreloadEntry;
 
 function withPreloadTimeout<T>(
   task: Promise<T>,
   url: string,
   phase: string,
-  timeoutMs = DEFAULT_SINGLE_IMAGE_PRELOAD_TIMEOUT_MS
+  timeoutMs = DEFAULT_SINGLE_IMAGE_PRELOAD_TIMEOUT_MS,
+  signal?: AbortSignal
 ): Promise<T> {
   let timeoutId: number | undefined;
+  let abortHandler: (() => void) | undefined;
 
   const timeout = new Promise<T>((_, reject) => {
     timeoutId = window.setTimeout(() => {
@@ -66,9 +84,24 @@ function withPreloadTimeout<T>(
     }, timeoutMs);
   });
 
-  return Promise.race([task, timeout]).finally(() => {
+  const tasks: Promise<T>[] = [task, timeout];
+  if (signal) {
+    if (signal.aborted) {
+      return Promise.reject(new DOMException('Image preload aborted', 'AbortError'));
+    }
+
+    tasks.push(new Promise<T>((_, reject) => {
+      abortHandler = () => reject(new DOMException('Image preload aborted', 'AbortError'));
+      signal.addEventListener('abort', abortHandler, { once: true });
+    }));
+  }
+
+  return Promise.race(tasks).finally(() => {
     if (typeof timeoutId === 'number') {
       window.clearTimeout(timeoutId);
+    }
+    if (signal && abortHandler) {
+      signal.removeEventListener('abort', abortHandler);
     }
   });
 }
@@ -278,6 +311,106 @@ function collectImageCandidates(
   });
 }
 
+function createPreloadEntryFilter() {
+  const seenUrls = new Set<string>();
+
+  return (entry: ImagePreloadEntry): ImagePreloadEntry | null => {
+    const primaryUrl = shouldAttemptImageLoad(entry.primaryUrl) ? entry.primaryUrl : '';
+    const fallbackUrls = entry.fallbackUrls.filter((fallbackUrl) => shouldAttemptImageLoad(fallbackUrl));
+
+    if (!primaryUrl && fallbackUrls.length === 0) {
+      return null;
+    }
+
+    const resolvedPrimaryUrl = primaryUrl || fallbackUrls[0];
+    if (!resolvedPrimaryUrl || seenUrls.has(resolvedPrimaryUrl)) {
+      return null;
+    }
+
+    seenUrls.add(resolvedPrimaryUrl);
+    const dedupedFallbackUrls = fallbackUrls.filter((fallbackUrl) => {
+      if (fallbackUrl === resolvedPrimaryUrl || seenUrls.has(fallbackUrl)) {
+        return false;
+      }
+      seenUrls.add(fallbackUrl);
+      return true;
+    });
+
+    return {
+      primaryUrl: resolvedPrimaryUrl,
+      fallbackUrls: dedupedFallbackUrls,
+    };
+  };
+}
+
+function filterPreloadEntries(entries: ImagePreloadEntry[]): ImagePreloadEntry[] {
+  const filterEntry = createPreloadEntryFilter();
+  const filteredEntries: ImagePreloadEntry[] = [];
+
+  for (const entry of entries) {
+    const filteredEntry = filterEntry(entry);
+    if (filteredEntry) {
+      filteredEntries.push(filteredEntry);
+    }
+  }
+
+  return filteredEntries;
+}
+
+export function createViewportPreloadRect(
+  viewport: Viewport,
+  viewportSize: ImagePreloadViewportSize,
+  options?: ViewportImagePreloadOptions
+): CanvasRect | null {
+  const width = Math.max(0, viewportSize.width);
+  const height = Math.max(0, viewportSize.height);
+  const zoom = Math.max(0.01, viewport.zoom || 1);
+
+  if (width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const marginScreens = Math.max(0, options?.marginScreens ?? 1);
+  const visibleWidth = width / zoom;
+  const visibleHeight = height / zoom;
+  const left = -viewport.x / zoom;
+  const top = -viewport.y / zoom;
+
+  return createCanvasRect(
+    left - visibleWidth * marginScreens,
+    top - visibleHeight * marginScreens,
+    visibleWidth * (1 + marginScreens * 2),
+    visibleHeight * (1 + marginScreens * 2)
+  );
+}
+
+export function collectProjectViewportImagePreloadEntries(
+  nodes: CanvasNode[],
+  viewport: Viewport,
+  viewportSize: ImagePreloadViewportSize,
+  options?: ViewportImagePreloadOptions
+): ImagePreloadEntry[] {
+  const preloadRect = createViewportPreloadRect(viewport, viewportSize, options);
+  if (!preloadRect) {
+    return [];
+  }
+
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  const urls: ImagePreloadEntry[] = [];
+  const seenUrls = new Set<string>();
+  const visitedObjects = new WeakSet<object>();
+
+  nodes.forEach((node) => {
+    if (!rectIntersects(preloadRect, getCanvasNodeRect(node, nodeMap))) {
+      return;
+    }
+
+    collectImageCandidates(node.data, urls, seenUrls, visitedObjects);
+  });
+
+  return filterPreloadEntries(urls);
+}
+
 export function collectProjectImageUrls(nodes: CanvasNode[]): string[] {
   const urls: ImagePreloadEntry[] = [];
   const seenUrls = new Set<string>();
@@ -301,15 +434,29 @@ export function collectProjectImagePreloadEntries(nodes: CanvasNode[]): ImagePre
     collectImageCandidates(node.data, urls, seenUrls, visitedObjects);
   });
 
-  return urls
-    .map((entry) => ({
-      primaryUrl: entry.primaryUrl,
-      fallbackUrls: entry.fallbackUrls.filter((fallbackUrl) => shouldAttemptImageLoad(fallbackUrl)),
-    }))
-    .filter((entry) => shouldAttemptImageLoad(entry.primaryUrl) || entry.fallbackUrls.length > 0);
+  return filterPreloadEntries(urls);
 }
 
-async function preloadSingleImage(url: string): Promise<void> {
+export function collectCanvasNodeImagePreloadEntries(node: CanvasNode): ImagePreloadEntry[] {
+  const urls: ImagePreloadEntry[] = [];
+  const seenUrls = new Set<string>();
+  const visitedObjects = new WeakSet<object>();
+  collectImageCandidates(node.data, urls, seenUrls, visitedObjects);
+  return filterPreloadEntries(urls);
+}
+
+function throwIfPreloadAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new DOMException('Image preload aborted', 'AbortError');
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+async function preloadSingleImage(url: string, signal?: AbortSignal): Promise<void> {
+  throwIfPreloadAborted(signal);
   const cachedState = getCachedImageLoadState(url);
   if (cachedState === 'loaded') {
     return;
@@ -324,9 +471,12 @@ async function preloadSingleImage(url: string): Promise<void> {
   const displaySource = await withPreloadTimeout(
     loadStableImageDisplaySource(url),
     url,
-    'resolving image display source'
+    'resolving image display source',
+    DEFAULT_SINGLE_IMAGE_PRELOAD_TIMEOUT_MS,
+    signal
   );
 
+  throwIfPreloadAborted(signal);
   await withPreloadTimeout(new Promise<void>((resolve, reject) => {
     const image = new Image();
 
@@ -351,18 +501,22 @@ async function preloadSingleImage(url: string): Promise<void> {
       reject(new Error(`Failed to preload image: ${url}`));
     };
     image.src = displaySource;
-  }), url, 'loading image element');
+  }), url, 'loading image element', DEFAULT_SINGLE_IMAGE_PRELOAD_TIMEOUT_MS, signal);
 }
 
-async function preloadImageEntry(entry: ImagePreloadEntry): Promise<void> {
+async function preloadImageEntry(entry: ImagePreloadEntry, signal?: AbortSignal): Promise<void> {
   const candidates = [entry.primaryUrl, ...entry.fallbackUrls];
   const errors: unknown[] = [];
 
   for (const candidate of candidates) {
+    throwIfPreloadAborted(signal);
     try {
-      await preloadSingleImage(candidate);
+      await preloadSingleImage(candidate, signal);
       return;
     } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
       errors.push(error);
     }
   }
@@ -377,6 +531,7 @@ export async function preloadProjectImages(
   options?: {
     concurrency?: number;
     onProgress?: (progress: ImagePreloadProgress) => void;
+    signal?: AbortSignal;
   }
 ): Promise<ImagePreloadResult> {
   const totalCount = urls.length;
@@ -409,15 +564,23 @@ export async function preloadProjectImages(
 
   const worker = async () => {
     while (nextIndex < totalCount) {
+      if (options?.signal?.aborted) {
+        return;
+      }
+
       const currentIndex = nextIndex;
       nextIndex += 1;
       const entry = normalizePreloadEntry(urls[currentIndex]);
       const currentUrl = entry.primaryUrl;
 
       try {
-        await preloadImageEntry(entry);
+        await preloadImageEntry(entry, options?.signal);
         loadedCount += 1;
       } catch (error) {
+        if (isAbortError(error)) {
+          return;
+        }
+
         failedCount += 1;
         if (!(error instanceof Error && 'cached' in error && error.cached === true)) {
           console.debug('Skipped canvas entry image preload candidate', error);

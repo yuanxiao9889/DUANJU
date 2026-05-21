@@ -126,7 +126,6 @@ export const GptBestVideoResultNode = memo(
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
-    const edges = useCanvasStore((state) => state.edges);
     const isDescriptionPanelOpen = useCanvasStore((state) =>
       Boolean(state.nodeDescriptionPanelOpenById[id]),
     );
@@ -190,9 +189,12 @@ export const GptBestVideoResultNode = memo(
     const hasSourceEdge = useMemo(
       () =>
         sourceNodeId
-          ? edges.some((edge) => edge.source === sourceNodeId && edge.target === id)
+          ? useCanvasStore
+              .getState()
+              .edges
+              .some((edge) => edge.source === sourceNodeId && edge.target === id)
           : true,
-      [edges, id, sourceNodeId],
+      [id, sourceNodeId],
     );
 
     useEffect(() => {

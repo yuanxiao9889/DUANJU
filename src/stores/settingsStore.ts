@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { isTauri } from '@tauri-apps/api/core';
 import { syncStyleTemplateImageRefs } from '@/commands/projectState';
 import {
   getStyleTemplateState,
@@ -68,6 +67,7 @@ import {
   normalizeJimengReferenceMode,
   normalizeJimengVideoModel,
 } from '@/features/jimeng/domain/jimengOptions';
+import { isTauriRuntime } from '@/lib/tauriRuntime';
 import {
   mergeImportedAdDirectorSkillPackageData,
 } from '@/features/ad/directorSkillLibrary';
@@ -441,7 +441,7 @@ function scheduleSettingsImageRefsSync(
   styleTemplates: StyleTemplate[],
   mjStyleCodePresets: MjStyleCodePreset[]
 ): void {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     return;
   }
 
@@ -473,7 +473,7 @@ function scheduleStyleTemplateStatePersist(
   templates: StyleTemplate[],
   mjStyleCodePresets: MjStyleCodePreset[]
 ): void {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     scheduleSettingsImageRefsSync(templates, mjStyleCodePresets);
     return;
   }
@@ -2114,7 +2114,7 @@ export const useSettingsStore = create<SettingsState>()(
 async function hydrateStyleTemplateStateFromSqlite(
   rehydratedState: SettingsState
 ): Promise<void> {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     rehydratedState.setIsHydrated(true);
     scheduleSettingsImageRefsSync(
       rehydratedState.styleTemplates,

@@ -46,7 +46,7 @@ import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { canvasAiGateway, canvasEventBus } from '@/features/canvas/application/canvasServices';
+import { canvasAiGateway, canvasEventBus, canvasNodeFactory } from '@/features/canvas/application/canvasServices';
 import {
   CANVAS_NODE_TYPES,
   type CanvasEdge,
@@ -78,6 +78,11 @@ import {
   buildCanvasThumbnailBackfillSignature,
   scheduleCanvasThumbnailBackfill,
 } from '@/features/canvas/application/canvasThumbnailBackfill';
+import {
+  collectCanvasNodeImagePreloadEntries,
+  collectProjectViewportImagePreloadEntries,
+  preloadProjectImages,
+} from '@/features/canvas/application/projectImagePreloader';
 import { parseAspectRatio, prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
 import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import {
@@ -153,8 +158,10 @@ import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
 import { CanvasColorLegend } from './ui/CanvasColorLegend';
 import { CanvasZoomIndicator } from './ui/CanvasZoomIndicator';
 import {
-  CanvasPerformanceContext,
+  CanvasEdgePerformanceContext,
+  CanvasMediaPerformanceContext,
   type CanvasEdgeRenderMode,
+  type CanvasMediaPerformanceState,
   type CanvasRenderMode,
 } from './CanvasPerformanceContext';
 import { withSemanticNodePresentation } from './ui/nodeSemanticStyles';
@@ -318,6 +325,8 @@ const STALE_GENERATION_SUBMISSION_ERROR =
   'generation job not found: submission interrupted before job id was saved';
 const DRAG_OVERLAY_IDLE_CLEAR_MS = 420;
 const IMAGE_COMPARE_NOTICE_DURATION_MS = 2200;
+const VIEWPORT_IMAGE_PRELOAD_THROTTLE_MS = 250;
+const VIEWPORT_IMAGE_PRELOAD_CONCURRENCY = 3;
 const EDGE_CUT_NOTICE_DURATION_MS = 1800;
 const EDGE_CUT_MIN_POINT_DISTANCE = 3;
 const EDGE_CUT_PATH_SAMPLE_STEP = 10;
@@ -1256,6 +1265,8 @@ export function Canvas() {
   const restoredCanvasProjectIdRef = useRef<string | null>(null);
   const pendingAlignmentNodeRef = useRef<CanvasNode | null>(null);
   const alignmentDragSessionRef = useRef<AlignmentDragSession | null>(null);
+  const nodeDragStartChromeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewportInteractionChromeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeGenerationPollNodeIdsRef = useRef(new Set<string>());
   const activeGenerationRecoveryNodeIdsRef = useRef(new Set<string>());
   const generationNodeActivityAtRef = useRef(new Map<string, number>());
@@ -1266,6 +1277,14 @@ export function Canvas() {
   const edgeCutKeyPressedRef = useRef(false);
   const edgeCutGestureRef = useRef<EdgeCutGestureState | null>(null);
   const marqueeSelectionSessionRef = useRef<MarqueeSelectionSession | null>(null);
+  const viewportImagePreloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewportImagePreloadIdleRef = useRef<ReturnType<typeof setTimeout> | number | null>(null);
+  const viewportImagePreloadRunRef = useRef(0);
+  const viewportImagePreloadAbortRef = useRef<AbortController | null>(null);
+  const viewportImagePreloadViewportRef = useRef<Viewport>(DEFAULT_VIEWPORT);
+  const viewportImagePreloadNodesRef = useRef<CanvasNode[]>([]);
+  const viewportImagePreloadSizeRef = useRef({ width: 0, height: 0 });
+  const viewportImagePreloadProjectIdRef = useRef<string | null>(null);
   const flowNodePresentationCacheRef = useRef(new Map<
     string,
     { isOverviewRender: boolean; node: CanvasNode; sourceNode: CanvasNode }
@@ -1293,11 +1312,13 @@ export function Canvas() {
   const history = useCanvasStore((state) => state.history);
   const dragHistorySnapshot = useCanvasStore((state) => state.dragHistorySnapshot);
   const canvasViewport = useCanvasStore((state) => state.currentViewport);
+  const canvasViewportSize = useCanvasStore((state) => state.canvasViewportSize);
   const canvasZoom = canvasViewport.zoom;
   const applyNodesChange = useCanvasStore((state) => state.onNodesChange);
   const applyEdgesChange = useCanvasStore((state) => state.onEdgesChange);
   const connectNodes = useCanvasStore((state) => state.onConnect);
   const setCanvasData = useCanvasStore((state) => state.setCanvasData);
+  const addPreparedNodes = useCanvasStore((state) => state.addPreparedNodes);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const applySemanticColorToSelected = useCanvasStore(
     (state) => state.applySemanticColorToSelected
@@ -1380,6 +1401,7 @@ export function Canvas() {
   const syncViewportState = useCallback(
     (viewport: Viewport) => {
       viewportStoreRef.current = viewport;
+      viewportImagePreloadViewportRef.current = viewport;
       setViewportState(viewport);
     },
     [setViewportState]
@@ -1392,6 +1414,7 @@ export function Canvas() {
       }
 
       viewportStoreRef.current = viewport;
+      viewportImagePreloadViewportRef.current = viewport;
       setViewportState(viewport);
     },
     [setViewportState]
@@ -1434,17 +1457,14 @@ export function Canvas() {
   const shouldPreferThumbnailMedia =
     canvasPreviewMediaCount > CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD;
 
-  const canvasPerformanceState = useMemo(
+  const canvasMediaPerformanceState = useMemo<CanvasMediaPerformanceState>(
     () => ({
       renderMode: canvasRenderMode,
-      edgeRenderMode: effectiveCanvasEdgeRenderMode,
       suspendMedia: canvasRenderMode === 'overview',
       preferThumbnailMedia: shouldPreferThumbnailMedia,
     }),
     [
       canvasRenderMode,
-      dragHistorySnapshot,
-      effectiveCanvasEdgeRenderMode,
       shouldPreferThumbnailMedia,
     ]
   );
@@ -1496,6 +1516,36 @@ export function Canvas() {
     }, IMAGE_COMPARE_NOTICE_DURATION_MS);
   }, []);
 
+  const clearNodeDragStartChromeTimer = useCallback(() => {
+    if (nodeDragStartChromeTimerRef.current) {
+      clearTimeout(nodeDragStartChromeTimerRef.current);
+      nodeDragStartChromeTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleNodeDragChromeHide = useCallback(() => {
+    clearNodeDragStartChromeTimer();
+    nodeDragStartChromeTimerRef.current = setTimeout(() => {
+      nodeDragStartChromeTimerRef.current = null;
+      setIsDraggingNode(true);
+    }, 90);
+  }, [clearNodeDragStartChromeTimer]);
+
+  const clearViewportInteractionChromeTimer = useCallback(() => {
+    if (viewportInteractionChromeTimerRef.current) {
+      clearTimeout(viewportInteractionChromeTimerRef.current);
+      viewportInteractionChromeTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleViewportChromeHide = useCallback(() => {
+    clearViewportInteractionChromeTimer();
+    viewportInteractionChromeTimerRef.current = setTimeout(() => {
+      viewportInteractionChromeTimerRef.current = null;
+      setIsViewportInteracting(true);
+    }, 120);
+  }, [clearViewportInteractionChromeTimer]);
+
   const flushPendingAlignment = useCallback(() => {
     alignmentFrameRef.current = null;
 
@@ -1537,6 +1587,7 @@ export function Canvas() {
       alignmentSession.hasMovedEnough = true;
     }
 
+    clearNodeDragStartChromeTimer();
     setIsDraggingNode(true);
 
     if (!alignmentSession.otherNodeBounds) {
@@ -1625,7 +1676,13 @@ export function Canvas() {
       };
       applyNodesChange(snapChanges);
     }
-  }, [alignmentThreshold, applyNodesChange, enableNodeAlignment, showAlignmentGuides]);
+  }, [
+    alignmentThreshold,
+    applyNodesChange,
+    clearNodeDragStartChromeTimer,
+    enableNodeAlignment,
+    showAlignmentGuides,
+  ]);
 
   const scheduleAlignmentDuringDrag = useCallback((node: CanvasNode) => {
     pendingAlignmentNodeRef.current = node;
@@ -1643,6 +1700,143 @@ export function Canvas() {
   const currentProject = useProjectStore((state) => state.currentProject);
   const project =
     currentProject && currentProject.id === currentProjectId ? currentProject : getCurrentProject();
+  const clearScheduledViewportPreload = useCallback(() => {
+    const preloadTimer = viewportImagePreloadTimerRef.current;
+    if (preloadTimer) {
+      clearTimeout(preloadTimer);
+      viewportImagePreloadTimerRef.current = null;
+    }
+
+    const idleCallbackId = viewportImagePreloadIdleRef.current;
+    if (idleCallbackId !== null) {
+      if ('cancelIdleCallback' in window) {
+        window.cancelIdleCallback(Number(idleCallbackId));
+      } else {
+        globalThis.clearTimeout(idleCallbackId);
+      }
+      viewportImagePreloadIdleRef.current = null;
+    }
+
+    viewportImagePreloadAbortRef.current?.abort();
+    viewportImagePreloadAbortRef.current = null;
+  }, []);
+
+  const scheduleViewportImagePreload = useCallback(() => {
+    clearScheduledViewportPreload();
+    const runId = viewportImagePreloadRunRef.current + 1;
+    viewportImagePreloadRunRef.current = runId;
+
+    const projectId = viewportImagePreloadProjectIdRef.current;
+    const viewportSize = viewportImagePreloadSizeRef.current;
+    const currentNodes = viewportImagePreloadNodesRef.current;
+    if (
+      !projectId
+      || viewportSize.width <= 0
+      || viewportSize.height <= 0
+      || currentNodes.length === 0
+    ) {
+      return;
+    }
+
+    viewportImagePreloadTimerRef.current = setTimeout(() => {
+      viewportImagePreloadTimerRef.current = null;
+
+      const scheduleIdlePreload = () => {
+        viewportImagePreloadIdleRef.current = null;
+        if (viewportImagePreloadRunRef.current !== runId) {
+          return;
+        }
+
+        const latestNodes = viewportImagePreloadNodesRef.current;
+        const latestViewportSize = viewportImagePreloadSizeRef.current;
+        const preloadEntries = collectProjectViewportImagePreloadEntries(
+          latestNodes,
+          viewportImagePreloadViewportRef.current,
+          latestViewportSize,
+          { marginScreens: 1 }
+        );
+        if (preloadEntries.length === 0) {
+          return;
+        }
+
+        viewportImagePreloadAbortRef.current?.abort();
+        const abortController = new AbortController();
+        viewportImagePreloadAbortRef.current = abortController;
+        void preloadProjectImages(preloadEntries, {
+          concurrency: VIEWPORT_IMAGE_PRELOAD_CONCURRENCY,
+          signal: abortController.signal,
+        }).catch((error) => {
+          console.debug('Skipped viewport image preload batch', error);
+        }).finally(() => {
+          if (viewportImagePreloadAbortRef.current === abortController) {
+            viewportImagePreloadAbortRef.current = null;
+          }
+        });
+      };
+
+      if ('requestIdleCallback' in window) {
+        viewportImagePreloadIdleRef.current = window.requestIdleCallback(scheduleIdlePreload, {
+          timeout: 800,
+        });
+      } else {
+        viewportImagePreloadIdleRef.current = globalThis.setTimeout(scheduleIdlePreload, 80);
+      }
+    }, VIEWPORT_IMAGE_PRELOAD_THROTTLE_MS);
+  }, [clearScheduledViewportPreload]);
+
+  const warmCopiedNodeImages = useCallback((copiedNodeIds: string[]) => {
+    if (copiedNodeIds.length === 0) {
+      return;
+    }
+
+    const copiedIdSet = new Set(copiedNodeIds);
+    const copiedNodes = useCanvasStore
+      .getState()
+      .nodes
+      .filter((candidate) => copiedIdSet.has(candidate.id));
+    const preloadEntries = copiedNodes.flatMap(collectCanvasNodeImagePreloadEntries);
+    if (preloadEntries.length === 0) {
+      return;
+    }
+
+    const runPreload = () => {
+      void preloadProjectImages(preloadEntries, {
+        concurrency: 2,
+      }).catch((error) => {
+        console.debug('Skipped copied node image warmup', error);
+      });
+    };
+
+    if ('requestIdleCallback' in window) {
+      window.requestIdleCallback(runPreload, { timeout: 500 });
+    } else {
+      globalThis.setTimeout(runPreload, 60);
+    }
+  }, []);
+
+  useEffect(() => {
+    viewportImagePreloadNodesRef.current = nodes;
+    viewportImagePreloadSizeRef.current = canvasViewportSize;
+    viewportImagePreloadProjectIdRef.current = currentProjectId;
+    if (dragHistorySnapshot) {
+      return;
+    }
+    scheduleViewportImagePreload();
+  }, [
+    canvasViewportSize,
+    currentProjectId,
+    dragHistorySnapshot,
+    nodes,
+    scheduleViewportImagePreload,
+  ]);
+
+  useEffect(() => {
+    viewportImagePreloadViewportRef.current = canvasViewport;
+    scheduleViewportImagePreload();
+  }, [canvasViewport, scheduleViewportImagePreload]);
+
+  useEffect(() => clearScheduledViewportPreload, [clearScheduledViewportPreload]);
+
   const isScriptProject = project?.projectType === 'script';
   const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
   const saveCurrentProjectViewport = useProjectStore((state) => state.saveCurrentProjectViewport);
@@ -1658,6 +1852,8 @@ export function Canvas() {
 
   useEffect(() => {
     return () => {
+      clearNodeDragStartChromeTimer();
+      clearViewportInteractionChromeTimer();
       if (imageCompareNoticeTimerRef.current) {
         clearTimeout(imageCompareNoticeTimerRef.current);
         imageCompareNoticeTimerRef.current = null;
@@ -1673,7 +1869,7 @@ export function Canvas() {
       pendingAlignmentNodeRef.current = null;
       alignmentDragSessionRef.current = null;
     };
-  }, []);
+  }, [clearNodeDragStartChromeTimer, clearViewportInteractionChromeTimer]);
 
   useEffect(() => {
     if (activeToolDialog) {
@@ -2837,6 +3033,7 @@ export function Canvas() {
 
   const handleMoveEnd = useCallback(
     (_event: unknown, viewport: Viewport) => {
+      clearViewportInteractionChromeTimer();
       setIsViewportInteracting(false);
       syncViewportState(viewport);
       const project = getCurrentProject();
@@ -2845,20 +3042,29 @@ export function Canvas() {
       }
       saveCurrentProjectViewport(viewport);
     },
-    [getCurrentProject, saveCurrentProjectViewport, syncViewportState]
+    [
+      clearViewportInteractionChromeTimer,
+      getCurrentProject,
+      saveCurrentProjectViewport,
+      syncViewportState,
+    ]
   );
 
   const handleMove = useCallback(
     (_event: unknown, viewport: Viewport) => {
+      viewportImagePreloadViewportRef.current = viewport;
+      if (viewportImagePreloadTimerRef.current === null) {
+        scheduleViewportImagePreload();
+      }
       syncViewportStateOnZoomChange(viewport);
     },
-    [syncViewportStateOnZoomChange]
+    [scheduleViewportImagePreload, syncViewportStateOnZoomChange]
   );
 
   const handleMoveStart = useCallback(() => {
-    setIsViewportInteracting(true);
+    scheduleViewportChromeHide();
     cancelPendingViewportPersist();
-  }, [cancelPendingViewportPersist]);
+  }, [cancelPendingViewportPersist, scheduleViewportChromeHide]);
 
   const toFlowPointFromMouseEvent = useCallback((
     event: ReactMouseEvent<Element, MouseEvent>,
@@ -4798,6 +5004,7 @@ export function Canvas() {
       const idMap = new globalThis.Map<string, string>();
       const sizeMap = new globalThis.Map<string, { width: number; height: number }>();
       const totalOffset = resolveTotalOffset(chosenOffset);
+      const copiedNodes: CanvasNode[] = [];
       for (const sourceNode of sourceNodes) {
         const data = cloneNodeData(sourceNode.data);
         if (sourceNode.type === CANVAS_NODE_TYPES.mj) {
@@ -4846,7 +5053,7 @@ export function Canvas() {
         }
         const sourceAbsolutePosition = sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
 
-        const nextNodeId = addNode(
+        const nextNode = canvasNodeFactory.createNode(
           sourceNode.type as CanvasNodeType,
           {
             x: sourceAbsolutePosition.x + totalOffset.x,
@@ -4854,91 +5061,94 @@ export function Canvas() {
           },
           { ...data }
         );
-        idMap.set(sourceNode.id, nextNodeId);
-        sizeMap.set(nextNodeId, getNodeSize(sourceNode));
+        idMap.set(sourceNode.id, nextNode.id);
+        sizeMap.set(nextNode.id, getNodeSize(sourceNode));
+        copiedNodes.push(nextNode);
       }
 
-      const sizeSyncChanges = Array.from(sizeMap.entries()).map(([nodeId, size]: [string, { width: number; height: number }]) => ({
-        id: nodeId,
-        type: 'dimensions' as const,
-        dimensions: { width: size.width, height: size.height },
-        resizing: false,
-        setAttributes: true,
-      }));
-      if (sizeSyncChanges.length > 0) {
-        applyNodesChange(sizeSyncChanges as NodeChange<CanvasNode>[]);
-      }
+      const copiedNodeById = new globalThis.Map(copiedNodes.map((node) => [node.id, node] as const));
+      const copiedNodesForInsert = copiedNodes.map((copiedNode) => {
+        const sourceNodeEntry = Array.from(idMap.entries()).find(([, copiedId]) => copiedId === copiedNode.id);
+        const sourceNode = sourceNodeEntry ? sourceById.get(sourceNodeEntry[0]) : null;
+        if (!sourceNode) {
+          return copiedNode;
+        }
 
-      useCanvasStore.setState((state) => ({
-        nodes: state.nodes.map((currentNode) => {
-          const sourceNodeEntry = Array.from(idMap.entries()).find(([, copiedId]) => copiedId === currentNode.id);
-          if (!sourceNodeEntry) {
-            return currentNode;
-          }
-
-          const sourceNode = sourceById.get(sourceNodeEntry[0]);
-          if (!sourceNode) {
-            return currentNode;
-          }
-
-          const isUsingCopiedParent = Boolean(sourceNode.parentId && idMap.has(sourceNode.parentId));
-          const copiedParentId = sourceNode.parentId
-            ? (idMap.get(sourceNode.parentId) ?? sourceNode.parentId)
-            : undefined;
-          const sourceAbsolutePosition = sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
-          const nextPosition = copiedParentId
-            ? isUsingCopiedParent
-              ? {
-                  x: Math.round(sourceNode.position.x),
-                  y: Math.round(sourceNode.position.y),
-                }
-              : {
-                  x: Math.round(sourceNode.position.x + totalOffset.x),
-                  y: Math.round(sourceNode.position.y + totalOffset.y),
-                }
+        const isUsingCopiedParent = Boolean(sourceNode.parentId && idMap.has(sourceNode.parentId));
+        const copiedParentId = sourceNode.parentId
+          ? (idMap.get(sourceNode.parentId) ?? sourceNode.parentId)
+          : undefined;
+        const sourceAbsolutePosition = sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
+        const nextPosition = copiedParentId
+          ? isUsingCopiedParent
+            ? {
+                x: Math.round(sourceNode.position.x),
+                y: Math.round(sourceNode.position.y),
+              }
             : {
-                x: Math.round(sourceAbsolutePosition.x + totalOffset.x),
-                y: Math.round(sourceAbsolutePosition.y + totalOffset.y),
-              };
-          const remapCopiedReferenceId = (value: unknown): string | null => {
-            const normalizedValue = typeof value === 'string' ? value.trim() : '';
-            if (!normalizedValue) {
-              return null;
-            }
-            return idMap.get(normalizedValue) ?? null;
-          };
-          let nextData = currentNode.data;
-
-          if (currentNode.type === CANVAS_NODE_TYPES.mj) {
-            nextData = {
-              ...currentNode.data,
-              linkedResultNodeId: null,
-              isSubmitting: false,
-              activeTaskId: null,
-              lastSubmittedAt: null,
+                x: Math.round(sourceNode.position.x + totalOffset.x),
+                y: Math.round(sourceNode.position.y + totalOffset.y),
+              }
+          : {
+              x: Math.round(sourceAbsolutePosition.x + totalOffset.x),
+              y: Math.round(sourceAbsolutePosition.y + totalOffset.y),
             };
+        const remapCopiedReferenceId = (value: unknown): string | null => {
+          const normalizedValue = typeof value === 'string' ? value.trim() : '';
+          if (!normalizedValue) {
+            return null;
           }
+          return idMap.get(normalizedValue) ?? null;
+        };
+        let nextData = copiedNode.data;
 
-          if (currentNode.type === CANVAS_NODE_TYPES.mjResult) {
-            const sourceData = sourceNode.data as Record<string, unknown>;
-            nextData = {
-              ...currentNode.data,
-              sourceNodeId: remapCopiedReferenceId(sourceData.sourceNodeId),
-              rootSourceNodeId: remapCopiedReferenceId(sourceData.rootSourceNodeId),
-              parentResultNodeId: remapCopiedReferenceId(sourceData.parentResultNodeId),
-            };
-          }
-
-          return {
-            ...currentNode,
-            parentId: copiedParentId,
-            extent: undefined,
-            position: nextPosition,
-            data: nextData,
+        if (copiedNode.type === CANVAS_NODE_TYPES.mj) {
+          nextData = {
+            ...copiedNode.data,
+            linkedResultNodeId: null,
+            isSubmitting: false,
+            activeTaskId: null,
+            lastSubmittedAt: null,
           };
-        }),
-      }));
+        }
 
+        if (copiedNode.type === CANVAS_NODE_TYPES.mjResult) {
+          const sourceData = sourceNode.data as Record<string, unknown>;
+          nextData = {
+            ...copiedNode.data,
+            sourceNodeId: remapCopiedReferenceId(sourceData.sourceNodeId),
+            rootSourceNodeId: remapCopiedReferenceId(sourceData.rootSourceNodeId),
+            parentResultNodeId: remapCopiedReferenceId(sourceData.parentResultNodeId),
+          };
+        }
+
+        const size = sizeMap.get(copiedNode.id);
+        return {
+          ...copiedNode,
+          parentId: copiedParentId,
+          extent: undefined,
+          ...(size
+            ? {
+                width: size.width,
+                height: size.height,
+                style: {
+                  ...(copiedNode.style ?? {}),
+                  width: size.width,
+                  height: size.height,
+                },
+                measured: {
+                  ...(copiedNode.measured ?? {}),
+                  width: size.width,
+                  height: size.height,
+                },
+              }
+            : {}),
+          position: nextPosition,
+          data: nextData,
+        };
+      });
+
+      const duplicatedEdges: CanvasEdge[] = [];
       for (const edge of internalEdges) {
         const sourceNode = sourceById.get(edge.source);
         const targetNode = sourceById.get(edge.target);
@@ -4956,27 +5166,48 @@ export function Canvas() {
         if (!nextSource || !nextTarget) {
           continue;
         }
-        connectNodes({
+
+        duplicatedEdges.push({
+          id: `e-${nextSource}-${nextTarget}`,
           source: nextSource,
           target: nextTarget,
           sourceHandle: edge.sourceHandle ?? 'source',
           targetHandle: edge.targetHandle ?? 'target',
+          type: 'disconnectableEdge',
         });
       }
 
       for (const edge of externalMaterialIncomingEdges) {
         const nextTarget = idMap.get(edge.target);
-        if (!nextTarget) {
+        const sourceNode = allNodeById.get(edge.source);
+        const targetNode = nextTarget ? copiedNodeById.get(nextTarget) : null;
+        if (
+          !nextTarget
+          || !sourceNode
+          || !targetNode
+          || !canNodeTypeBeManualConnectionSource(sourceNode.type)
+          || !nodeHasSourceHandle(sourceNode.type)
+          || !nodeHasTargetHandle(targetNode.type)
+        ) {
           continue;
         }
 
-        connectNodesWithBusinessRules({
+        duplicatedEdges.push({
+          id: `e-${edge.source}-${nextTarget}`,
           source: edge.source,
           target: nextTarget,
           sourceHandle: edge.sourceHandle ?? 'source',
           targetHandle: edge.targetHandle ?? 'target',
-        }, { schedulePersist: false });
+          type: 'disconnectableEdge',
+        });
       }
+
+      const dedupedDuplicatedEdges = Array.from(
+        new globalThis.Map(duplicatedEdges.map((edge) => [edge.id, edge] as const)).values()
+      );
+      addPreparedNodes(copiedNodesForInsert, {
+        edges: dedupedDuplicatedEdges,
+      });
 
       if (!options.disableOffsetIteration) {
         pasteIterationRef.current += 1;
@@ -4999,9 +5230,7 @@ export function Canvas() {
     },
     [
       addNode,
-      applyNodesChange,
-      connectNodes,
-      connectNodesWithBusinessRules,
+      addPreparedNodes,
       edges,
       nodes,
       scheduleCanvasPersist,
@@ -5079,7 +5308,7 @@ export function Canvas() {
 
   const handleNodeDragStart = useCallback(
     (event: ReactMouseEvent, node: CanvasNode) => {
-      setIsDraggingNode(true);
+      scheduleNodeDragChromeHide();
       if (alignmentFrameRef.current !== null) {
         cancelAnimationFrame(alignmentFrameRef.current);
         alignmentFrameRef.current = null;
@@ -5163,6 +5392,7 @@ export function Canvas() {
           };
         }),
       }));
+      warmCopiedNodeImages(copiedNodeIds);
 
       altDragCopyRef.current = {
         sourceNodeIds,
@@ -5171,7 +5401,7 @@ export function Canvas() {
         sourceToCopyIdMap: duplicateResult.idMap,
       };
     },
-    [duplicateNodes, nodes, selectedNodeIds]
+    [duplicateNodes, nodes, scheduleNodeDragChromeHide, selectedNodeIds, warmCopiedNodeImages]
   );
 
   const handleNodeDrag = useCallback(
@@ -5251,6 +5481,7 @@ export function Canvas() {
       }
       pendingAlignmentNodeRef.current = null;
       alignmentDragSessionRef.current = null;
+      clearNodeDragStartChromeTimer();
       setIsDraggingNode(false);
       // Clear alignment guides after drag ends.
       setAlignmentGuides((previousGuides) => (previousGuides.length === 0 ? previousGuides : []));
@@ -5410,6 +5641,32 @@ export function Canvas() {
         } => Boolean(change));
 
       const allChanges = [...restoreSourceChanges, ...finalizeCopyChanges];
+      const copiedNodeIdSet = new Set(altCopyState.copiedNodeIds);
+      useCanvasStore.setState((state) => {
+        let didClearTemporaryZIndex = false;
+        const nextNodes = state.nodes.map((currentNode) => {
+          if (!copiedNodeIdSet.has(currentNode.id)) {
+            return currentNode;
+          }
+
+          const currentStyle = currentNode.style ?? {};
+          const hasTemporaryNodeZIndex = currentNode.zIndex === ALT_DRAG_COPY_Z_INDEX;
+          const hasTemporaryStyleZIndex = currentStyle.zIndex === ALT_DRAG_COPY_Z_INDEX;
+          if (!hasTemporaryNodeZIndex && !hasTemporaryStyleZIndex) {
+            return currentNode;
+          }
+
+          didClearTemporaryZIndex = true;
+          const { zIndex: _temporaryZIndex, ...nextStyle } = currentStyle;
+          return {
+            ...currentNode,
+            zIndex: hasTemporaryNodeZIndex ? undefined : currentNode.zIndex,
+            style: hasTemporaryStyleZIndex ? nextStyle : currentStyle,
+          };
+        });
+
+        return didClearTemporaryZIndex ? { nodes: nextNodes } : state;
+      });
       if (allChanges.length > 0) {
         applyNodesChange(allChanges);
       }
@@ -5953,7 +6210,8 @@ export function Canvas() {
   }, [branchConnectionSource, addNode, connectNodesWithBusinessRules, resetBranchConnectionState, scheduleCanvasPersist]);
 
   return (
-    <CanvasPerformanceContext.Provider value={canvasPerformanceState}>
+    <CanvasMediaPerformanceContext.Provider value={canvasMediaPerformanceState}>
+    <CanvasEdgePerformanceContext.Provider value={effectiveCanvasEdgeRenderMode}>
     <div ref={wrapperRef} className="relative h-full w-full flex">
       {isScriptProject && (
         <Suspense fallback={null}>
@@ -6460,6 +6718,7 @@ export function Canvas() {
         </Suspense>
       )}
     </div>
-    </CanvasPerformanceContext.Provider>
+    </CanvasEdgePerformanceContext.Provider>
+    </CanvasMediaPerformanceContext.Provider>
   );
 }

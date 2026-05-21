@@ -9,7 +9,7 @@ import {
 
 import { CANVAS_NODE_TYPES } from '@/features/canvas/domain/canvasNodes';
 import { useCanvasNodesByIds } from '@/features/canvas/hooks/useCanvasNodeGraph';
-import { useCanvasPerformanceState } from '@/features/canvas/CanvasPerformanceContext';
+import { useCanvasEdgeRenderMode } from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasStore, type CanvasNode } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { buildOrthogonalRoute } from './edgeRouting';
@@ -18,7 +18,7 @@ import { EdgeParticles } from './EdgeParticles';
 const EMPTY_ROUTING_NODES: CanvasNode[] = [];
 
 export const DisconnectableEdge = memo(function DisconnectableEdge(props: EdgeProps) {
-  const { edgeRenderMode } = useCanvasPerformanceState();
+  const edgeRenderMode = useCanvasEdgeRenderMode();
   if (edgeRenderMode !== 'full') {
     return <LightDisconnectableEdge {...props} />;
   }

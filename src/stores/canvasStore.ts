@@ -542,6 +542,7 @@ export interface CanvasNodePatchHistoryEntry {
 export interface CanvasNodePatchHistorySnapshot {
   kind: 'nodePatch';
   entries: CanvasNodePatchHistoryEntry[];
+  edges?: CanvasEdge[];
 }
 
 export type CanvasHistorySnapshot =
@@ -597,6 +598,11 @@ interface AddNodeOptions {
   parentId?: string;
   inheritParentFromNodeId?: string;
   positionSpace?: 'canvas' | 'parent';
+}
+
+interface AddPreparedNodesOptions {
+  historyMode?: 'push' | 'skip';
+  edges?: CanvasEdge[];
 }
 
 interface UpdateNodeDataOptions {
@@ -754,6 +760,10 @@ interface CanvasState {
     data?: Partial<CanvasNodeData>,
     options?: AddNodeOptions
   ) => string;
+  addPreparedNodes: (
+    nodes: CanvasNode[],
+    options?: AddPreparedNodesOptions
+  ) => string[];
   addEdge: (source: string, target: string) => string | null;
   findNodePosition: (sourceNodeId: string, newNodeWidth: number, newNodeHeight: number) => { x: number; y: number };
   addDerivedUploadNode: (
@@ -1662,6 +1672,7 @@ function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
             node: normalizedNode,
           };
         }),
+        edges: snapshot.edges,
       };
     }
 
@@ -1729,21 +1740,77 @@ function createNodePatchSnapshot(
     : createSnapshot(nodes, fallbackEdges);
 }
 
+function createDeletedNodesSnapshot(
+  nodes: CanvasNode[],
+  edges: CanvasEdge[],
+  nodeIds: Iterable<string>
+): CanvasHistorySnapshot {
+  const nodeIdSet = new Set(nodeIds);
+  if (nodeIdSet.size === 0) {
+    return createSnapshot(nodes, edges);
+  }
+
+  const snapshot = createNodePatchSnapshot(nodes, nodeIdSet, edges);
+  if (!isCanvasNodePatchHistorySnapshot(snapshot)) {
+    return snapshot;
+  }
+
+  const affectedEdges = edges.filter(
+    (edge) => nodeIdSet.has(edge.source) || nodeIdSet.has(edge.target)
+  );
+
+  return affectedEdges.length > 0
+    ? {
+        ...snapshot,
+        edges: affectedEdges,
+      }
+    : snapshot;
+}
+
+function createAddedNodesSnapshot(nodeIds: Iterable<string>): CanvasHistorySnapshot {
+  const seenNodeIds = new Set<string>();
+  const entries: CanvasNodePatchHistoryEntry[] = [];
+
+  for (const nodeId of nodeIds) {
+    if (!nodeId || seenNodeIds.has(nodeId)) {
+      continue;
+    }
+
+    seenNodeIds.add(nodeId);
+    entries.push({
+      nodeId,
+      node: null,
+    });
+  }
+
+  return entries.length > 0
+    ? {
+        kind: 'nodePatch',
+        entries,
+      }
+    : createSnapshot([], []);
+}
+
 function createReverseNodePatchSnapshot(
   snapshot: CanvasNodePatchHistorySnapshot,
   nodes: CanvasNode[],
   fallbackEdges: CanvasEdge[]
 ): CanvasHistorySnapshot {
   const currentNodeById = new Map(nodes.map((node) => [node.id, node] as const));
+  const snapshotNodeIds = new Set(snapshot.entries.map((entry) => entry.nodeId));
   const entries = snapshot.entries.map((entry) => ({
     nodeId: entry.nodeId,
     node: currentNodeById.get(entry.nodeId) ?? null,
   }));
+  const affectedEdges = fallbackEdges.filter(
+    (edge) => snapshotNodeIds.has(edge.source) || snapshotNodeIds.has(edge.target)
+  );
 
   return entries.length > 0
     ? {
         kind: 'nodePatch',
         entries,
+        edges: affectedEdges,
       }
     : createSnapshot(nodes, fallbackEdges);
 }
@@ -1783,9 +1850,22 @@ function applyHistorySnapshot(
   snapshot: CanvasHistorySnapshot
 ): CanvasFullHistorySnapshot {
   if (isCanvasNodePatchHistorySnapshot(snapshot)) {
+    const snapshotNodeIds = new Set(snapshot.entries.map((entry) => entry.nodeId));
+    const patchedEdges = snapshot.edges ?? [];
+    const patchedEdgeIds = new Set(patchedEdges.map((edge) => edge.id));
+    const nextEdges = [
+      ...currentEdges.filter(
+        (edge) =>
+          !patchedEdgeIds.has(edge.id)
+          && !snapshotNodeIds.has(edge.source)
+          && !snapshotNodeIds.has(edge.target)
+      ),
+      ...patchedEdges,
+    ];
+
     return {
       nodes: applyNodePatchSnapshot(currentNodes, snapshot),
-      edges: currentEdges,
+      edges: nextEdges,
     };
   }
 
@@ -3913,6 +3993,59 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       dragHistorySnapshot: null,
     });
     return newNode.id;
+  },
+
+  addPreparedNodes: (preparedNodes, options = {}) => {
+    const nodesToAdd = preparedNodes.filter((node) => Boolean(node?.id));
+    if (nodesToAdd.length === 0) {
+      return [];
+    }
+
+    const addedNodeIds = nodesToAdd.map((node) => node.id);
+    set((state) => {
+      const existingIds = new Set(state.nodes.map((node) => node.id));
+      const uniqueNodesToAdd = nodesToAdd.filter((node) => !existingIds.has(node.id));
+      if (uniqueNodesToAdd.length === 0) {
+        return {};
+      }
+
+      const touchedGroupIds = new Set<string>();
+      uniqueNodesToAdd.forEach((node) => {
+        if (node.parentId) {
+          touchedGroupIds.add(node.parentId);
+        }
+      });
+
+      let nextNodes = [...state.nodes, ...uniqueNodesToAdd];
+      touchedGroupIds.forEach((groupNodeId) => {
+        nextNodes = fitGroupNodeToChildren(nextNodes, groupNodeId);
+      });
+
+      const edgesToAdd = options.edges?.filter(
+        (edge) =>
+          Boolean(edge.id)
+          && !state.edges.some((currentEdge) => currentEdge.id === edge.id)
+      ) ?? [];
+      const nextEdges = edgesToAdd.length > 0 ? [...state.edges, ...edgesToAdd] : state.edges;
+
+      return {
+        nodes: nextNodes,
+        edges: nextEdges,
+        history:
+          options.historyMode === 'skip'
+            ? state.history
+            : {
+                past: pushSnapshot(
+                  state.history.past,
+                  createAddedNodesSnapshot(uniqueNodesToAdd.map((node) => node.id))
+                ),
+                future: [],
+              },
+        dragHistorySnapshot: null,
+      };
+    });
+
+    return addedNodeIds;
   },
 
   addEdge: (source, target) => {
@@ -6159,7 +6292,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
             ? null
             : state.activeShotParamsPanelNodeId,
         history: {
-          past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
+          past: pushSnapshot(
+            state.history.past,
+            createDeletedNodesSnapshot(state.nodes, state.edges, deleteSet)
+          ),
           future: [],
         },
         dragHistorySnapshot: null,

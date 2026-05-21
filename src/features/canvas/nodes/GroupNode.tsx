@@ -28,6 +28,7 @@ import {
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
 import { ModelParamsControls } from '@/features/canvas/ui/ModelParamsControls';
+import { useCanvasChildNodes } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 
@@ -41,7 +42,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const layoutGroupNode = useCanvasStore((state) => state.layoutGroupNode);
-  const nodes = useCanvasStore((state) => state.nodes);
+  const childNodes = useCanvasChildNodes(id);
   const storyboardCompatibleModelConfig = useSettingsStore((state) => state.storyboardCompatibleModelConfig);
   const storyboardNewApiModelConfig = useSettingsStore((state) => state.storyboardNewApiModelConfig);
   const storyboardApi2OkModelConfig = useSettingsStore((state) => state.storyboardApi2OkModelConfig);
@@ -62,11 +63,10 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   const isStoryboardProductionGroup = data.visualStyle === 'storyboardProductionGroup';
   const isProductionLikeGroup = isAssetBatchGroup || isStoryboardProductionGroup;
   const directChildNodes = useMemo(
-    () => nodes.filter((node) => (
-      node.parentId === id
-      && (isStoryboardProductionGroup || node.type === CANVAS_NODE_TYPES.imageEdit)
+    () => childNodes.filter((node) => (
+      isStoryboardProductionGroup || node.type === CANVAS_NODE_TYPES.imageEdit
     )),
-    [id, isStoryboardProductionGroup, nodes]
+    [childNodes, isStoryboardProductionGroup]
   );
   const imageModels = useMemo(
     () =>

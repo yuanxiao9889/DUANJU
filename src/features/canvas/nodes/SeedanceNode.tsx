@@ -78,6 +78,7 @@ import {
   useCanvasConnectedTextInput,
   useCanvasConnectedReferenceVisuals,
   useCanvasNodeById,
+  useCanvasStoryboardProductionPlaceholder,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
@@ -787,6 +788,10 @@ export const SeedanceNode = memo(
     const connectedAudios = useCanvasConnectedAudioReferences(id);
     const { connectedText, hasConnectedTextSource, hasNonEmptyConnectedText } =
       useCanvasConnectedTextInput(id);
+    const previousStoryboardImageNodeId =
+      data.continuousReferenceChain?.previousImageNodeId?.trim() ?? "";
+    const previousStoryboardPlaceholderNode =
+      useCanvasStoryboardProductionPlaceholder(previousStoryboardImageNodeId);
     const officialVideoApiKeys = useSettingsStore(
       (state) => state.officialVideoApiKeys,
     );
@@ -802,8 +807,6 @@ export const SeedanceNode = memo(
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-    const nodes = useCanvasStore((state) => state.nodes);
-    const edges = useCanvasStore((state) => state.edges);
     const isShotParamsPanelOpen = useCanvasStore(
       (state) => state.activeShotParamsPanelNodeId === id,
     );
@@ -1058,21 +1061,14 @@ export const SeedanceNode = memo(
         return null;
       }
 
-      const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-      const previousResultNode = edges
-        .filter((edge) => edge.source === previousImageNodeId)
-        .map((edge) => nodeMap.get(edge.target))
-        .find((node): node is typeof nodes[number] & {
-          type: typeof CANVAS_NODE_TYPES.exportImage;
-          data: ExportImageNodeData;
-        } => (
-          Boolean(node)
-          && node?.type === CANVAS_NODE_TYPES.exportImage
-          && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
-        ));
-      const selectedResultId = previousResultNode?.data.selectedStoryboardProductionResultId?.trim();
+      const previousResultNode =
+        previousStoryboardPlaceholderNode?.type === CANVAS_NODE_TYPES.exportImage
+          ? previousStoryboardPlaceholderNode
+          : null;
+      const previousResultData = previousResultNode?.data as ExportImageNodeData | undefined;
+      const selectedResultId = previousResultData?.selectedStoryboardProductionResultId?.trim();
       const selectedResult = selectedResultId
-        ? previousResultNode?.data.storyboardProductionResults?.find((item) => item.id === selectedResultId) ?? null
+        ? previousResultData?.storyboardProductionResults?.find((item) => item.id === selectedResultId) ?? null
         : null;
       return selectedResult?.imageUrl?.trim()
         || selectedResult?.previewImageUrl?.trim()
@@ -1082,8 +1078,7 @@ export const SeedanceNode = memo(
       data.sourceDurationGroupId,
       data.sourceImageResultNodeId,
       data.sourceStoryboardTableNodeId,
-      edges,
-      nodes,
+      previousStoryboardPlaceholderNode,
     ]);
     const appendStoryboardVideoContinuityPrompt = useCallback((prompt: string) => {
       if (!storyboardContinuousReferenceImage) {

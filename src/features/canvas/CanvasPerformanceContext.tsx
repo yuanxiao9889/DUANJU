@@ -10,29 +10,47 @@ export interface CanvasPerformanceState {
   preferThumbnailMedia: boolean;
 }
 
-const DEFAULT_CANVAS_PERFORMANCE_STATE: CanvasPerformanceState = {
+export interface CanvasMediaPerformanceState {
+  renderMode: CanvasRenderMode;
+  suspendMedia: boolean;
+  preferThumbnailMedia: boolean;
+}
+
+const DEFAULT_CANVAS_MEDIA_PERFORMANCE_STATE: CanvasMediaPerformanceState = {
   renderMode: 'full',
-  edgeRenderMode: 'full',
   suspendMedia: false,
   preferThumbnailMedia: false,
 };
 
-export const CanvasPerformanceContext = createContext<CanvasPerformanceState>(
-  DEFAULT_CANVAS_PERFORMANCE_STATE
+export const CanvasMediaPerformanceContext = createContext<CanvasMediaPerformanceState>(
+  DEFAULT_CANVAS_MEDIA_PERFORMANCE_STATE
 );
 
+export const CanvasEdgePerformanceContext = createContext<CanvasEdgeRenderMode>('full');
+
+export const CanvasPerformanceContext = CanvasMediaPerformanceContext;
+
 export function useCanvasPerformanceState(): CanvasPerformanceState {
-  return useContext(CanvasPerformanceContext);
+  const mediaState = useContext(CanvasMediaPerformanceContext);
+  const edgeRenderMode = useContext(CanvasEdgePerformanceContext);
+  return {
+    ...mediaState,
+    edgeRenderMode,
+  };
 }
 
 export function useIsOverviewCanvasRender(): boolean {
-  return useCanvasPerformanceState().renderMode === 'overview';
+  return useContext(CanvasMediaPerformanceContext).renderMode === 'overview';
 }
 
 export function useShouldSuspendCanvasMedia(): boolean {
-  return useCanvasPerformanceState().suspendMedia;
+  return useContext(CanvasMediaPerformanceContext).suspendMedia;
 }
 
 export function useShouldPreferCanvasThumbnailMedia(): boolean {
-  return useCanvasPerformanceState().preferThumbnailMedia;
+  return useContext(CanvasMediaPerformanceContext).preferThumbnailMedia;
+}
+
+export function useCanvasEdgeRenderMode(): CanvasEdgeRenderMode {
+  return useContext(CanvasEdgePerformanceContext);
 }

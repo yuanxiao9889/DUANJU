@@ -132,6 +132,8 @@ import {
   useCanvasConnectedReferenceVisuals,
   useCanvasConnectedTextInput,
   useCanvasIncomingSourceNodes,
+  useCanvasParentNode,
+  useCanvasStoryboardProductionPlaceholder,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import {
@@ -362,71 +364,6 @@ function buildAiResultNodeTitle(prompt: string, fallbackTitle: string): string {
   return normalizedPrompt;
 }
 
-function isStoryboardProductionImageNode(data: ImageEditNodeData): boolean {
-  return Boolean(
-    data.sourceStoryboardTableNodeId?.trim()
-      && data.sourceDurationGroupId?.trim()
-      && data.sourceImageResultNodeId?.trim(),
-  );
-}
-
-function resolveStoryboardContinuousReferenceImage(
-  currentNodeData: ImageEditNodeData,
-  nodes: ReturnType<typeof useCanvasStore.getState>["nodes"],
-  edges: ReturnType<typeof useCanvasStore.getState>["edges"],
-): Promise<string | null> {
-  if (
-    !isStoryboardProductionImageNode(currentNodeData)
-    || currentNodeData.continuousReferenceChain?.enabled !== true
-  ) {
-    return Promise.resolve(null);
-  }
-
-  const previousImageNodeId =
-    currentNodeData.continuousReferenceChain.previousImageNodeId?.trim();
-  if (!previousImageNodeId) {
-    return Promise.resolve(null);
-  }
-
-  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
-  const previousResultNode = edges
-    .filter((edge) => edge.source === previousImageNodeId)
-    .map((edge) => nodeMap.get(edge.target))
-    .find((node): node is typeof nodes[number] & {
-      type: typeof CANVAS_NODE_TYPES.exportImage;
-      data: ExportImageNodeData;
-    } => (
-      Boolean(node)
-      && node?.type === CANVAS_NODE_TYPES.exportImage
-      && (node.data as ExportImageNodeData).isStoryboardProductionPlaceholder === true
-    ));
-
-  if (!previousResultNode) {
-    return Promise.resolve(null);
-  }
-
-  const selectedResultId = previousResultNode.data.selectedStoryboardProductionResultId?.trim();
-  const selectedResult = selectedResultId
-    ? previousResultNode.data.storyboardProductionResults?.find(
-        (item) => item.id === selectedResultId,
-      ) ?? null
-    : null;
-
-  const selectedImageUrl =
-    selectedResult?.imageUrl?.trim()
-    || selectedResult?.previewImageUrl?.trim()
-    || selectedResult?.thumbnailUrl?.trim()
-    || null;
-  if (!selectedImageUrl) {
-    return Promise.resolve(null);
-  }
-
-  return cropStoryboardLastShotReferenceImage(
-    selectedImageUrl,
-    previousResultNode.data,
-  );
-}
-
 async function cropStoryboardLastShotReferenceImage(
   sourceImageUrl: string,
   previousResultData: ExportImageNodeData,
@@ -541,8 +478,6 @@ export const ImageEditNode = memo(
     const [, setIsPromptTextSelectionActive] = useState(false);
 
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-    const nodes = useCanvasStore((state) => state.nodes);
-    const edges = useCanvasStore((state) => state.edges);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
@@ -590,21 +525,21 @@ export const ImageEditNode = memo(
     const { connectedText, hasConnectedTextSource, hasNonEmptyConnectedText } =
       useCanvasConnectedTextInput(id);
     const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
+    const parentNode = useCanvasParentNode(id);
+    const previousStoryboardImageNodeId =
+      data.continuousReferenceChain?.previousImageNodeId?.trim() ?? "";
+    const previousStoryboardPlaceholderNode =
+      useCanvasStoryboardProductionPlaceholder(previousStoryboardImageNodeId);
     const batchParentGroup = useMemo(() => {
-      const currentNode = nodes.find((node) => node.id === id);
-      if (!currentNode?.parentId) {
-        return null;
+      if (
+        parentNode?.type === CANVAS_NODE_TYPES.group &&
+        (parentNode.data as { visualStyle?: string }).visualStyle === "assetBatchGroup"
+      ) {
+        return parentNode;
       }
 
-      return (
-        nodes.find(
-          (node) =>
-            node.id === currentNode.parentId &&
-            node.type === CANVAS_NODE_TYPES.group &&
-            (node.data as { visualStyle?: string }).visualStyle === "assetBatchGroup",
-        ) ?? null
-      );
-    }, [id, nodes]);
+      return null;
+    }, [parentNode]);
     const isInAssetBatchGroup =
       batchParentGroup?.type === CANVAS_NODE_TYPES.group &&
       (batchParentGroup.data as { visualStyle?: string }).visualStyle === "assetBatchGroup";
@@ -1652,10 +1587,10 @@ export const ImageEditNode = memo(
             predictedResultSize.width,
             predictedResultSize.height,
           );
-      const placeholderResultNode = edges
+      const placeholderResultNode = useCanvasStore.getState().edges
         .filter((edge) => edge.source === id)
-        .map((edge) => nodes.find((node) => node.id === edge.target))
-        .find((node): node is typeof nodes[number] & {
+        .map((edge) => useCanvasStore.getState().nodes.find((node) => node.id === edge.target))
+        .find((node): node is ReturnType<typeof useCanvasStore.getState>["nodes"][number] & {
           type: typeof CANVAS_NODE_TYPES.exportImage;
           data: ExportImageNodeData;
         } => (
@@ -1731,11 +1666,29 @@ export const ImageEditNode = memo(
         requestReferenceImages = boundRequestImages.length > 0
           ? boundRequestImages.map((item) => item.candidate.imageUrl)
           : resolvedRequestReferenceImages;
-        const continuousReferenceImage = await resolveStoryboardContinuousReferenceImage(
-          data,
-          nodes,
-          edges,
-        );
+        const previousPlaceholderData =
+          previousStoryboardPlaceholderNode?.type === CANVAS_NODE_TYPES.exportImage
+            ? previousStoryboardPlaceholderNode.data as ExportImageNodeData
+            : null;
+        const selectedStoryboardResultId =
+          previousPlaceholderData?.selectedStoryboardProductionResultId?.trim() ?? "";
+        const selectedStoryboardResult = selectedStoryboardResultId
+          ? previousPlaceholderData?.storyboardProductionResults?.find(
+              (item) => item.id === selectedStoryboardResultId,
+            ) ?? null
+          : null;
+        const continuousReferenceSource =
+          selectedStoryboardResult?.imageUrl?.trim()
+          || selectedStoryboardResult?.previewImageUrl?.trim()
+          || selectedStoryboardResult?.thumbnailUrl?.trim()
+          || null;
+        const continuousReferenceImage =
+          continuousReferenceSource && previousPlaceholderData
+            ? await cropStoryboardLastShotReferenceImage(
+                continuousReferenceSource,
+                previousPlaceholderData,
+              )
+            : null;
         requestReferenceImages = appendUniqueReferenceImage(
           requestReferenceImages,
           continuousReferenceImage,
@@ -1929,7 +1882,6 @@ export const ImageEditNode = memo(
     }, [
       addNode,
       addEdge,
-      edges,
       providerApiKey,
       findNodePosition,
       resolvedCameraParams,
@@ -1939,7 +1891,7 @@ export const ImageEditNode = memo(
       id,
       incomingImages,
       incomingImageItems,
-      nodes,
+      previousStoryboardPlaceholderNode,
       promptReferenceCandidates,
       debugRequestModel,
       requestResolution.requestModel,

@@ -26,6 +26,7 @@ import {
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
+import { useCanvasSourceGraph } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasStore } from "@/stores/canvasStore";
 import { useScriptEditorStore } from "@/stores/scriptEditorStore";
 
@@ -73,8 +74,7 @@ export const DirectorWorkPackageNode = memo(
   ({ id, data, selected, width, height }: ScriptAssetExtractNodeProps) => {
     const { t } = useTranslation();
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-    const nodes = useCanvasStore((state) => state.nodes);
-    const edges = useCanvasStore((state) => state.edges);
+    const { nodes: relatedNodes, edges: relatedEdges } = useCanvasSourceGraph(id);
     const focusScriptAssetExtract = useScriptEditorStore(
       (state) => state.focusScriptAssetExtract,
     );
@@ -209,10 +209,10 @@ export const DirectorWorkPackageNode = memo(
           nodeId: id,
           sourceMode: data.sourceMode,
           selectedChapterIds: data.selectedChapterIds,
-          nodes,
-          edges,
+          nodes: relatedNodes,
+          edges: relatedEdges,
         }),
-      [data.selectedChapterIds, data.sourceMode, edges, id, nodes],
+      [data.selectedChapterIds, data.sourceMode, id, relatedEdges, relatedNodes],
     );
     const hasConnectedTextSource =
       resolvedSourceSnapshot.mode === "connectedText";

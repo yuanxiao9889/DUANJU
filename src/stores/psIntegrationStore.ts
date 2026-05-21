@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { isTauri } from '@tauri-apps/api/core';
 import {
   startPsServer,
   stopPsServer,
@@ -8,6 +7,7 @@ import {
   type PsServerStatus,
   type PsImageReceived,
 } from '@/commands/psIntegration';
+import { isTauriRuntime } from '@/lib/tauriRuntime';
 
 export interface PendingImage extends PsImageReceived {
   receivedAt: number;
@@ -80,6 +80,11 @@ export const usePsIntegrationStore = create<PsIntegrationState>((set) => ({
   },
 
   refreshStatus: async () => {
+    if (!isTauriRuntime()) {
+      set({ serverStatus: { running: false, port: null, ps_connected: false } });
+      return;
+    }
+
     const status = await getPsServerStatus();
     set({ serverStatus: status });
   },
@@ -110,7 +115,7 @@ let startServerPromise: Promise<void> | null = null;
 export function initializePsIntegration(
   options: InitializePsIntegrationOptions
 ): () => void {
-  if (!isTauri()) {
+  if (!isTauriRuntime()) {
     return () => {};
   }
 

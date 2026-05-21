@@ -4,6 +4,7 @@ import {
   isCanvasTextSourceNode,
   resolveCanvasTextSourceNodeText,
 } from '@/features/canvas/application/connectedText';
+import { CANVAS_NODE_TYPES } from '@/features/canvas/domain/canvasNodes';
 import type { ConnectedReferenceImage } from '@/features/canvas/application/connectedReferenceImages';
 import type { ConnectedReferenceVisual } from '@/features/canvas/application/connectedReferenceVisuals';
 import {
@@ -14,6 +15,11 @@ import {
 import { useCanvasStore, type CanvasEdge, type CanvasNode } from '@/stores/canvasStore';
 
 interface CanvasGraphSnapshot {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+}
+
+export interface CanvasNodeGraphSnapshot {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
 }
@@ -529,6 +535,159 @@ function createConnectedTextInputSelector(nodeId: string) {
   };
 }
 
+function createRelatedGraphSelector(nodeId: string) {
+  let previousNodes: CanvasNode[] | null = null;
+  let previousEdges: CanvasEdge[] | null = null;
+  let previousResult: CanvasNodeGraphSnapshot = {
+    nodes: EMPTY_NODES,
+    edges: EMPTY_EDGES,
+  };
+
+  return (state: CanvasGraphSnapshot): CanvasNodeGraphSnapshot => {
+    const relatedNodeIds = new Set<string>([nodeId]);
+    const nextEdges = state.edges.filter((edge) => {
+      const isRelated = edge.source === nodeId || edge.target === nodeId;
+      if (isRelated) {
+        relatedNodeIds.add(edge.source);
+        relatedNodeIds.add(edge.target);
+      }
+      return isRelated;
+    });
+
+    const nextNodes = state.nodes.filter((node) => relatedNodeIds.has(node.id));
+    if (
+      previousNodes
+      && previousEdges
+      && haveRelevantResolvedNodesChanged(previousNodes, nextNodes) === false
+      && previousEdges.length === nextEdges.length
+      && previousEdges.every((edge, index) => edge === nextEdges[index])
+    ) {
+      return previousResult;
+    }
+
+    previousNodes = nextNodes;
+    previousEdges = nextEdges;
+    previousResult = {
+      nodes: nextNodes.length > 0 ? nextNodes : EMPTY_NODES,
+      edges: nextEdges.length > 0 ? nextEdges : EMPTY_EDGES,
+    };
+    return previousResult;
+  };
+}
+
+function createSourceGraphSelector(nodeId: string) {
+  let previousNodes: CanvasNode[] | null = null;
+  let previousEdges: CanvasEdge[] | null = null;
+  let previousResult: CanvasNodeGraphSnapshot = {
+    nodes: EMPTY_NODES,
+    edges: EMPTY_EDGES,
+  };
+
+  return (state: CanvasGraphSnapshot): CanvasNodeGraphSnapshot => {
+    const relatedNodeIds = new Set<string>([nodeId]);
+    const incomingEdges = state.edges.filter((edge) => {
+      if (edge.target !== nodeId) {
+        return false;
+      }
+      relatedNodeIds.add(edge.source);
+      return true;
+    });
+
+    const connectedSourceNodes = state.nodes.filter((node) => relatedNodeIds.has(node.id));
+    const selectedChapterIds = new Set<string>();
+    for (const node of connectedSourceNodes) {
+      if (node.id !== nodeId) {
+        continue;
+      }
+      const value = (node.data as { selectedChapterIds?: unknown }).selectedChapterIds;
+      if (Array.isArray(value)) {
+        value.forEach((item) => {
+          if (typeof item === 'string') {
+            selectedChapterIds.add(item);
+          }
+        });
+      }
+    }
+
+    const nextNodes = selectedChapterIds.size === 0
+      ? connectedSourceNodes
+      : state.nodes.filter((node) => relatedNodeIds.has(node.id) || selectedChapterIds.has(node.id));
+
+    if (
+      previousNodes
+      && previousEdges
+      && haveRelevantResolvedNodesChanged(previousNodes, nextNodes) === false
+      && previousEdges.length === incomingEdges.length
+      && previousEdges.every((edge, index) => edge === incomingEdges[index])
+    ) {
+      return previousResult;
+    }
+
+    previousNodes = nextNodes;
+    previousEdges = incomingEdges;
+    previousResult = {
+      nodes: nextNodes.length > 0 ? nextNodes : EMPTY_NODES,
+      edges: incomingEdges.length > 0 ? incomingEdges : EMPTY_EDGES,
+    };
+    return previousResult;
+  };
+}
+
+function createChildNodesSelector(parentId: string) {
+  let previousResult: CanvasNode[] | null = null;
+
+  return (state: CanvasGraphSnapshot): CanvasNode[] => {
+    const nextNodes = state.nodes.filter((node) => node.parentId === parentId);
+    if (!haveRelevantResolvedNodesChanged(previousResult, nextNodes)) {
+      return previousResult ?? EMPTY_NODES;
+    }
+
+    previousResult = nextNodes.length > 0 ? nextNodes : EMPTY_NODES;
+    return previousResult;
+  };
+}
+
+function createParentNodeSelector(nodeId: string) {
+  let previousNode: CanvasNode | null = null;
+  let previousParent: CanvasNode | null = null;
+
+  return (state: CanvasGraphSnapshot): CanvasNode | null => {
+    const node = getNodeByIdMap(state.nodes).get(nodeId) ?? null;
+    if (previousNode === node) {
+      return previousParent;
+    }
+
+    previousNode = node;
+    const parentId = typeof node?.parentId === 'string' ? node.parentId : '';
+    previousParent = parentId ? getNodeByIdMap(state.nodes).get(parentId) ?? null : null;
+    return previousParent;
+  };
+}
+
+function createStoryboardProductionPlaceholderSelector(sourceNodeId: string) {
+  let previousSourceEdges: CanvasEdge[] | null = null;
+  let previousTargetNodes: Array<CanvasNode | undefined> | null = null;
+  let previousResult: CanvasNode | null = null;
+
+  return (state: CanvasGraphSnapshot): CanvasNode | null => {
+    const sourceEdges = state.edges.filter((edge) => edge.source === sourceNodeId);
+    const nodeById = getNodeByIdMap(state.nodes);
+    const targetNodes = sourceEdges.map((edge) => nodeById.get(edge.target));
+
+    if (!haveRelevantSourcesChanged(previousSourceEdges, previousTargetNodes, sourceEdges, targetNodes)) {
+      return previousResult;
+    }
+
+    previousSourceEdges = sourceEdges;
+    previousTargetNodes = targetNodes;
+    previousResult = targetNodes.find((node) => (
+      node?.type === CANVAS_NODE_TYPES.exportImage
+      && (node.data as { isStoryboardProductionPlaceholder?: unknown }).isStoryboardProductionPlaceholder === true
+    )) ?? null;
+    return previousResult;
+  };
+}
+
 export function useCanvasNodeInputImages(nodeId: string): string[] {
   const selector = useMemo(() => createInputImagesSelector(nodeId), [nodeId]);
   return useCanvasStore(selector);
@@ -576,5 +735,33 @@ export function useCanvasConnectedAudioReferences(nodeId: string): ConnectedAudi
 
 export function useCanvasConnectedTextInput(nodeId: string): CanvasConnectedTextInput {
   const selector = useMemo(() => createConnectedTextInputSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasRelatedGraph(nodeId: string): CanvasNodeGraphSnapshot {
+  const selector = useMemo(() => createRelatedGraphSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasSourceGraph(nodeId: string): CanvasNodeGraphSnapshot {
+  const selector = useMemo(() => createSourceGraphSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasChildNodes(parentId: string): CanvasNode[] {
+  const selector = useMemo(() => createChildNodesSelector(parentId), [parentId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasParentNode(nodeId: string): CanvasNode | null {
+  const selector = useMemo(() => createParentNodeSelector(nodeId), [nodeId]);
+  return useCanvasStore(selector);
+}
+
+export function useCanvasStoryboardProductionPlaceholder(sourceNodeId: string): CanvasNode | null {
+  const selector = useMemo(
+    () => createStoryboardProductionPlaceholderSelector(sourceNodeId),
+    [sourceNodeId]
+  );
   return useCanvasStore(selector);
 }

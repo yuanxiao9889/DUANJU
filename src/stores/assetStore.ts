@@ -18,6 +18,7 @@ import {
   emitAssetItemUpdated,
 } from '@/features/assets/application/assetEvents';
 import { getAssetCategoryOrder } from '@/features/assets/domain/types';
+import { isTauriRuntime } from '@/lib/tauriRuntime';
 import type {
   AssetCategory,
   AssetItemRecord,
@@ -123,6 +124,15 @@ export const useAssetStore = create<AssetState>((set, get) => ({
     }
     if (hydrateRequest) {
       return await hydrateRequest;
+    }
+
+    if (!isTauriRuntime()) {
+      set({
+        libraries: [],
+        isHydrated: true,
+        isLoading: false,
+      });
+      return;
     }
 
     hydrateRequest = (async () => {
