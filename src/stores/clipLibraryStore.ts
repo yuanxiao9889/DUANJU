@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { isTauri } from '@tauri-apps/api/core';
 
 import {
   addNodeMediaToClipLibrary,
@@ -112,6 +113,15 @@ export const useClipLibraryStore = create<ClipLibraryState>((set, get) => ({
     }
     if (hydrateRequest) {
       return await hydrateRequest;
+    }
+
+    if (!isTauri()) {
+      set({
+        libraries: [],
+        isHydrated: true,
+        isLoadingLibraries: false,
+      });
+      return;
     }
 
     hydrateRequest = (async () => {

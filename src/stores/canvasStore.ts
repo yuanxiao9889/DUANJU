@@ -187,7 +187,6 @@ import {
   resolveAbsoluteCanvasNodePosition as resolveAbsolutePosition,
 } from '@/features/canvas/application/nodeGeometry';
 import type { AssetItemRecord } from '@/features/assets/domain/types';
-import { collectGeneratedContentNodeIds } from '@/features/canvas/application/generationHistory';
 import { useSettingsStore } from '@/stores/settingsStore';
 import {
   getImageModel,
@@ -917,11 +916,6 @@ interface CanvasState {
 
   applyMindMapLayout: () => void;
   clearCanvas: () => void;
-  clearGeneratedContent: () => string[];
-  restoreGenerationSnapshotNode: (
-    snapshotNode: CanvasNode,
-    position: { x: number; y: number }
-  ) => string | null;
 
   addImageFromBase64: (base64: string, width: number, height: number) => Promise<string>;
 }
@@ -6945,67 +6939,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         dragHistorySnapshot: null,
       };
     });
-  },
-
-  clearGeneratedContent: () => {
-    const generatedNodeIds = collectGeneratedContentNodeIds(get().nodes, get().edges);
-    if (generatedNodeIds.length === 0) {
-      return [];
-    }
-
-    get().deleteNodes(generatedNodeIds);
-    return generatedNodeIds;
-  },
-
-  restoreGenerationSnapshotNode: (snapshotNode, position) => {
-    if (!snapshotNode || typeof snapshotNode.type !== 'string') {
-      return null;
-    }
-
-    const state = get();
-    const createdNode = canvasNodeFactory.createNode(
-      snapshotNode.type as CanvasNodeType,
-      position,
-      cloneCanvasValue((snapshotNode.data ?? {}) as CanvasNodeData)
-    );
-    let restoredNode: CanvasNode = {
-      ...createdNode,
-      selected: false,
-      position: {
-        x: position.x,
-        y: position.y,
-      },
-    };
-
-    if (isFiniteNodeDimension(snapshotNode.width)) {
-      restoredNode.width = snapshotNode.width;
-    }
-    if (isFiniteNodeDimension(snapshotNode.height)) {
-      restoredNode.height = snapshotNode.height;
-    }
-    if (snapshotNode.style && typeof snapshotNode.style === 'object') {
-      restoredNode.style = cloneCanvasValue(snapshotNode.style);
-    } else if (restoredNode.width || restoredNode.height) {
-      restoredNode.style = {
-        ...(restoredNode.width ? { width: restoredNode.width } : {}),
-        ...(restoredNode.height ? { height: restoredNode.height } : {}),
-      };
-    }
-
-    restoredNode = applyDefaultNodeSize(restoredNode, restoredNode.data);
-
-    set({
-      nodes: [...state.nodes, restoredNode],
-      selectedNodeId: restoredNode.id,
-      activeToolDialog: null,
-      history: {
-        past: pushSnapshot(state.history.past, createSnapshot(state.nodes, state.edges)),
-        future: [],
-      },
-      dragHistorySnapshot: null,
-    });
-
-    return restoredNode.id;
   },
 
   applyMindMapLayout: () => {

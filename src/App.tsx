@@ -55,7 +55,6 @@ import { initializePsIntegration } from "./stores/psIntegrationStore";
 import { ensureDailyDatabaseBackup } from "./commands/storage";
 import { minimizeMainWindowToTray } from "./commands/system";
 import { useJimengVideoQueueStore } from "./stores/jimengVideoQueueStore";
-import { useGenerationHistoryStore } from "./stores/generationHistoryStore";
 import { isJimengVideoQueueTerminalStatus } from "./features/jimeng/domain/jimengVideoQueue";
 import {
   checkDreaminaCliUpdate,
@@ -322,9 +321,6 @@ function MainApp() {
   const currentProjectType = useProjectStore(
     (state) => state.currentProject?.projectType ?? null,
   );
-  const currentProjectNodes = useProjectStore(
-    (state) => state.currentProject?.nodes,
-  );
   const currentProjectAssetLibraryId = useProjectStore(
     (state) => state.currentProject?.assetLibraryId ?? null,
   );
@@ -355,12 +351,6 @@ function MainApp() {
     (state) => state.closeProject,
   );
   const allJimengQueueJobs = useJimengVideoQueueStore((state) => state.allJobs);
-  const openGenerationHistoryProject = useGenerationHistoryStore(
-    (state) => state.openProject,
-  );
-  const closeGenerationHistoryProject = useGenerationHistoryStore(
-    (state) => state.closeProject,
-  );
   const [canvasEntryLoadingState, setCanvasEntryLoadingState] =
     useState<CanvasEntryLoadingState>({
       projectId: null,
@@ -377,6 +367,10 @@ function MainApp() {
   }, [hydrate]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     if (!isHydrated) {
       return;
     }
@@ -385,6 +379,10 @@ function MainApp() {
   }, [initializeJimengVideoQueue, isHydrated]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     if (!settingsHydrated) {
       return;
     }
@@ -413,17 +411,13 @@ function MainApp() {
   useEffect(() => {
     if (!currentProjectId) {
       closeJimengVideoQueueProject();
-      closeGenerationHistoryProject();
       return;
     }
 
     void openJimengVideoQueueProject(currentProjectId);
-    void openGenerationHistoryProject(currentProjectId);
   }, [
-    closeGenerationHistoryProject,
     closeJimengVideoQueueProject,
     currentProjectId,
-    openGenerationHistoryProject,
     openJimengVideoQueueProject,
   ]);
 
@@ -568,22 +562,11 @@ function MainApp() {
       currentProjectType,
     ],
   );
-  const storyboardProjectStats = useMemo(
-    () => {
-      if (currentProjectType !== "storyboard") {
-        return null;
-      }
-
-      const nodes = currentProjectNodes ?? [];
-      return {
-        imageCount: collectProjectImagePreloadEntries(nodes).length,
-        nodeCount: nodes.length,
-      };
-    },
-    [currentProjectNodes, currentProjectType],
-  );
-
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     void emitToAssetPanel(ASSET_PANEL_CONTEXT_EVENT, assetPanelProjectContext).catch(
       (error) => {
         console.warn("failed to sync asset panel context", error);
@@ -593,6 +576,10 @@ function MainApp() {
 
   useEffect(() => {
     setLatestClipLibraryPanelProjectContext(clipLibraryPanelProjectContext);
+    if (!isTauri()) {
+      return;
+    }
+
     void emitToClipLibraryPanel(
       CLIP_LIBRARY_PANEL_CONTEXT_EVENT,
       clipLibraryPanelProjectContext,
@@ -602,6 +589,10 @@ function MainApp() {
   }, [clipLibraryPanelProjectContext]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     const appWindow = getCurrentWindow();
     let unlistenAssetPanelReady: (() => void) | null = null;
     let unlistenAssetPanelLibraryChange: (() => void) | null = null;
@@ -650,6 +641,10 @@ function MainApp() {
   }, [assetPanelProjectContext, setCurrentProjectAssetLibrary]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     const appWindow = getCurrentWindow();
     let unlistenClipPanelReady: (() => void) | null = null;
     let unlistenClipNodeBound: (() => void) | null = null;
@@ -808,6 +803,10 @@ function MainApp() {
   }, [dreaminaSetupDetail]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     let cancelled = false;
     let retryTimer: ReturnType<typeof window.setTimeout> | null = null;
 
@@ -882,6 +881,10 @@ function MainApp() {
   ]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     if (!settingsHydrated || !autoUpdateDreaminaCliOnLaunch) {
       return;
     }
@@ -916,6 +919,10 @@ function MainApp() {
   }, [settingsHydrated, autoUpdateDreaminaCliOnLaunch]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     if (!isHydrated) {
       return;
     }
@@ -1005,6 +1012,10 @@ function MainApp() {
   }, [closeDialogActionState, requestWindowClose]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     const appWindow = getCurrentWindow();
     let disposed = false;
     let unlistenWindowClose: (() => void) | null = null;
@@ -1046,6 +1057,10 @@ function MainApp() {
   }, [handleMainWindowCloseIntent]);
 
   useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
     const appWindow = getCurrentWindow();
     let disposed = false;
     let unlistenMainCloseRequest: (() => void) | null = null;
@@ -1180,8 +1195,6 @@ function MainApp() {
         onBackClick={closeProject}
         projectName={currentProjectName}
         projectType={currentProjectType}
-        projectImageCount={storyboardProjectStats?.imageCount ?? null}
-        projectNodeCount={storyboardProjectStats?.nodeCount ?? null}
       />
 
       <main className="relative flex-1 min-h-0 overflow-hidden">
@@ -1331,6 +1344,10 @@ function DetachedClipLibraryPanelApp() {
 }
 
 function App() {
+  if (!isTauri()) {
+    return <MainApp />;
+  }
+
   const currentWindowLabel = getCurrentWindow().label;
 
   if (currentWindowLabel === CLIP_LIBRARY_PANEL_WINDOW_LABEL) {

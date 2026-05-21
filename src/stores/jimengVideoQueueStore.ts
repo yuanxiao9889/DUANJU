@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 
@@ -1257,6 +1258,17 @@ export const useJimengVideoQueueStore = create<JimengVideoQueueState>(
     initialize: async () => {
       if (get().isInitialized) {
         ensureSchedulerRunning();
+        return;
+      }
+
+      if (!isTauri()) {
+        set((state) =>
+          syncProjectViewState(state, {
+            allJobs: [],
+            isHydrating: false,
+            isInitialized: true,
+          }),
+        );
         return;
       }
 

@@ -28,7 +28,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { join } from '@tauri-apps/api/path';
 import { open } from '@tauri-apps/plugin-dialog';
 import { useTranslation } from 'react-i18next';
-import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered, History, Link2 } from 'lucide-react';
+import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered, Link2 } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 
 import {
@@ -36,12 +36,6 @@ import {
   type CanvasAssetDragPayload,
   parseAssetDragPayload,
 } from '@/features/assets/domain/types';
-import {
-  GENERATION_HISTORY_DRAG_MIME_TYPE,
-  buildGenerationHistoryContentSignature,
-  parseGenerationHistoryDragPayload,
-  parseGenerationHistorySnapshotNode,
-} from '@/features/canvas/application/generationHistory';
 import { ASSET_PANEL_INSERT_EVENT } from '@/features/assets/application/assetPanelBridge';
 import {
   subscribeAssetItemDeleted,
@@ -156,10 +150,8 @@ import { SmartDirectorStoryboardResultChoiceDialog } from './ui/SmartDirectorSto
 import { BatchAddToAssetsDialog } from './ui/BatchAddToAssetsDialog';
 import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
 import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
-import { useGenerationHistoryStore } from '@/stores/generationHistoryStore';
 import { CanvasColorLegend } from './ui/CanvasColorLegend';
 import { CanvasZoomIndicator } from './ui/CanvasZoomIndicator';
-import { GenerationHistoryPanel } from './ui/GenerationHistoryPanel';
 import {
   CanvasPerformanceContext,
   type CanvasEdgeRenderMode,
@@ -1227,10 +1219,6 @@ export function Canvas() {
   const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
-  const [showGenerationHistoryPanel, setShowGenerationHistoryPanel] = useState(false);
-  const closeGenerationHistoryPanel = useCallback(() => {
-    setShowGenerationHistoryPanel(false);
-  }, []);
   const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
   const [isPreparingSelectedAssets, setIsPreparingSelectedAssets] = useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
@@ -1315,7 +1303,6 @@ export function Canvas() {
     (state) => state.applySemanticColorToSelected
   );
   const addNode = useCanvasStore((state) => state.addNode);
-  const restoreGenerationSnapshotNode = useCanvasStore((state) => state.restoreGenerationSnapshotNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const setSelectedNodeIds = useCanvasStore((state) => state.setSelectedNodeIds);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
@@ -1370,7 +1357,6 @@ export function Canvas() {
     const candidateNode = nodes.find((node) => node.id === imageViewer.compareNodeId);
     return candidateNode && isImageCompareNode(candidateNode) ? candidateNode : null;
   }, [imageViewer.compareNodeId, imageViewer.isOpen, imageViewer.mode, nodes]);
-  const isGenerationHistoryPanelVisible = showGenerationHistoryPanel && !isImageViewerOpen;
   const snapToGrid = useCanvasStore((state) => state.snapToGrid);
   const snapGridSize = useCanvasStore((state) => state.snapGridSize);
   const setSnapToGrid = useCanvasStore((state) => state.setSnapToGrid);
@@ -1386,132 +1372,10 @@ export function Canvas() {
   const setShowCanvasEdges = useSettingsStore((state) => state.setShowCanvasEdges);
   const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
   const jimengQueueJobs = useJimengVideoQueueStore((state) => state.jobs);
-  const generationHistoryItems = useGenerationHistoryStore((state) => state.items);
-  const isGenerationHistoryHydrating = useGenerationHistoryStore((state) => state.isHydrating);
-  const generationHistoryStoreProjectId = useGenerationHistoryStore((state) => state.currentProjectId);
-  const syncGenerationHistoryFromCanvasSnapshot = useGenerationHistoryStore((state) => state.syncFromCanvasSnapshot);
-  const generationHistoryProjectId = useProjectStore((state) => state.currentProjectId);
   const jimengQueuePendingCount = useMemo(
     () => jimengQueueJobs.filter((job) => job.status !== 'completed' && job.status !== 'failed' && job.status !== 'cancelled').length,
     [jimengQueueJobs]
   );
-  const generationHistorySeenIdsRef = useRef<Record<string, Set<string>>>({});
-  const generationHistoryAutoSyncBaselineRef = useRef<{
-    projectId: string | null;
-    signature: string;
-  }>({
-    projectId: null,
-    signature: '',
-  });
-  const generationHistoryAutoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const generationHistoryContentSignatureRef = useRef('');
-  const [generationHistoryNoticeCount, setGenerationHistoryNoticeCount] = useState(0);
-  const generationHistoryContentSignature = useMemo(
-    () => {
-      if (dragHistorySnapshot) {
-        return generationHistoryContentSignatureRef.current;
-      }
-
-      const signature = generationHistoryProjectId
-        ? buildGenerationHistoryContentSignature(generationHistoryProjectId, nodes, edges)
-        : '';
-      generationHistoryContentSignatureRef.current = signature;
-      return signature;
-    },
-    [dragHistorySnapshot, edges, generationHistoryProjectId, nodes]
-  );
-
-  useEffect(() => {
-    if (generationHistoryAutoSyncTimerRef.current) {
-      clearTimeout(generationHistoryAutoSyncTimerRef.current);
-      generationHistoryAutoSyncTimerRef.current = null;
-    }
-
-    if (
-      !generationHistoryProjectId
-      || generationHistoryStoreProjectId !== generationHistoryProjectId
-      || isGenerationHistoryHydrating
-    ) {
-      generationHistoryAutoSyncBaselineRef.current = {
-        projectId: generationHistoryProjectId,
-        signature: generationHistoryContentSignature,
-      };
-      return undefined;
-    }
-
-    const baseline = generationHistoryAutoSyncBaselineRef.current;
-    if (baseline.projectId !== generationHistoryProjectId) {
-      generationHistoryAutoSyncBaselineRef.current = {
-        projectId: generationHistoryProjectId,
-        signature: generationHistoryContentSignature,
-      };
-      return undefined;
-    }
-
-    if (baseline.signature === generationHistoryContentSignature) {
-      return undefined;
-    }
-
-    generationHistoryAutoSyncBaselineRef.current = {
-      projectId: generationHistoryProjectId,
-      signature: generationHistoryContentSignature,
-    };
-
-    if (!generationHistoryContentSignature) {
-      return undefined;
-    }
-
-    generationHistoryAutoSyncTimerRef.current = setTimeout(() => {
-      generationHistoryAutoSyncTimerRef.current = null;
-      void syncGenerationHistoryFromCanvasSnapshot().catch((error) => {
-        console.error('[generationHistory] failed to auto-sync canvas snapshot', error);
-      });
-    }, 500);
-
-    return () => {
-      if (generationHistoryAutoSyncTimerRef.current) {
-        clearTimeout(generationHistoryAutoSyncTimerRef.current);
-        generationHistoryAutoSyncTimerRef.current = null;
-      }
-    };
-  }, [
-    generationHistoryContentSignature,
-    generationHistoryProjectId,
-    generationHistoryStoreProjectId,
-    isGenerationHistoryHydrating,
-    syncGenerationHistoryFromCanvasSnapshot,
-  ]);
-
-  useEffect(() => {
-    if (
-      !generationHistoryProjectId
-      || generationHistoryStoreProjectId !== generationHistoryProjectId
-      || isGenerationHistoryHydrating
-    ) {
-      setGenerationHistoryNoticeCount(0);
-      return;
-    }
-
-    const currentItemIds = generationHistoryItems.map((item) => item.id);
-    const seenIds = generationHistorySeenIdsRef.current[generationHistoryProjectId];
-
-    if (!seenIds || isGenerationHistoryPanelVisible) {
-      generationHistorySeenIdsRef.current[generationHistoryProjectId] = new Set(currentItemIds);
-      setGenerationHistoryNoticeCount(0);
-      return;
-    }
-
-    const unseenCount = currentItemIds.reduce((count, itemId) => (
-      seenIds.has(itemId) ? count : count + 1
-    ), 0);
-    setGenerationHistoryNoticeCount(unseenCount);
-  }, [
-    generationHistoryProjectId,
-    generationHistoryStoreProjectId,
-    generationHistoryItems,
-    isGenerationHistoryHydrating,
-    isGenerationHistoryPanelVisible,
-  ]);
 
   const syncViewportState = useCallback(
     (viewport: Viewport) => {
@@ -4333,30 +4197,6 @@ export function Canvas() {
     event.stopPropagation();
     clearDragOverlay();
 
-    const generationHistoryPayload = parseGenerationHistoryDragPayload(
-      event.dataTransfer.getData(GENERATION_HISTORY_DRAG_MIME_TYPE)
-    );
-    if (generationHistoryPayload) {
-      const historyItem = generationHistoryItems.find(
-        (item) => item.id === generationHistoryPayload.itemId
-      );
-      if (historyItem) {
-        const snapshotNode = parseGenerationHistorySnapshotNode(historyItem);
-        if (snapshotNode) {
-          const position = reactFlowInstance.screenToFlowPosition({
-            x: event.clientX,
-            y: event.clientY,
-          });
-          const restoredNodeId = restoreGenerationSnapshotNode(snapshotNode, position);
-          if (restoredNodeId) {
-            setSelectedNode(restoredNodeId);
-            scheduleCanvasPersist(0);
-          }
-        }
-      }
-      return;
-    }
-
     const assetPayload = parseAssetDragPayload(
       event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
     );
@@ -4482,10 +4322,8 @@ export function Canvas() {
   }, [
     addNode,
     clearDragOverlay,
-    generationHistoryItems,
     insertAssetPayloadNode,
     reactFlowInstance,
-    restoreGenerationSnapshotNode,
     scheduleCanvasPersist,
     setSelectedNode,
   ]);
@@ -4493,11 +4331,6 @@ export function Canvas() {
   const handlePaneClick = useCallback((event: ReactMouseEvent) => {
     if (suppressNextPaneClickRef.current) {
       suppressNextPaneClickRef.current = false;
-      return;
-    }
-
-    if (showGenerationHistoryPanel) {
-      closeGenerationHistoryPanel();
       return;
     }
 
@@ -4510,10 +4343,8 @@ export function Canvas() {
     closeConnectMenus();
   }, [
     closeConnectMenus,
-    closeGenerationHistoryPanel,
     openNodeMenuAtClientPosition,
     setSelectedNode,
-    showGenerationHistoryPanel,
   ]);
 
   const handlePaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
@@ -6406,28 +6237,6 @@ export function Canvas() {
           ) : null}
         </button>
 
-        <button
-          data-generation-history-toggle="true"
-          onClick={() => setShowGenerationHistoryPanel((value) => !value)}
-          style={{
-            color: showGenerationHistoryPanel ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px',
-            position: 'relative',
-          }}
-          title={t('generationHistory.toggle')}
-        >
-          <History style={{ width: '16px', height: '16px' }} />
-          {generationHistoryNoticeCount > 0 ? (
-            <span
-              className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white"
-            >
-              {generationHistoryNoticeCount > 99 ? '99+' : generationHistoryNoticeCount}
-            </span>
-          ) : null}
-        </button>
-
-
         {/* 小地图开关 */}
         <button
           onClick={() => setShowMiniMap(!showMiniMap)}
@@ -6494,11 +6303,6 @@ export function Canvas() {
       <JimengVideoQueuePanel
         isOpen={showJimengQueuePanel && !isImageViewerOpen}
         onClose={() => setShowJimengQueuePanel(false)}
-      />
-
-      <GenerationHistoryPanel
-        isOpen={isGenerationHistoryPanelVisible}
-        onClose={closeGenerationHistoryPanel}
       />
 
       {dragOverlayKind && (

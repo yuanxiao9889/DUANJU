@@ -52,18 +52,6 @@
     "cancelClose": "Cancel Close",
     "forceClose": "Close App"
   },
-  "generationHistory": {
-    "title": "Generation History",
-    "toggle": "Open generation history",
-    "summary": "{{count}} saved results",
-    "loading": "Loading generation history...",
-    "empty": "No generated image, video, or audio snapshots yet.",
-    "searchPlaceholder": "Search generation history...",
-    "searchEmpty": "No matching generated results.",
-    "restore": "Restore to Canvas",
-    "aspectRatio": "Aspect ratio: {{value}}",
-    "missingSource": "Source file is missing. Delete this history item or re-generate it."
-  },
   "errorLog": {
     "title": "Error Logs",
     "aboutTitle": "Error Logs",
@@ -305,7 +293,6 @@
     "clipLibraryOpenFailed": "Failed to open the clip library window.",
     "clipLibraryStoryboardOnly": "Only storyboard projects support clip libraries.",
     "extensions": "Extensions Center",
-    "projectStats": "(Images: {{images}} | Nodes: {{nodes}})",
     "minimize": "Minimize",
     "maximize": "Maximize",
     "restore": "Restore",

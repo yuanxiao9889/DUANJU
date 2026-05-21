@@ -2,6 +2,7 @@
 import { getVersion } from '@tauri-apps/api/app';
 import { useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen, Film } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -25,8 +26,6 @@ interface TitleBarProps {
   onBackClick?: () => void;
   projectName?: string | null;
   projectType?: ProjectType | null;
-  projectImageCount?: number | null;
-  projectNodeCount?: number | null;
 }
 
 export function TitleBar({
@@ -38,30 +37,20 @@ export function TitleBar({
   onBackClick,
   projectName,
   projectType,
-  projectImageCount,
-  projectNodeCount,
 }: TitleBarProps) {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useThemeStore();
   const [runtimeVersion, setRuntimeVersion] = useState<string>('');
   const clipLibraryPointerArmedRef = useRef(false);
 
-  const appWindow = getCurrentWindow();
   const normalizedProjectName = projectName?.trim() ?? '';
   const normalizedProjectType = projectType ?? null;
   const projectTypeLabel = normalizedProjectType
     ? t(`titleBar.projectTypes.${normalizedProjectType}`)
     : '';
-  const projectStatsText =
-    typeof projectImageCount === 'number' && typeof projectNodeCount === 'number'
-      ? t('titleBar.projectStats', {
-        images: projectImageCount,
-        nodes: projectNodeCount,
-      })
-      : '';
   const projectTitle =
     normalizedProjectName && projectTypeLabel
-      ? `${projectTypeLabel}-${normalizedProjectName}${projectStatsText ? ` ${projectStatsText}` : ''}`
+      ? `${projectTypeLabel}-${normalizedProjectName}`
       : '';
   const isMac =
     typeof navigator !== 'undefined'
@@ -90,17 +79,26 @@ export function TitleBar({
   }, []);
 
   const handleMinimize = useCallback(async () => {
-    await appWindow.minimize();
-  }, [appWindow]);
+    if (!isTauri()) {
+      return;
+    }
+
+    await getCurrentWindow().minimize();
+  }, []);
 
   const handleMaximize = useCallback(async () => {
+    if (!isTauri()) {
+      return;
+    }
+
+    const appWindow = getCurrentWindow();
     const isMaximized = await appWindow.isMaximized();
     if (isMaximized) {
       await appWindow.unmaximize();
     } else {
       await appWindow.maximize();
     }
-  }, [appWindow]);
+  }, []);
 
   const handleClose = useCallback(async () => {
     if (onCloseRequest) {
@@ -108,6 +106,12 @@ export function TitleBar({
       return;
     }
 
+    if (!isTauri()) {
+      window.close();
+      return;
+    }
+
+    const appWindow = getCurrentWindow();
     try {
       await appWindow.close();
     } catch (error) {
@@ -119,7 +123,7 @@ export function TitleBar({
         console.error('Failed to force destroy window from title bar', destroyError);
       }
     }
-  }, [appWindow, onCloseRequest]);
+  }, [onCloseRequest]);
 
   const handleWindowControlMouseDown = useCallback(
     (
@@ -157,12 +161,13 @@ export function TitleBar({
 
   const handleDragStart = useCallback(async (e: React.MouseEvent) => {
     if (e.button !== 0) return;
+    if (!isTauri()) return;
     const target = e.target as HTMLElement | null;
     if (target?.closest('button') || target?.closest('[data-no-drag="true"]')) {
       return;
     }
-    await appWindow.startDragging();
-  }, [appWindow]);
+    await getCurrentWindow().startDragging();
+  }, []);
 
   const handleLanguageClick = useCallback(() => {
     const newLang = i18n.language.startsWith('zh') ? 'en' : 'zh';

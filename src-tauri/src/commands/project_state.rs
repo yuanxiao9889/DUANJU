@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 
-use super::generation_history;
 use super::storage;
 
 const STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID: &str = "__settings_style_template_refs__";
@@ -653,7 +652,6 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|e| format!("Failed to initialize projects table: {}", e))?;
 
-    generation_history::ensure_generation_history_ready(conn)?;
     ensure_table_column(
         conn,
         "style_template_state",
@@ -3010,11 +3008,13 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
         params![project_id],
     )
     .map_err(|e| format!("Failed to delete Jimeng queue jobs: {}", e))?;
-    tx.execute(
-        "DELETE FROM generation_history_items WHERE project_id = ?1",
-        params![project_id],
-    )
-    .map_err(|e| format!("Failed to delete generation history items: {}", e))?;
+    if table_exists(&tx, "generation_history_items")? {
+        tx.execute(
+            "DELETE FROM generation_history_items WHERE project_id = ?1",
+            params![project_id],
+        )
+        .map_err(|e| format!("Failed to delete generation history items: {}", e))?;
+    }
 
     tx.commit()
         .map_err(|e| format!("Failed to commit delete transaction: {}", e))?;

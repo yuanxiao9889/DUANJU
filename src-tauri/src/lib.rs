@@ -11,7 +11,6 @@ use commands::clip_library;
 use commands::dreamina_cli;
 use commands::error_log;
 use commands::extensions;
-use commands::generation_history;
 use commands::gpt_best_video;
 use commands::image;
 use commands::jimeng_video_queue;
@@ -367,9 +366,6 @@ pub fn run() {
             jimeng_video_queue::list_all_jimeng_video_queue_jobs,
             jimeng_video_queue::upsert_jimeng_video_queue_job,
             jimeng_video_queue::delete_jimeng_video_queue_job,
-            generation_history::list_generation_history_items,
-            generation_history::upsert_generation_history_item,
-            generation_history::delete_generation_history_item,
             error_log::list_error_log_items,
             error_log::upsert_error_log_item,
             error_log::delete_error_log_item,

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { v4 as uuidv4 } from 'uuid';
+import { isTauri } from '@tauri-apps/api/core';
 import type { Viewport } from '@xyflow/react';
 import {
   useCanvasStore,
@@ -983,6 +984,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   hydrate: async () => {
     if (get().isHydrated) {
+      return;
+    }
+
+    if (!isTauri()) {
+      set({
+        projects: [],
+        currentProjectId: null,
+        currentProject: null,
+        isHydrated: true,
+      });
+      setActiveMediaProjectId(null);
       return;
     }
 

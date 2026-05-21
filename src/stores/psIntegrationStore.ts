@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { isTauri } from '@tauri-apps/api/core';
 import {
   startPsServer,
   stopPsServer,
@@ -109,6 +110,10 @@ let startServerPromise: Promise<void> | null = null;
 export function initializePsIntegration(
   options: InitializePsIntegrationOptions
 ): () => void {
+  if (!isTauri()) {
+    return () => {};
+  }
+
   const { refreshStatus, startServer, addPendingImage } = usePsIntegrationStore.getState();
 
   refreshStatus().then(() => {
