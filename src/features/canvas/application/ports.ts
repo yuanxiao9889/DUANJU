@@ -149,6 +149,9 @@ export interface CanvasEventMap {
     nodeId: string;
     onResolve: (choice: 'reuse' | 'new' | null) => void;
   };
+  'canvas-selection-transfer/open': {
+    nodeIds: string[];
+  };
   'audio-node/open-save-preset': {
     nodeId: string;
   };

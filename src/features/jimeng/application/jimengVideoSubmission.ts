@@ -14,6 +14,7 @@ import {
   reduceAspectRatio,
 } from "@/features/canvas/application/imageData";
 import { createCurrentProjectMediaContext } from "@/features/canvas/application/mediaPersistenceContext";
+import { useSettingsStore } from "@/stores/settingsStore";
 import type {
   JimengAspectRatio,
   JimengDurationSeconds,
@@ -238,6 +239,7 @@ async function prepareJimengVideoPreviewImage(
         normalizedPosterSource,
         640,
         createCurrentProjectMediaContext("image", "preview"),
+        useSettingsStore.getState().canvasOverviewThumbnailMaxDimension,
       );
       return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
     } catch (error) {
@@ -258,6 +260,7 @@ async function prepareJimengVideoPreviewImage(
       capturedPosterDataUrl,
       640,
       createCurrentProjectMediaContext("image", "preview"),
+      useSettingsStore.getState().canvasOverviewThumbnailMaxDimension,
     );
     return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
   } catch (error) {

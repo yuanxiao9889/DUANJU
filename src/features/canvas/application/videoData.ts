@@ -12,6 +12,7 @@ import {
   resolveImageDisplayUrl,
 } from './imageData';
 import { createCurrentProjectMediaContext } from './mediaPersistenceContext';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 export interface VideoMetadata {
   width: number;
@@ -183,7 +184,8 @@ async function prepareVideoPoster(
   const preparedPoster = await prepareNodeImage(
     posterDataUrl,
     640,
-    mediaContext
+    mediaContext,
+    useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
   );
   return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
 }

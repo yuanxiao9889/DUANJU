@@ -329,6 +329,43 @@ function mapNodeImageReferences(
   });
 }
 
+function stripCanvasNodeRuntimeState(node: CanvasNode): CanvasNode {
+  const runtimeNode = node as CanvasNode & Record<string, unknown>;
+  const hasRuntimeState =
+    'selected' in runtimeNode
+    || 'dragging' in runtimeNode
+    || 'measured' in runtimeNode
+    || 'positionAbsolute' in runtimeNode
+    || 'internals' in runtimeNode
+    || 'handleBounds' in runtimeNode;
+
+  if (!hasRuntimeState) {
+    return node;
+  }
+
+  const nextNode = { ...runtimeNode };
+  delete nextNode.selected;
+  delete nextNode.dragging;
+  delete nextNode.measured;
+  delete nextNode.positionAbsolute;
+  delete nextNode.internals;
+  delete nextNode.handleBounds;
+  return nextNode as CanvasNode;
+}
+
+function stripCanvasNodesRuntimeState(nodes: CanvasNode[]): CanvasNode[] {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    const nextNode = stripCanvasNodeRuntimeState(node);
+    if (nextNode !== node) {
+      changed = true;
+    }
+    return nextNode;
+  });
+
+  return changed ? nextNodes : nodes;
+}
+
 function mapHistoryImageReferences(
   history: CanvasHistoryState,
   mapImageUrl: (imageUrl: string | null | undefined) => string | null | undefined
@@ -471,7 +508,7 @@ function decodeProject(project: PersistedProject): Project {
 
   return {
     ...project,
-    nodes: mapNodeImageReferences(project.nodes, decode),
+    nodes: stripCanvasNodesRuntimeState(mapNodeImageReferences(project.nodes, decode)),
     history: mapHistoryImageReferences(project.history, decode),
   };
 }

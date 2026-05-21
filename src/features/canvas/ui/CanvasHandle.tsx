@@ -131,7 +131,7 @@ export function CanvasHandle({
   const sanitizedClassName = stripHandleSizeClasses(className);
   const resolvedPosition = position ?? Position.Top;
   const resolvedType = props.type ?? "source";
-  const resolvedHandleId = props.id ?? null;
+  const resolvedHandleId = props.id ?? resolvedType;
 
   const mergedStyle: CanvasHandleStyle = {
     ...style,
@@ -179,6 +179,7 @@ export function CanvasHandle({
     <>
       <Handle
         {...props}
+        id={resolvedHandleId}
         className={sanitizedClassName}
         position={resolvedPosition}
         style={mergedStyle}

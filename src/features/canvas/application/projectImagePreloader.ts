@@ -64,6 +64,7 @@ export interface ImagePreloadViewportSize {
 
 export interface ViewportImagePreloadOptions {
   marginScreens?: number;
+  thumbnailMaxDimension?: number;
 }
 
 type ImagePreloadSource = string | ImagePreloadEntry;

@@ -12,6 +12,7 @@ import {
   waitForVideoFrameReady,
 } from '@/features/canvas/application/videoData';
 import { prepareNodeImage } from '@/features/canvas/application/imageData';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 const DEFAULT_FRAME_RATE = 24;
 const FRAME_TIME = 1 / DEFAULT_FRAME_RATE;
@@ -261,7 +262,12 @@ export function useNodeVideoPlaybackControls({
         dataUrl = await captureVideoFrameFromSource(preferredSource, captureTime);
       }
 
-      const prepared = await prepareNodeImage(dataUrl);
+      const prepared = await prepareNodeImage(
+        dataUrl,
+        undefined,
+        undefined,
+        useSettingsStore.getState().canvasOverviewThumbnailMaxDimension,
+      );
       if (!nodePosition) {
         showScreenshotStatus('danger', t('node.videoNode.screenshotFailed'), 4200);
         return;
@@ -279,6 +285,8 @@ export function useNodeVideoPlaybackControls({
         {
           imageUrl: prepared.imageUrl,
           previewImageUrl: prepared.previewImageUrl,
+          thumbnailUrl: prepared.thumbnailImageUrl,
+          thumbnailMaxDimension: prepared.thumbnailMaxDimension,
           aspectRatio: prepared.aspectRatio,
           displayName: t('node.videoNode.screenshotName', {
             name: videoFileName || fallbackTitle || t('node.videoNode.title'),

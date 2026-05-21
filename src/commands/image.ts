@@ -64,6 +64,7 @@ export interface PrepareNodeImageSourceResult {
   imagePath: string;
   previewImagePath: string;
   thumbnailImagePath: string;
+  thumbnailMaxDimension?: number;
   aspectRatio: string;
 }
 
@@ -138,11 +139,13 @@ export async function embedStoryboardImageMetadata(
 export async function prepareNodeImageSource(
   source: string,
   maxPreviewDimension = 256,
+  maxThumbnailDimension?: number,
   mediaContext?: MediaPersistContext
 ): Promise<PrepareNodeImageSourceResult> {
   return await invoke('prepare_node_image_source', {
     source,
     maxPreviewDimension,
+    maxThumbnailDimension,
     mediaContext,
   });
 }
@@ -151,23 +154,27 @@ export async function prepareNodeImageBinary(
   bytes: Uint8Array,
   extension?: string,
   maxPreviewDimension = 256,
+  maxThumbnailDimension?: number,
   mediaContext?: MediaPersistContext
 ): Promise<PrepareNodeImageSourceResult> {
   return await invoke('prepare_node_image_binary', {
     bytes: Array.from(bytes),
     extension,
     maxPreviewDimension,
+    maxThumbnailDimension,
     mediaContext,
   });
 }
 
 export async function createNodeThumbnailSource(
   source: string,
-  mediaContext?: MediaPersistContext
+  mediaContext?: MediaPersistContext,
+  maxDimension?: number
 ): Promise<string> {
   return await invoke('create_node_thumbnail_source', {
     source,
     mediaContext,
+    maxDimension,
   });
 }
 

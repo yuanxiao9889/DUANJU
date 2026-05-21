@@ -53,6 +53,7 @@ import {
   normalizeSeedanceAssetUri,
 } from '@/features/seedance/domain/seedanceAssetUri';
 import { useAssetStore } from '@/stores/assetStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 type LibraryDialogState =
   | { mode: 'create'; library: null }
@@ -700,6 +701,9 @@ interface AssetEditorDialogProps {
 
 function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDialogProps) {
   const { t } = useTranslation();
+  const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+    (settings) => settings.canvasOverviewThumbnailMaxDimension
+  );
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [category, setCategory] = useState<AssetCategory>('character');
   const [subcategoryId, setSubcategoryId] = useState<string>('');
@@ -814,7 +818,12 @@ function AssetEditorDialog({ library, state, onClose, onConfirm }: AssetEditorDi
         setSeedanceAssetId('');
       } else {
           const prepared = await ensurePreparedNodeImageReadable(
-            await prepareNodeImageFromFile(file, undefined, createSharedMediaContext('image'))
+            await prepareNodeImageFromFile(
+              file,
+              undefined,
+              createSharedMediaContext('image'),
+              canvasOverviewThumbnailMaxDimension
+            )
           );
         if (sourceMode === 'seedanceOfficial' && supportsSeedanceOfficialMode) {
           setPreviewPath(prepared.previewImageUrl ?? prepared.imageUrl);
@@ -1183,6 +1192,9 @@ export function AssetManagerTab() {
   const createItem = useAssetStore((state) => state.createItem);
   const updateItem = useAssetStore((state) => state.updateItem);
   const deleteItem = useAssetStore((state) => state.deleteItem);
+  const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+    (state) => state.canvasOverviewThumbnailMaxDimension
+  );
 
   const [selectedLibraryId, setSelectedLibraryId] = useState<string>('');
   const [libraryDialogState, setLibraryDialogState] = useState<LibraryDialogState>(null);
@@ -1378,7 +1390,12 @@ export function AssetManagerTab() {
       }
 
         const prepared = await ensurePreparedNodeImageReadable(
-          await prepareNodeImageFromFile(file, undefined, createSharedMediaContext('image'))
+          await prepareNodeImageFromFile(
+            file,
+            undefined,
+            createSharedMediaContext('image'),
+            canvasOverviewThumbnailMaxDimension
+          )
         );
       await createItem({
         libraryId,

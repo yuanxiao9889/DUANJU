@@ -20,6 +20,9 @@ import {
   ChevronDown,
   ChevronRight,
   Clapperboard,
+  Cone,
+  Cuboid,
+  Cylinder,
   Download,
   Eye,
   EyeOff,
@@ -34,7 +37,10 @@ import {
   Rotate3D,
   Save,
   Scale3D,
+  Circle,
+  Square,
   Sun,
+  Torus,
   Trash2,
   Unlock,
   Upload,
@@ -52,6 +58,7 @@ import { useProjectStore } from '@/stores/projectStore';
 import type { AssetCategory, AssetItemRecord, AssetMetadata } from '@/features/assets/domain/types';
 import {
   DIRECTOR_STAGE_ASSET_PACKS,
+  DIRECTOR_STAGE_BUILT_IN_GEOMETRIES,
   DIRECTOR_STAGE_BUILT_IN_POSE_PRESETS,
   DIRECTOR_STAGE_SKYBOX_PRESETS,
   getDirectorStageCharacterAsset,
@@ -66,6 +73,8 @@ import {
   DIRECTOR_STAGE_LIMB_ROTATION_MIN,
   DIRECTOR_STAGE_MAX_SCALE,
   DIRECTOR_STAGE_MIN_SCALE,
+  DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX,
+  DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN,
   DIRECTOR_STAGE_SNAPSHOT_ASPECT_RATIOS,
   normalizeDirectorStageProject,
   type DirectorStageBuiltInAsset,
@@ -76,6 +85,9 @@ import {
   type DirectorStageLimbPose,
   type DirectorStageLimbPoseKey,
   type DirectorStageLight,
+  type DirectorStagePlaneAspectRatioPreset,
+  type DirectorStagePlaneSurface,
+  type DirectorStagePlaneSurfaceFitMode,
   type DirectorStagePosePreset,
   type DirectorStageProject,
   type DirectorStageSnapshotAspectRatio,
@@ -209,12 +221,52 @@ const SNAPSHOT_ASPECT_RATIO_LABEL_KEYS: Record<DirectorStageSnapshotAspectRatio,
   '21:9': 'directorStage.snapshot.ratios.r21x9',
 };
 
+const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_PRESETS: DirectorStagePlaneAspectRatioPreset[] = [
+  '1:1',
+  '4:3',
+  '16:9',
+  '9:16',
+  'custom',
+];
+
+const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_VALUES: Record<Exclude<DirectorStagePlaneAspectRatioPreset, 'custom'>, number> = {
+  '1:1': 1,
+  '4:3': 4 / 3,
+  '16:9': 16 / 9,
+  '9:16': 9 / 16,
+};
+
+const DIRECTOR_STAGE_GEOMETRY_ICON_BY_ID: Record<string, typeof Box> = {
+  'geometry-box': Cuboid,
+  'geometry-sphere': Circle,
+  'geometry-cylinder': Cylinder,
+  'geometry-cone': Cone,
+  'geometry-plane': Square,
+  'geometry-torus': Torus,
+};
+
 function loadImageForGroundSampling(source: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.crossOrigin = 'anonymous';
     image.onload = () => resolve(image);
     image.onerror = () => reject(new Error('Failed to load ground sample image'));
+    image.src = source;
+  });
+}
+
+function readImageAspectRatio(source: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.onload = () => {
+      if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+        resolve(image.naturalWidth / image.naturalHeight);
+        return;
+      }
+      reject(new Error('Image has no readable dimensions'));
+    };
+    image.onerror = () => reject(new Error('Failed to load image dimensions'));
     image.src = source;
   });
 }
@@ -306,6 +358,9 @@ function categoryToEntityKind(category: AssetCategory): DirectorStageEntity['kin
 
 function extensionToMime(path: string): string | null {
   const lower = path.toLowerCase();
+  if (/\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(lower)) {
+    return `image/${lower.endsWith('.jpg') ? 'jpeg' : lower.split('.').pop()}`;
+  }
   if (lower.endsWith('.glb')) {
     return 'model/gltf-binary';
   }
@@ -400,6 +455,44 @@ function basename(path: string): string {
 
 function withoutExtension(name: string): string {
   return name.replace(/\.[^.]+$/, '');
+}
+
+function isDirectorStagePlaneEntity(entity: DirectorStageEntity | null | undefined): entity is DirectorStageEntity {
+  return Boolean(entity?.source === 'geometry' && entity.modelPath === 'primitive://plane');
+}
+
+function clampPlaneAspectRatio(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  return Math.max(DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN, Math.min(DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX, Math.abs(value)));
+}
+
+function resolvePlaneAspectRatio(
+  preset: DirectorStagePlaneAspectRatioPreset,
+  customAspectRatio: number
+): number {
+  return preset === 'custom'
+    ? clampPlaneAspectRatio(customAspectRatio)
+    : DIRECTOR_STAGE_PLANE_ASPECT_RATIO_VALUES[preset];
+}
+
+function createDefaultPlaneSurface(): DirectorStagePlaneSurface {
+  return {
+    imagePath: null,
+    imageName: null,
+    imageAspectRatio: null,
+    fitMode: 'contain',
+    aspectRatioPreset: '1:1',
+    customAspectRatio: 1,
+  };
+}
+
+function resolvePlaneSurface(entity: DirectorStageEntity): DirectorStagePlaneSurface {
+  return {
+    ...createDefaultPlaneSurface(),
+    ...entity.planeSurface,
+  };
 }
 
 function createProjectNodePatch(project: DirectorStageProject) {
@@ -684,6 +777,7 @@ export function DirectorStageWorkspace({
   const [isScaleLocked, setIsScaleLocked] = useState(true);
   const [isPoseControlsOpen, setIsPoseControlsOpen] = useState(true);
   const [isBodyControlsOpen, setIsBodyControlsOpen] = useState(false);
+  const [isGeometryPanelOpen, setIsGeometryPanelOpen] = useState(true);
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [crowdDialogAsset, setCrowdDialogAsset] = useState<DirectorStageBuiltInAsset | null>(null);
   const [cameraLensPanel, setCameraLensPanel] = useState<CameraLensPanelState | null>(null);
@@ -2572,6 +2666,110 @@ export function DirectorStageWorkspace({
     }, { history: 'skip' });
   }, [isScaleLocked, updateCrowdGroup, updateEntity]);
 
+  const updatePlaneSurface = useCallback((
+    entity: DirectorStageEntity,
+    patch: Partial<DirectorStagePlaneSurface>,
+    options: DirectorStageCommitOptions = {}
+  ) => {
+    if (!isDirectorStagePlaneEntity(entity)) {
+      return;
+    }
+    updateEntity(entity.id, {
+      planeSurface: {
+        ...resolvePlaneSurface(entity),
+        ...patch,
+      },
+    }, options);
+  }, [updateEntity]);
+
+  const applyPlaneAspectRatio = useCallback((
+    entity: DirectorStageEntity,
+    aspectRatio: number,
+    planeSurfacePatch: Partial<DirectorStagePlaneSurface>
+  ) => {
+    if (!isDirectorStagePlaneEntity(entity)) {
+      return;
+    }
+    const nextAspectRatio = clampPlaneAspectRatio(aspectRatio);
+    const baseScale = Math.max(entity.transform.scale.x, entity.transform.scale.z, 0.001);
+    const nextScale = nextAspectRatio >= 1
+      ? createStageVector3(baseScale, entity.transform.scale.y, baseScale / nextAspectRatio)
+      : createStageVector3(baseScale * nextAspectRatio, entity.transform.scale.y, baseScale);
+    updateEntity(entity.id, {
+      planeSurface: {
+        ...resolvePlaneSurface(entity),
+        ...planeSurfacePatch,
+      },
+      transform: {
+        ...entity.transform,
+        scale: nextScale,
+      },
+    });
+  }, [updateEntity]);
+
+  const selectPlaneAspectRatioPreset = useCallback((
+    entity: DirectorStageEntity,
+    preset: DirectorStagePlaneAspectRatioPreset
+  ) => {
+    const surface = resolvePlaneSurface(entity);
+    applyPlaneAspectRatio(entity, resolvePlaneAspectRatio(preset, surface.customAspectRatio), {
+      aspectRatioPreset: preset,
+    });
+  }, [applyPlaneAspectRatio]);
+
+  const updatePlaneCustomAspectRatio = useCallback((entity: DirectorStageEntity, value: number) => {
+    const customAspectRatio = clampPlaneAspectRatio(value);
+    applyPlaneAspectRatio(entity, customAspectRatio, {
+      aspectRatioPreset: 'custom',
+      customAspectRatio,
+    });
+  }, [applyPlaneAspectRatio]);
+
+  const choosePlaneSurfaceImage = useCallback(async (entity: DirectorStageEntity) => {
+    if (!isDirectorStagePlaneEntity(entity)) {
+      return;
+    }
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      filters: [
+        {
+          name: t('directorStage.planeSurface.imageFilter'),
+          extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif'],
+        },
+      ],
+    });
+    const path = Array.isArray(selected) ? selected[0] : selected;
+    if (!path) {
+      return;
+    }
+
+    let imageAspectRatio: number | null = null;
+    try {
+      imageAspectRatio = clampPlaneAspectRatio(
+        await readImageAspectRatio(resolveImageDisplayUrl(path))
+      );
+    } catch (error) {
+      console.error('Failed to read plane image dimensions', error);
+      setStatusText(t('directorStage.planeSurface.imageLoadFailed'));
+    }
+
+    updatePlaneSurface(entity, {
+      imagePath: path,
+      imageName: basename(path),
+      imageAspectRatio,
+      fitMode: entity.planeSurface?.fitMode ?? 'contain',
+    });
+  }, [t, updatePlaneSurface]);
+
+  const removePlaneSurfaceImage = useCallback((entity: DirectorStageEntity) => {
+    updatePlaneSurface(entity, {
+      imagePath: null,
+      imageName: null,
+      imageAspectRatio: null,
+    });
+  }, [updatePlaneSurface]);
+
   const setTransformMode = useCallback((mode: DirectorStageTransformMode) => {
     patchProject({ transformMode: mode }, { history: 'skip' });
   }, [patchProject]);
@@ -2986,6 +3184,7 @@ export function DirectorStageWorkspace({
         ...userPosePresets.filter((preset) => preset.compatibleAssetIds.includes(selectedEntity.assetId)),
       ]
     : [];
+  const showPoseControls = Boolean(selectedEntity && selectedEntity.source !== 'geometry');
   const selectedObjectTransform = selectedCrowdGroup?.transform ?? selectedEntity?.transform ?? null;
   const resolveCameraShotDisplayName = useCallback((shot: DirectorStageCameraShot): string => {
     return shot.name === 'Shot 1' ? t('directorStage.camera.defaultShotName') : shot.name;
@@ -3005,7 +3204,7 @@ export function DirectorStageWorkspace({
   const showBodyControls = supportsDirectorStageLimbControls(selectedEntity);
 
   const renderPoseControls = () => {
-    if (!selectedEntity) {
+    if (!selectedEntity || !showPoseControls) {
       return null;
     }
 
@@ -3264,6 +3463,103 @@ export function DirectorStageWorkspace({
     );
   };
 
+  const renderPlaneSurfaceControls = () => {
+    if (!isDirectorStagePlaneEntity(selectedEntity)) {
+      return null;
+    }
+    const surface = resolvePlaneSurface(selectedEntity);
+    return (
+      <div className="space-y-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
+        <div className="text-xs font-semibold uppercase text-white/45">
+          {t('directorStage.planeSurface.title')}
+        </div>
+        <label className="block space-y-1 text-xs text-white/55">
+          {t('directorStage.planeSurface.aspectRatio')}
+          <UiSelect
+            value={surface.aspectRatioPreset}
+            aria-label={t('directorStage.planeSurface.aspectRatio')}
+            className="h-8 rounded-md !border-white/10 !bg-black/24 !text-xs !text-white [&>span]:!text-white [&_svg]:!text-white"
+            onChange={(event) =>
+              selectPlaneAspectRatioPreset(
+                selectedEntity,
+                event.target.value as DirectorStagePlaneAspectRatioPreset
+              )}
+          >
+            {DIRECTOR_STAGE_PLANE_ASPECT_RATIO_PRESETS.map((preset) => (
+              <option key={preset} value={preset}>
+                {preset === 'custom' ? t('directorStage.planeSurface.customAspectRatio') : preset}
+              </option>
+            ))}
+          </UiSelect>
+        </label>
+        {surface.aspectRatioPreset === 'custom' ? (
+          <label className="block space-y-1 text-xs text-white/55">
+            {t('directorStage.planeSurface.customAspectRatio')}
+            <DirectorStageNumberInput
+              min={DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN}
+              max={DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX}
+              step={0.05}
+              value={surface.customAspectRatio}
+              formatValue={numericInputValue}
+              onValueChange={(value) => updatePlaneCustomAspectRatio(selectedEntity, value)}
+              className="h-8 rounded-md border-white/10 bg-black/24 text-xs"
+            />
+          </label>
+        ) : null}
+        <div className="space-y-1.5">
+          <div className="text-xs text-white/55">{t('directorStage.planeSurface.image')}</div>
+          <div className="flex items-center gap-2">
+            <UiButton
+              type="button"
+              variant="muted"
+              size="sm"
+              className="shrink-0 gap-1.5 !border !border-white/10 !bg-black/24 !text-white/70 hover:!bg-white/[0.08] hover:!text-white [&_svg]:!text-white"
+              onClick={() => void choosePlaneSurfaceImage(selectedEntity)}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              {t('directorStage.planeSurface.chooseImage')}
+            </UiButton>
+            {surface.imagePath ? (
+              <button
+                type="button"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/10 bg-black/24 text-white/42 transition-colors hover:border-red-300/40 hover:bg-red-400/10 hover:text-red-100"
+                title={t('directorStage.planeSurface.removeImage')}
+                aria-label={t('directorStage.planeSurface.removeImage')}
+                onClick={() => removePlaneSurfaceImage(selectedEntity)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
+          </div>
+          {surface.imageName ? (
+            <div className="truncate rounded-md border border-white/10 bg-black/24 px-2 py-1.5 text-xs text-white/55">
+              {surface.imageName}
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-white/12 px-2 py-1.5 text-xs text-white/38">
+              {t('directorStage.planeSurface.noImage')}
+            </div>
+          )}
+        </div>
+        <label className="block space-y-1 text-xs text-white/55">
+          {t('directorStage.planeSurface.fitMode')}
+          <UiSelect
+            value={surface.fitMode}
+            aria-label={t('directorStage.planeSurface.fitMode')}
+            className="h-8 rounded-md !border-white/10 !bg-black/24 !text-xs !text-white [&>span]:!text-white [&_svg]:!text-white"
+            onChange={(event) =>
+              updatePlaneSurface(selectedEntity, {
+                fitMode: event.target.value as DirectorStagePlaneSurfaceFitMode,
+              })}
+          >
+            <option value="contain">{t('directorStage.planeSurface.fitContain')}</option>
+            <option value="stretch">{t('directorStage.planeSurface.fitStretch')}</option>
+          </UiSelect>
+        </label>
+      </div>
+    );
+  };
+
   const activeCrowdProgressPercent = activeCrowdRenderProgress
     ? progressPercent(activeCrowdRenderProgress.progress)
     : 0;
@@ -3385,6 +3681,40 @@ export function DirectorStageWorkspace({
           <div className="ui-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
             {activeTab === 'a3d' ? (
               <div className="space-y-3">
+                <div className="rounded-md border border-white/10 bg-white/[0.025] p-2">
+                  <button
+                    type="button"
+                    className="flex h-7 w-full items-center justify-between gap-2 text-left"
+                    aria-expanded={isGeometryPanelOpen}
+                    onClick={() => setIsGeometryPanelOpen((current) => !current)}
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold uppercase text-white/45">
+                      {isGeometryPanelOpen
+                        ? <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                        : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                      <span className="truncate">{t('directorStage.assetPack.geometry')}</span>
+                    </span>
+                  </button>
+                  {isGeometryPanelOpen ? (
+                    <div className="mt-2 grid grid-cols-2 gap-1.5">
+                      {DIRECTOR_STAGE_BUILT_IN_GEOMETRIES.map((asset) => {
+                        const GeometryIcon = DIRECTOR_STAGE_GEOMETRY_ICON_BY_ID[asset.id] ?? Box;
+                        return (
+                          <button
+                            key={asset.id}
+                            type="button"
+                            className="flex h-[68px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-md border border-white/10 bg-black/24 px-2 text-center text-xs text-white/62 transition-colors hover:border-emerald-300/40 hover:bg-emerald-300/10 hover:text-emerald-100"
+                            title={t(asset.labelKey)}
+                            onClick={() => addBuiltInAsset(asset)}
+                          >
+                            <GeometryIcon className="h-5 w-5 shrink-0" />
+                            <span className="max-w-full truncate">{t(asset.labelKey)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
                 {DIRECTOR_STAGE_ASSET_PACKS.map((pack) => (
                   <div key={pack.id} className="space-y-2">
                     <div className="text-xs font-semibold uppercase text-white/45">
@@ -3914,6 +4244,7 @@ export function DirectorStageWorkspace({
                     </span>
                   </label>
                 </div>
+                {renderPlaneSurfaceControls()}
                 {renderPoseControls()}
                 {renderBodyControls()}
                 {renderTransformInputs('position', 'directorStage.transform.position')}

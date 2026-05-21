@@ -320,6 +320,7 @@ export const BackgroundRemoveNode = memo(
           preparedImage.previewImageUrl,
           {
             thumbnailUrl: preparedImage.thumbnailImageUrl,
+            thumbnailMaxDimension: preparedImage.thumbnailMaxDimension,
             connectToSource: true,
             resultKind: "backgroundRemoved",
           },

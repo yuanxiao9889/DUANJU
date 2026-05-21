@@ -4,10 +4,12 @@ import {
 } from './cameraLens';
 
 export type DirectorStageEntityKind = 'character' | 'model' | 'prop' | 'scene';
-export type DirectorStageEntitySource = 'a3d' | 'user';
+export type DirectorStageEntitySource = 'a3d' | 'user' | 'geometry';
 export type DirectorStageLightKind = 'ambient' | 'directional' | 'point' | 'spot';
 export type DirectorStageTransformMode = 'translate' | 'rotate' | 'scale';
 export type DirectorStageCrowdGroupMode = 'formation' | 'crowd';
+export type DirectorStagePlaneSurfaceFitMode = 'contain' | 'stretch';
+export type DirectorStagePlaneAspectRatioPreset = '1:1' | '4:3' | '16:9' | '9:16' | 'custom';
 export type DirectorStageSnapshotAspectRatio = typeof DIRECTOR_STAGE_SNAPSHOT_ASPECT_RATIOS[number];
 export type DirectorStageLimbPoseKey = typeof DIRECTOR_STAGE_LIMB_POSE_KEYS[number];
 
@@ -25,6 +27,15 @@ export interface DirectorStageTransform {
 
 export type DirectorStageLimbPose = Partial<Record<DirectorStageLimbPoseKey, DirectorStageVector3>>;
 
+export interface DirectorStagePlaneSurface {
+  imagePath: string | null;
+  imageName: string | null;
+  imageAspectRatio: number | null;
+  fitMode: DirectorStagePlaneSurfaceFitMode;
+  aspectRatioPreset: DirectorStagePlaneAspectRatioPreset;
+  customAspectRatio: number;
+}
+
 export interface DirectorStageEntity {
   id: string;
   kind: DirectorStageEntityKind;
@@ -41,6 +52,7 @@ export interface DirectorStageEntity {
   crowdGroupId?: string | null;
   crowdMemberIndex?: number | null;
   skeletonCompatible?: boolean | null;
+  planeSurface?: DirectorStagePlaneSurface;
   loadError?: string | null;
   createdAt: number;
   updatedAt: number;
@@ -205,6 +217,9 @@ export const DIRECTOR_STAGE_LIMB_POSE_KEYS = [
 ] as const;
 export const DIRECTOR_STAGE_LIMB_ROTATION_MIN = -Math.PI / 2;
 export const DIRECTOR_STAGE_LIMB_ROTATION_MAX = Math.PI / 2;
+export const DIRECTOR_STAGE_DEFAULT_PLANE_ASPECT_RATIO = 1;
+export const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN = 0.1;
+export const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX = 10;
 
 export function createStageVector3(x: number, y: number, z: number): DirectorStageVector3 {
   return { x, y, z };
@@ -378,10 +393,59 @@ function normalizeText(value: unknown, fallback = ''): string {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : fallback;
 }
 
+function normalizeNullableText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
 function normalizeSnapshotAspectRatio(value: unknown): DirectorStageSnapshotAspectRatio {
   return DIRECTOR_STAGE_SNAPSHOT_ASPECT_RATIOS.includes(value as DirectorStageSnapshotAspectRatio)
     ? value as DirectorStageSnapshotAspectRatio
     : DIRECTOR_STAGE_DEFAULT_SNAPSHOT_ASPECT_RATIO;
+}
+
+function clampPlaneAspectRatio(value: unknown, fallback = DIRECTOR_STAGE_DEFAULT_PLANE_ASPECT_RATIO): number {
+  const numericValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  if (!Number.isFinite(numericValue)) {
+    return DIRECTOR_STAGE_DEFAULT_PLANE_ASPECT_RATIO;
+  }
+  return Math.max(
+    DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN,
+    Math.min(DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX, Math.abs(numericValue))
+  );
+}
+
+function normalizePlaneSurface(value: unknown): DirectorStagePlaneSurface | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+  const candidate = value as Partial<DirectorStagePlaneSurface>;
+  const fitMode: DirectorStagePlaneSurfaceFitMode = candidate.fitMode === 'stretch' ? 'stretch' : 'contain';
+  const aspectRatioPreset: DirectorStagePlaneAspectRatioPreset =
+    candidate.aspectRatioPreset === '4:3'
+    || candidate.aspectRatioPreset === '16:9'
+    || candidate.aspectRatioPreset === '9:16'
+    || candidate.aspectRatioPreset === 'custom'
+      ? candidate.aspectRatioPreset
+      : '1:1';
+
+  return {
+    imagePath: normalizeNullableText(candidate.imagePath),
+    imageName: normalizeNullableText(candidate.imageName),
+    imageAspectRatio:
+      typeof candidate.imageAspectRatio === 'number' && Number.isFinite(candidate.imageAspectRatio)
+        ? clampPlaneAspectRatio(candidate.imageAspectRatio)
+        : null,
+    fitMode,
+    aspectRatioPreset,
+    customAspectRatio: clampPlaneAspectRatio(candidate.customAspectRatio),
+  };
+}
+
+function isDirectorStagePlaneEntity(
+  source: DirectorStageEntitySource,
+  modelPath: string
+): boolean {
+  return source === 'geometry' && modelPath === 'primitive://plane';
 }
 
 export function normalizeDirectorStageProject(
@@ -411,7 +475,7 @@ export function normalizeDirectorStageProject(
               ? candidate.kind
               : 'character';
           const source: DirectorStageEntitySource =
-            candidate.source === 'user'
+            candidate.source === 'user' || candidate.source === 'geometry'
               ? candidate.source
               : 'a3d';
           return {
@@ -423,7 +487,10 @@ export function normalizeDirectorStageProject(
             modelPath,
             previewPath: typeof candidate.previewPath === 'string' ? candidate.previewPath : null,
             transform: repairA3dCharacterTransform(normalizeTransform(candidate.transform), source, kind),
-            color: normalizeText(candidate.color, source === 'user' ? '#ffffff' : '#d9c6ad'),
+            color: normalizeText(
+              candidate.color,
+              source === 'user' ? '#ffffff' : source === 'geometry' ? '#d8dde6' : '#d9c6ad'
+            ),
             posePresetId: typeof candidate.posePresetId === 'string' ? candidate.posePresetId : null,
             posePath: typeof candidate.posePath === 'string' ? candidate.posePath : null,
             limbPose: normalizeLimbPose(candidate.limbPose),
@@ -434,6 +501,9 @@ export function normalizeDirectorStageProject(
                 : null,
             skeletonCompatible:
               typeof candidate.skeletonCompatible === 'boolean' ? candidate.skeletonCompatible : null,
+            planeSurface: isDirectorStagePlaneEntity(source, modelPath)
+              ? normalizePlaneSurface(candidate.planeSurface)
+              : undefined,
             loadError: typeof candidate.loadError === 'string' ? candidate.loadError : null,
             createdAt: normalizeNumber(candidate.createdAt, now),
             updatedAt: normalizeNumber(candidate.updatedAt, now),

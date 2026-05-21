@@ -51,6 +51,7 @@ import {
 import { jimengImageModelUsesFourGridDisplay } from "@/features/jimeng/domain/jimengOptions";
 import { useCanvasNodeById } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type JimengImageResultNodeProps = NodeProps & {
   id: string;
@@ -172,6 +173,9 @@ export const JimengImageResultNode = memo(
       (state) => state.addDerivedExportNode,
     );
     const addEdge = useCanvasStore((state) => state.addEdge);
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
     const [isRequerying, setIsRequerying] = useState(false);
     const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
@@ -423,7 +427,12 @@ export const JimengImageResultNode = memo(
             return;
           }
 
-          const prepared = await prepareNodeImage(sourceImage);
+          const prepared = await prepareNodeImage(
+            sourceImage,
+            undefined,
+            undefined,
+            canvasOverviewThumbnailMaxDimension,
+          );
           const createdNodeId = addDerivedExportNode(
             id,
             prepared.imageUrl,
@@ -431,6 +440,7 @@ export const JimengImageResultNode = memo(
             prepared.previewImageUrl,
             {
               thumbnailUrl: prepared.thumbnailImageUrl,
+              thumbnailMaxDimension: prepared.thumbnailMaxDimension,
               defaultTitle: t("node.jimengImageResult.extractedTitle", {
                 index: index + 1,
               }),
@@ -451,7 +461,14 @@ export const JimengImageResultNode = memo(
           );
         }
       },
-      [addDerivedExportNode, addEdge, data.aspectRatio, id, t],
+      [
+        addDerivedExportNode,
+        addEdge,
+        canvasOverviewThumbnailMaxDimension,
+        data.aspectRatio,
+        id,
+        t,
+      ],
     );
 
     const headerStatus = useMemo(() => {

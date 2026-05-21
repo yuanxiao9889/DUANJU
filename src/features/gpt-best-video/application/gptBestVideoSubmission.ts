@@ -15,6 +15,7 @@ import {
   captureVideoFrameFromSource,
   resolveVideoDisplayUrl,
 } from '@/features/canvas/application/videoData';
+import { useSettingsStore } from '@/stores/settingsStore';
 import { type GptBestVideoSourceKind } from '@/features/canvas/domain/canvasNodes';
 import {
   normalizeOopiiVideoModelId,
@@ -273,7 +274,8 @@ async function prepareGptBestVideoPreviewImage(
       const preparedPoster = await prepareNodeImage(
         normalizedCoverSource,
         640,
-        createCurrentProjectMediaContext('image', 'preview')
+        createCurrentProjectMediaContext('image', 'preview'),
+        useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
       );
       return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
     } catch (error) {
@@ -290,7 +292,8 @@ async function prepareGptBestVideoPreviewImage(
     const preparedPoster = await prepareNodeImage(
       capturedPosterDataUrl,
       640,
-      createCurrentProjectMediaContext('image', 'preview')
+      createCurrentProjectMediaContext('image', 'preview'),
+      useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
     );
     return preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
   } catch (error) {

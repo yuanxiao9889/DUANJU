@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   AudioLines,
-  ChevronUp,
+  ChevronDown,
   ExternalLink,
   MapPin,
   Package,
@@ -459,137 +459,68 @@ export function CanvasAssetDock() {
     <div className="pointer-events-none absolute inset-x-0 bottom-4 z-[10010] flex justify-center px-4">
       <div
         ref={dockRootRef}
-        className={`pointer-events-auto relative transition-[max-width,transform] duration-200 ease-out ${
+        className={`pointer-events-auto relative transition-transform duration-200 ease-out ${
           isDockOpen
             ? 'w-full max-w-[760px] -translate-y-0.5'
             : 'w-fit max-w-[calc(100vw-2rem)] translate-y-0'
         }`}
       >
-        {isDockOpen ? (
-          <button
-            type="button"
-            className={`absolute left-1/2 top-0 z-20 flex h-6 w-6 -translate-x-1/2 -translate-y-[calc(100%+2px)] items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-surface-dark text-text-muted shadow-lg transition-[opacity,transform,background-color,color] duration-200 ease-out hover:bg-white/[0.06] hover:text-text-dark ${
-              isPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
-            }`}
-            onClick={() => setActiveCategory(null)}
-            title={t('common.close')}
-          >
-            <ChevronUp className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-
-        {isDockOpen ? (
+        {isPanelMounted && visibleCategory && selectedLibrary ? (
           <div
-            role="separator"
-            aria-label={t('assets.resizeDockHeight')}
-            aria-orientation="horizontal"
-            aria-valuemin={DOCK_PANEL_MIN_HEIGHT_PX}
-            aria-valuemax={resolveDockPanelMaxHeight()}
-            aria-valuenow={dockPanelHeight}
-            tabIndex={0}
-            className={`absolute left-8 right-8 top-0 z-10 flex h-4 -translate-y-1/2 cursor-row-resize items-center justify-center rounded-full outline-none transition-opacity duration-200 focus-visible:ring-2 focus-visible:ring-accent/70 ${
-              isPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
+            className={`absolute bottom-[calc(100%+8px)] left-1/2 w-[min(760px,calc(100vw-2rem))] -translate-x-1/2 overflow-visible transition-[height,opacity] duration-200 ease-out ${
+              isPanelVisible
+                ? 'opacity-100'
+                : 'pointer-events-none opacity-0'
             }`}
-            onPointerDown={handleStartPanelResize}
-            onKeyDown={handlePanelResizeKeyDown}
-            title={t('assets.resizeDockHeight')}
+            style={{
+              height: isPanelVisible ? `${dockPanelHeight}px` : '0px',
+              transitionDuration: isPanelResizing ? '0ms' : undefined,
+            }}
           >
-            <span
-              className={`h-1 w-24 rounded-full border border-white/[0.08] bg-white/[0.12] shadow-[0_6px_18px_rgba(0,0,0,0.24)] transition-[background-color,border-color,width] ${
-                isPanelResizing
-                  ? 'w-32 border-accent/35 bg-accent/35'
-                  : 'hover:border-white/[0.16] hover:bg-white/[0.2]'
+            <button
+              type="button"
+              className={`absolute left-1/2 top-0 z-20 flex h-6 w-6 -translate-x-1/2 -translate-y-[calc(100%+2px)] items-center justify-center rounded-full border border-[rgba(255,255,255,0.14)] bg-surface-dark text-text-muted shadow-lg transition-[opacity,transform,background-color,color] duration-200 ease-out hover:bg-white/[0.06] hover:text-text-dark ${
+                isPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
               }`}
-            />
-          </div>
-        ) : null}
+              onClick={() => setActiveCategory(null)}
+              title={t('common.close')}
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
 
-        <div
-          className={`rounded-lg border border-[rgba(255,255,255,0.12)] bg-surface-dark/92 p-3 backdrop-blur-md transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out ${
-            isDockOpen
-              ? 'shadow-[0_20px_44px_rgba(0,0,0,0.32)]'
-              : 'shadow-[0_14px_30px_rgba(0,0,0,0.24)]'
-          }`}
-        >
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="w-[220px] shrink-0 sm:w-[240px]">
-              <UiSelect
-                aria-label={t('assets.library')}
-                value={assetLibraryId ?? ''}
-                onChange={(event) =>
-                  setCurrentProjectAssetLibrary(event.target.value.trim() || null)
-                }
-                className="h-10 text-sm"
-              >
-                <option value="">{t('assets.selectLibrary')}</option>
-                {libraries.map((library) => (
-                  <option key={library.id} value={library.id}>
-                    {library.name}
-                  </option>
-                ))}
-              </UiSelect>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              {ASSET_CATEGORIES.map((category) => {
-                const isActive = visibleCategory === category;
-                return (
-                  <UiButton
-                    key={category}
-                    type="button"
-                    variant={isActive ? 'primary' : 'ghost'}
-                    size="sm"
-                    className={`gap-1.5 rounded-xl px-2.5 ${
-                      !selectedLibrary ? 'opacity-45' : ''
-                    } transition-[transform,box-shadow,background-color,color] duration-200 ease-out ${
-                      isActive ? '-translate-y-px shadow-[0_10px_22px_rgba(0,0,0,0.16)]' : ''
-                    }`}
-                    disabled={!selectedLibrary}
-                    onClick={() =>
-                      setActiveCategory((current) => (current === category ? null : category))
-                    }
-                  >
-                    {resolveCategoryIcon(category)}
-                    <span>{resolveCategoryLabel(t, category)}</span>
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
-                        isActive ? 'bg-black/15 text-white' : 'bg-black/10 text-text-muted'
-                      }`}
-                    >
-                      {categoryStats[category]}
-                    </span>
-                  </UiButton>
-                );
-              })}
-
-              {isDetachedPanelOpen ? (
-                <UiButton
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="gap-1.5 rounded-xl px-2.5"
-                  onClick={() => void handleOpenDetachedPanel()}
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  <span>{t('assets.focusDetachedPanel')}</span>
-                </UiButton>
-              ) : null}
-            </div>
-          </div>
-
-          {isPanelMounted && visibleCategory && selectedLibrary ? (
             <div
-              className={`mt-2 overflow-hidden rounded-lg border border-[rgba(255,255,255,0.08)] bg-bg-dark/35 transition-[height,opacity,transform,margin] duration-200 ease-out ${
-                isPanelVisible ? 'translate-y-0 opacity-100' : 'pointer-events-none -translate-y-1 opacity-0'
+              role="separator"
+              aria-label={t('assets.resizeDockHeight')}
+              aria-orientation="horizontal"
+              aria-valuemin={DOCK_PANEL_MIN_HEIGHT_PX}
+              aria-valuemax={resolveDockPanelMaxHeight()}
+              aria-valuenow={dockPanelHeight}
+              tabIndex={0}
+              className={`absolute left-8 right-8 top-0 z-10 flex h-4 -translate-y-1/2 cursor-row-resize items-center justify-center rounded-full outline-none transition-opacity duration-200 focus-visible:ring-2 focus-visible:ring-accent/70 ${
+                isPanelVisible ? 'opacity-100' : 'pointer-events-none opacity-0'
               }`}
+              onPointerDown={handleStartPanelResize}
+              onKeyDown={handlePanelResizeKeyDown}
+              title={t('assets.resizeDockHeight')}
+            >
+              <span
+                className={`h-1 w-24 rounded-full border border-white/[0.08] bg-white/[0.12] shadow-[0_6px_18px_rgba(0,0,0,0.24)] transition-[background-color,border-color,width] ${
+                  isPanelResizing
+                    ? 'w-32 border-accent/35 bg-accent/35'
+                    : 'hover:border-white/[0.16] hover:bg-white/[0.2]'
+                }`}
+              />
+            </div>
+
+            <div
+              className="absolute inset-x-0 bottom-0 overflow-hidden rounded-lg border border-[rgba(255,255,255,0.1)] bg-surface-dark/94 shadow-[0_24px_60px_rgba(0,0,0,0.38)] backdrop-blur-md"
               style={{
-                height: isPanelVisible ? `${dockPanelHeight}px` : '0px',
-                transitionDuration: isPanelResizing ? '0ms' : undefined,
+                height: '100%',
               }}
             >
               <div
                 className={`h-full min-h-0 p-3 transition-[opacity,transform] duration-200 ease-out ${
-                  isPanelVisible ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0'
+                  isPanelVisible ? 'translate-y-0 opacity-100' : 'translate-y-4 opacity-0'
                 }`}
               >
                 <div className="space-y-2.5">
@@ -748,7 +679,7 @@ export function CanvasAssetDock() {
                                 ? `${Math.min(index, 7) * 18}ms`
                                 : '0ms',
                             }}
-                            title={t('assets.dragHint')}
+                            title={item.name}
                           >
                             {item.mediaType === 'audio' ? (
                               <div className="flex h-[72px] w-full flex-col justify-between rounded-md border border-[rgba(255,255,255,0.08)] bg-[linear-gradient(160deg,rgba(255,255,255,0.07),rgba(255,255,255,0.02))] px-3 py-2">
@@ -788,10 +719,85 @@ export function CanvasAssetDock() {
                       </div>
                     </div>
                   )}
-                  </div>
+                </div>
               </div>
             </div>
-          ) : null}
+          </div>
+        ) : null}
+
+        <div
+          className={`rounded-lg border border-[rgba(255,255,255,0.12)] bg-surface-dark/92 p-3 backdrop-blur-md transition-[transform,box-shadow,border-color,background-color] duration-200 ease-out ${
+            isDockOpen
+              ? 'shadow-[0_20px_44px_rgba(0,0,0,0.32)]'
+              : 'shadow-[0_14px_30px_rgba(0,0,0,0.24)]'
+          }`}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-[220px] shrink-0 sm:w-[240px]">
+              <UiSelect
+                aria-label={t('assets.library')}
+                value={assetLibraryId ?? ''}
+                onChange={(event) =>
+                  setCurrentProjectAssetLibrary(event.target.value.trim() || null)
+                }
+                className="h-10 text-sm"
+              >
+                <option value="">{t('assets.selectLibrary')}</option>
+                {libraries.map((library) => (
+                  <option key={library.id} value={library.id}>
+                    {library.name}
+                  </option>
+                ))}
+              </UiSelect>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {ASSET_CATEGORIES.map((category) => {
+                const isActive = visibleCategory === category;
+                return (
+                  <UiButton
+                    key={category}
+                    type="button"
+                    variant={isActive ? 'primary' : 'ghost'}
+                    size="sm"
+                    className={`gap-1.5 rounded-xl px-2.5 ${
+                      !selectedLibrary ? 'opacity-45' : ''
+                    } transition-[transform,box-shadow,background-color,color] duration-200 ease-out ${
+                      isActive ? '-translate-y-px shadow-[0_10px_22px_rgba(0,0,0,0.16)]' : ''
+                    }`}
+                    disabled={!selectedLibrary}
+                    onClick={() =>
+                      setActiveCategory((current) => (current === category ? null : category))
+                    }
+                  >
+                    {resolveCategoryIcon(category)}
+                    <span>{resolveCategoryLabel(t, category)}</span>
+                    <span
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
+                        isActive ? 'bg-black/15 text-white' : 'bg-black/10 text-text-muted'
+                      }`}
+                    >
+                      {categoryStats[category]}
+                    </span>
+                  </UiButton>
+                );
+              })}
+
+              {isDetachedPanelOpen ? (
+                <UiButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 rounded-xl px-2.5"
+                  onClick={() => void handleOpenDetachedPanel()}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>{t('assets.focusDetachedPanel')}</span>
+                </UiButton>
+              ) : null}
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

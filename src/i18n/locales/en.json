@@ -493,7 +493,8 @@
         "unresolved": "{{count}} unresolved",
         "skipped": "{{count}} skipped"
       }
-    }
+    },
+    "transferToCanvas": "Send to Canvas"
   },
   "tool": {
     "crop": "Crop",
@@ -2786,6 +2787,31 @@
         "newHint": "Create a new script storyboard table node on the right and keep the old result for comparison.",
         "cancel": "Cancel"
       }
+    },
+    "canvasSelectionTransfer": {
+      "title": "Send to Canvas",
+      "modeNew": "New Canvas",
+      "modeNewHint": "Create a same-type canvas and copy the selected nodes into it.",
+      "modeExisting": "Existing Canvas",
+      "modeExistingHint": "Choose a same-type canvas and append the selected nodes there.",
+      "newNameLabel": "New Canvas Name",
+      "newNamePlaceholder": "Enter a new canvas name",
+      "existingLabel": "Target Canvas",
+      "existingPlaceholder": "Choose a same-type canvas",
+      "noCandidates": "No same-type canvas is available yet. You can create a new one instead.",
+      "recommended": "Recommended",
+      "candidateMeta": "{{count}} node(s) · Updated {{value}}",
+      "defaultProjectName": "{{source}} - Copy",
+      "confirm": "Send Nodes",
+      "submitting": "Sending...",
+      "errors": {
+        "generic": "Failed to send nodes. Please try again.",
+        "noSourceProject": "Current canvas was not found.",
+        "noNodes": "No nodes are available to send.",
+        "sameProject": "Cannot send nodes to the current canvas.",
+        "targetProjectMissing": "Target canvas no longer exists.",
+        "typeMismatch": "Nodes can only be sent to a same-type canvas."
+      }
     }
   },
   "adProject": {
@@ -3399,7 +3425,7 @@
     "storyboardCustomModelDisplayNamePlaceholder": "Display name, for example Banana Pro",
     "storyboardNewApiCustomModelType": "Model Type",
     "storyboardNewApiCustomModelTypePlaceholder": "Choose a NewAPI model type",
-    "storyboardNewApiCustomModelTypeGptImage2": "all-image-2 (OpenAI Images)",
+    "storyboardNewApiCustomModelTypeGptImage2": "gpt-image-2 (OpenAI Images)",
     "storyboardNewApiCustomModelTypeGoogleImage": "Google/Gemini Image",
     "storyboardNewApiCustomModelTypeOpenaiCompatible": "OpenAI Compatible Fallback",
     "addProvider": "Add Provider",
@@ -3421,7 +3447,7 @@
     "storyboardCompatibleHint": "Save after setting the request format, endpoint URL, and compatible model list. Compatible models without a valid endpoint will not appear in the AI image node or storyboard node model lists.",
     "storyboardCompatibleNoConnectionTest": "This experimental compatible entry does not reuse the current text connection test. Save it first, then verify the generation flow directly from a storyboard node.",
     "storyboardNewApiTitle": "NewAPI Image API",
-    "storyboardNewApiDesc": "Configure only the endpoint URL and default request format here. Add and switch specific models in the model selection section above. When adding NewAPI models, classify them as all-image-2, Google/Gemini image, or OpenAI compatible fallback.",
+    "storyboardNewApiDesc": "Configure only the endpoint URL and default request format here. Add and switch specific models in the model selection section above. When adding NewAPI models, classify them as gpt-image-2, Google/Gemini image, or OpenAI compatible fallback.",
     "storyboardNewApiFormat": "Request Format",
     "storyboardNewApiFormatOpenai": "OpenAI Compatible",
     "storyboardNewApiFormatOpenaiImages": "OpenAI Images Direct",
@@ -3458,6 +3484,20 @@
     "edgeRoutingSpline": "Spline",
     "edgeRoutingOrthogonal": "Orthogonal",
     "edgeRoutingSmartOrthogonal": "Smart Avoidance (Orthogonal)",
+    "canvasPerformance": "Canvas Performance",
+    "canvasPerformanceDesc": "Tune overview rendering and viewport preloading for large projects. Defaults favor stability.",
+    "canvasOverviewZoomThreshold": "Overview Zoom Threshold",
+    "canvasOverviewZoomThresholdDesc": "Switch to lightweight overview rendering below this zoom level.",
+    "canvasOverviewZoomThresholdOption": "{{percent}}%",
+    "canvasOverviewThumbnailSize": "Overview Thumbnail Size",
+    "canvasOverviewThumbnailSizeDesc": "Larger thumbnails look clearer but use more disk, GPU memory, and decode time.",
+    "canvasOverviewThumbnailSizeOption": "{{size}} px",
+    "canvasThumbnailMediaCountThreshold": "Large Project Thumbnail Threshold",
+    "canvasThumbnailMediaCountThresholdDesc": "When image count exceeds this value, nodes prefer thumbnails to reduce rendering load.",
+    "canvasThumbnailMediaCountThresholdOption": "{{count}} images",
+    "canvasViewportPreloadMargin": "Viewport Preload Range",
+    "canvasViewportPreloadMarginDesc": "Preload extra screens around the current viewport. Larger ranges feel smoother but do more background work.",
+    "canvasViewportPreloadMarginOption": "{{count}} screen margin",
     "accentColor": "Accent Color",
     "accentColorDesc": "Used by buttons, selected borders, and interaction highlights.",
     "resetAccentColor": "Reset",
@@ -4798,7 +4838,8 @@
     "title": "3D Director Stage",
     "headerMeta": "{{objects}} objects / {{shots}} shots",
     "assetPack": {
-      "a3d": "A3D Preset Assets"
+      "a3d": "A3D Preset Assets",
+      "geometry": "Basic Geometry"
     },
     "tabs": {
       "a3d": "Built-in Presets",
@@ -4807,7 +4848,13 @@
     "assets": {
       "lily": "Lily",
       "xbot": "Xbot",
-      "mannequin": "Mannequin"
+      "mannequin": "Mannequin",
+      "box": "Box",
+      "sphere": "Sphere",
+      "cylinder": "Cylinder",
+      "cone": "Cone",
+      "plane": "Plane",
+      "torus": "Torus"
     },
     "assetCard": {
       "poseCount": "{{count}} poses"
@@ -4995,6 +5042,20 @@
       "saved": "Project saved",
       "snapshotSent": "Snapshot sent to canvas",
       "modelLoadFailed": "Model failed to load"
+    },
+    "planeSurface": {
+      "title": "Plane",
+      "aspectRatio": "Aspect Ratio",
+      "customAspectRatio": "Custom",
+      "image": "Image",
+      "chooseImage": "Choose Image",
+      "removeImage": "Remove Image",
+      "noImage": "No image selected",
+      "fitMode": "Display Mode",
+      "fitContain": "Fit",
+      "fitStretch": "Stretch",
+      "imageFilter": "Image",
+      "imageLoadFailed": "Plane image failed to load"
     }
   },
   "scriptStoryboardTable": {

@@ -19,6 +19,7 @@ import {
 import { EXPORT_RESULT_DISPLAY_NAME } from '@/features/canvas/domain/nodeDisplay';
 import { getToolPlugin, type CanvasToolPlugin, type ToolOptions } from '@/features/canvas/tools';
 import { useCanvasStore } from '@/stores/canvasStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 import { canvasToolProcessor } from './canvasServices';
 import { resolveErrorContent } from './errorDialog';
@@ -221,7 +222,12 @@ export async function applyNodeToolResult({
   }
 
   if (result.outputImageUrl) {
-    const prepared = await prepareNodeImage(result.outputImageUrl);
+    const prepared = await prepareNodeImage(
+      result.outputImageUrl,
+      undefined,
+      undefined,
+      useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
+    );
     const createdNodeId = addDerivedExportNode(
       sourceNode.id,
       prepared.imageUrl,
@@ -229,6 +235,7 @@ export async function applyNodeToolResult({
       prepared.previewImageUrl,
       {
         thumbnailUrl: prepared.thumbnailImageUrl,
+        thumbnailMaxDimension: prepared.thumbnailMaxDimension,
         defaultTitle: resolveResultNodeTitle(toolType, t),
         resultKind: 'generic',
         aspectRatioStrategy: 'provided',

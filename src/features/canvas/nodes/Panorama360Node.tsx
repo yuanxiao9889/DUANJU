@@ -59,6 +59,7 @@ import {
   useCanvasNodeById,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type Panorama360NodeProps = NodeProps & {
   id: string;
@@ -197,6 +198,9 @@ export const Panorama360Node = memo(
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const addEdge = useCanvasStore((state) => state.addEdge);
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
 
     const viewerHostRef = useRef<HTMLDivElement | null>(null);
     const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -695,7 +699,12 @@ export const Panorama360Node = memo(
         resolveDisplayName: (screenshotIndex: number) => string,
         placementIndex?: number,
       ) => {
-        const prepared = await prepareNodeImage(screenshotDataUrl);
+        const prepared = await prepareNodeImage(
+          screenshotDataUrl,
+          undefined,
+          undefined,
+          canvasOverviewThumbnailMaxDimension,
+        );
         if (!currentNodePosition) {
           throw new Error(t("node.panorama360.screenshotFailed"));
         }
@@ -735,6 +744,8 @@ export const Panorama360Node = memo(
           {
             imageUrl: prepared.imageUrl,
             previewImageUrl: prepared.previewImageUrl,
+            thumbnailUrl: prepared.thumbnailImageUrl,
+            thumbnailMaxDimension: prepared.thumbnailMaxDimension,
             aspectRatio: prepared.aspectRatio,
             displayName: resolveDisplayName(screenshotIndex),
           },
@@ -742,7 +753,15 @@ export const Panorama360Node = memo(
         );
         addEdge(id, newNodeId);
       },
-      [addEdge, addNode, currentNodePosition, id, resolvedWidth, t],
+      [
+        addEdge,
+        addNode,
+        canvasOverviewThumbnailMaxDimension,
+        currentNodePosition,
+        id,
+        resolvedWidth,
+        t,
+      ],
     );
 
     const handleScreenshot = useCallback(

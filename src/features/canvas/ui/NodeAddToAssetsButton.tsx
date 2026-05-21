@@ -19,6 +19,7 @@ import {
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 interface NodeAddToAssetsButtonProps {
   node: CanvasNode;
@@ -345,7 +346,8 @@ export function NodeAddToAssetsButton({
               const prepared = await prepareNodeImage(
                 mediaSource,
                 undefined,
-                createSharedMediaContext('image')
+                createSharedMediaContext('image'),
+                useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
               );
               return await createItem({
                 libraryId: targetLibrary.id,

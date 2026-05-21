@@ -23,6 +23,7 @@ const STORYBOARD_METADATA_PNG_TEXT_KEY: &str = "StoryboardCopilotMetadata";
 const FAST_PREVIEW_BYPASS_MAX_BYTES: usize = 2_000_000;
 const FAST_PREVIEW_BYPASS_MAX_DIMENSION: u32 = 2048;
 const OVERVIEW_THUMBNAIL_MAX_DIMENSION: u32 = 96;
+const ALLOWED_OVERVIEW_THUMBNAIL_MAX_DIMENSIONS: [u32; 4] = [96, 128, 256, 512];
 const IMAGE_SOURCE_CONNECT_TIMEOUT_SECONDS: u64 = 10;
 const IMAGE_SOURCE_TOTAL_TIMEOUT_SECONDS: u64 = 45;
 const DEFAULT_API_REFERENCE_MAX_DIMENSION: u32 = 2048;
@@ -404,6 +405,7 @@ pub struct PrepareNodeImageResult {
     pub image_path: String,
     pub preview_image_path: String,
     pub thumbnail_image_path: String,
+    pub thumbnail_max_dimension: u32,
     pub aspect_ratio: String,
 }
 
@@ -876,6 +878,15 @@ fn persist_thumbnail_image(
     persist_image_bytes_with_role(app, &encoded, "png", media_context, "thumbnail")
 }
 
+fn normalize_overview_thumbnail_max_dimension(input: Option<u32>) -> u32 {
+    let requested = input.unwrap_or(OVERVIEW_THUMBNAIL_MAX_DIMENSION);
+    if ALLOWED_OVERVIEW_THUMBNAIL_MAX_DIMENSIONS.contains(&requested) {
+        requested
+    } else {
+        OVERVIEW_THUMBNAIL_MAX_DIMENSION
+    }
+}
+
 fn image_has_transparency(source: &DynamicImage) -> bool {
     source.to_rgba8().pixels().any(|pixel| pixel.0[3] < 255)
 }
@@ -1014,6 +1025,7 @@ fn prepare_node_image_from_bytes(
     bytes: &[u8],
     extension: &str,
     safe_max_dimension: u32,
+    safe_thumbnail_max_dimension: u32,
     trace_tag: &str,
     media_context: Option<MediaPersistContext>,
 ) -> Result<PrepareNodeImageResult, String> {
@@ -1032,7 +1044,7 @@ fn prepare_node_image_from_bytes(
     let image_path = persist_image_bytes(app, bytes, extension, media_context.as_ref())?;
     let persist_elapsed = persist_started.elapsed().as_millis();
     let longest_side = width.max(height);
-    let needs_thumbnail = longest_side > OVERVIEW_THUMBNAIL_MAX_DIMENSION;
+    let needs_thumbnail = longest_side > safe_thumbnail_max_dimension;
     let bypass_preview = longest_side <= safe_max_dimension
         || (bytes.len() <= FAST_PREVIEW_BYPASS_MAX_BYTES
             && longest_side <= FAST_PREVIEW_BYPASS_MAX_DIMENSION);
@@ -1053,6 +1065,7 @@ fn prepare_node_image_from_bytes(
             image_path: image_path.clone(),
             preview_image_path: image_path.clone(),
             thumbnail_image_path: image_path,
+            thumbnail_max_dimension: safe_thumbnail_max_dimension,
             aspect_ratio: reduce_aspect_ratio(width, height),
         });
     }
@@ -1097,7 +1110,7 @@ fn prepare_node_image_from_bytes(
         persist_thumbnail_image(
             app,
             &image,
-            OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+            safe_thumbnail_max_dimension,
             media_context.as_ref(),
         )?
     } else {
@@ -1124,6 +1137,7 @@ fn prepare_node_image_from_bytes(
         image_path,
         preview_image_path,
         thumbnail_image_path,
+        thumbnail_max_dimension: safe_thumbnail_max_dimension,
         aspect_ratio: reduce_aspect_ratio(width, height),
     })
 }
@@ -1131,6 +1145,7 @@ fn prepare_node_image_from_bytes(
 fn create_node_thumbnail_from_bytes(
     app: &AppHandle,
     bytes: &[u8],
+    safe_thumbnail_max_dimension: u32,
     media_context: Option<MediaPersistContext>,
 ) -> Result<String, String> {
     let (raw_width, raw_height) = ImageReader::new(Cursor::new(bytes))
@@ -1140,7 +1155,7 @@ fn create_node_thumbnail_from_bytes(
         .map_err(|e| format!("Failed to parse image dimensions: {}", e))?;
     let width = raw_width.max(1);
     let height = raw_height.max(1);
-    if width.max(height) <= OVERVIEW_THUMBNAIL_MAX_DIMENSION {
+    if width.max(height) <= safe_thumbnail_max_dimension {
         return Err("Image is already within thumbnail size".to_string());
     }
 
@@ -1149,7 +1164,7 @@ fn create_node_thumbnail_from_bytes(
     persist_thumbnail_image(
         app,
         &image,
-        OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+        safe_thumbnail_max_dimension,
         media_context.as_ref(),
     )
 }
@@ -1159,6 +1174,7 @@ pub async fn prepare_node_image_source(
     app: AppHandle,
     source: String,
     max_preview_dimension: Option<u32>,
+    max_thumbnail_dimension: Option<u32>,
     media_context: Option<MediaPersistContext>,
 ) -> Result<PrepareNodeImageResult, String> {
     let started = Instant::now();
@@ -1168,6 +1184,8 @@ pub async fn prepare_node_image_source(
     }
 
     let safe_max_dimension = max_preview_dimension.unwrap_or(256).clamp(64, 4096);
+    let safe_thumbnail_max_dimension =
+        normalize_overview_thumbnail_max_dimension(max_thumbnail_dimension);
     let resolve_started = Instant::now();
     let (bytes, extension) = resolve_source_bytes(trimmed).await?;
     let resolve_elapsed = resolve_started.elapsed().as_millis();
@@ -1181,6 +1199,7 @@ pub async fn prepare_node_image_source(
             &bytes,
             &extension,
             safe_max_dimension,
+            safe_thumbnail_max_dimension,
             "source",
             blocking_media_context,
         )
@@ -1203,6 +1222,7 @@ pub async fn prepare_node_image_binary(
     bytes: Vec<u8>,
     extension: Option<String>,
     max_preview_dimension: Option<u32>,
+    max_thumbnail_dimension: Option<u32>,
     media_context: Option<MediaPersistContext>,
 ) -> Result<PrepareNodeImageResult, String> {
     let started = Instant::now();
@@ -1211,6 +1231,8 @@ pub async fn prepare_node_image_binary(
     }
 
     let safe_max_dimension = max_preview_dimension.unwrap_or(256).clamp(64, 4096);
+    let safe_thumbnail_max_dimension =
+        normalize_overview_thumbnail_max_dimension(max_thumbnail_dimension);
     let resolved_extension = extension
         .as_deref()
         .map(normalize_extension)
@@ -1226,6 +1248,7 @@ pub async fn prepare_node_image_binary(
             &bytes,
             &resolved_extension,
             safe_max_dimension,
+            safe_thumbnail_max_dimension,
             "binary",
             blocking_media_context,
         )
@@ -1245,6 +1268,7 @@ pub async fn prepare_node_image_binary(
 pub async fn create_node_thumbnail_source(
     app: AppHandle,
     source: String,
+    max_dimension: Option<u32>,
     media_context: Option<MediaPersistContext>,
 ) -> Result<String, String> {
     let trimmed = source.trim();
@@ -1253,10 +1277,16 @@ pub async fn create_node_thumbnail_source(
     }
 
     let (bytes, _extension) = resolve_source_bytes(trimmed).await?;
+    let safe_thumbnail_max_dimension = normalize_overview_thumbnail_max_dimension(max_dimension);
     let app_handle = app.clone();
     let blocking_media_context = media_context.clone();
     match tokio::task::spawn_blocking(move || {
-        create_node_thumbnail_from_bytes(&app_handle, &bytes, blocking_media_context)
+        create_node_thumbnail_from_bytes(
+            &app_handle,
+            &bytes,
+            safe_thumbnail_max_dimension,
+            blocking_media_context,
+        )
     })
     .await
     .map_err(|e| format!("Failed to join thumbnail task: {}", e))?
@@ -2643,6 +2673,7 @@ pub async fn ensure_local_image_preview_path(
         app.clone(),
         readable_source_path.to_string_lossy().to_string(),
         max_preview_dimension,
+        None,
         None,
     )
     .await?;

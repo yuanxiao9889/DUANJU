@@ -122,6 +122,9 @@ export const VideoNode = memo(
     const useUploadFilenameAsNodeTitle = useSettingsStore(
       (state) => state.useUploadFilenameAsNodeTitle,
     );
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
 
     const inputRef = useRef<HTMLInputElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -491,7 +494,12 @@ export const VideoNode = memo(
           );
         }
 
-        const prepared = await prepareNodeImage(dataUrl);
+        const prepared = await prepareNodeImage(
+          dataUrl,
+          undefined,
+          undefined,
+          canvasOverviewThumbnailMaxDimension,
+        );
 
         if (!nodePosition) {
           showScreenshotStatus(
@@ -516,6 +524,8 @@ export const VideoNode = memo(
           {
             imageUrl: prepared.imageUrl,
             previewImageUrl: prepared.previewImageUrl,
+            thumbnailUrl: prepared.thumbnailImageUrl,
+            thumbnailMaxDimension: prepared.thumbnailMaxDimension,
             aspectRatio: prepared.aspectRatio,
             displayName: t("node.videoNode.screenshotName", {
               name: data.videoFileName || t("node.videoNode.title"),
@@ -552,6 +562,7 @@ export const VideoNode = memo(
     }, [
       addEdge,
       addNode,
+      canvasOverviewThumbnailMaxDimension,
       data.videoFileName,
       data.videoUrl,
       id,
@@ -678,6 +689,7 @@ export const VideoNode = memo(
             posterDataUrl,
             640,
             createCurrentProjectMediaContext("image", "preview"),
+            canvasOverviewThumbnailMaxDimension,
           );
           const nextPreviewImageUrl =
             preparedPoster.previewImageUrl ?? preparedPoster.imageUrl;
@@ -685,6 +697,7 @@ export const VideoNode = memo(
             updateNodeData(id, {
               previewImageUrl: nextPreviewImageUrl,
               thumbnailUrl: preparedPoster.thumbnailImageUrl,
+              thumbnailMaxDimension: preparedPoster.thumbnailMaxDimension,
             });
           }
         } catch (error) {
@@ -700,6 +713,7 @@ export const VideoNode = memo(
         cancelled = true;
       };
     }, [
+      canvasOverviewThumbnailMaxDimension,
       data.duration,
       data.previewImageUrl,
       data.videoUrl,

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { Node } from '@xyflow/react';
-import { Download, FolderPlus, ImagePlus } from 'lucide-react';
+import { Download, FolderPlus, ImagePlus, Send } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiLoadingAnimation } from '@/components/ui';
@@ -17,6 +17,7 @@ interface SelectionGroupBarProps {
   assetAddableCount?: number;
   onAddSelectedToAssets?: () => void;
   isAddingSelectedToAssets?: boolean;
+  onTransferSelected?: () => void;
 }
 
 export function SelectionGroupBar({
@@ -28,6 +29,7 @@ export function SelectionGroupBar({
   assetAddableCount = 0,
   onAddSelectedToAssets,
   isAddingSelectedToAssets = false,
+  onTransferSelected,
 }: SelectionGroupBarProps) {
   const { t } = useTranslation();
   const viewport = useCanvasStore((state) => state.currentViewport);
@@ -93,6 +95,16 @@ export function SelectionGroupBar({
               <ImagePlus className="h-4 w-4 text-accent" />
             )}
             <span>{t('selection.addSelectedToAssets')}</span>
+          </button>
+        ) : null}
+        {onTransferSelected ? (
+          <button
+            type="button"
+            onClick={onTransferSelected}
+            className="flex items-center gap-2 rounded-full border border-border-dark/70 bg-surface-dark/95 px-3 py-2 text-sm font-medium text-text-dark shadow-[0_10px_24px_rgba(0,0,0,0.28)] transition-colors hover:border-accent/40 hover:bg-surface-dark"
+          >
+            <Send className="h-4 w-4 text-accent" />
+            <span>{t('selection.transferToCanvas')}</span>
           </button>
         ) : null}
       </div>

@@ -411,6 +411,7 @@ export interface NodeImageData extends NodeDisplayData {
   imageUrl: string | null;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   aspectRatio: string;
   imageWidth?: number;
   imageHeight?: number;
@@ -465,6 +466,7 @@ export interface StoryboardProductionImageResult {
   imageUrl: string;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   aspectRatio?: string | null;
   generationSummary?: ExportImageGenerationSummary | null;
   createdAt: number;
@@ -500,6 +502,7 @@ export interface ImageCompareNodeImageSnapshot {
   imageUrl: string | null;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   aspectRatio: string;
   displayName?: string | null;
 }
@@ -622,6 +625,7 @@ export interface VideoNodeData extends NodeDisplayData {
   videoUrl: string | null;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   videoFileName?: string | null;
   descriptionText?: string | null;
   clipLibraryId?: string | null;
@@ -907,6 +911,8 @@ export interface ImageCollageLayerItem {
   sourceEdgeId: string;
   imageUrl: string;
   previewImageUrl?: string | null;
+  thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   placed: boolean;
   order: number;
   centerX: number;
@@ -964,6 +970,7 @@ export interface JimengGeneratedImageItem {
   imageUrl: string | null;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   aspectRatio: string;
   width?: number;
   height?: number;
@@ -976,6 +983,7 @@ export interface MjReferenceItem {
   imageUrl: string;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   sourceNodeId: string;
   sourceEdgeId: string;
   role: MjReferenceRole;
@@ -987,6 +995,7 @@ export interface MjBatchImageItem {
   imageUrl: string | null;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   sourceUrl?: string | null;
   index: number;
   aspectRatio: string;
@@ -1312,6 +1321,7 @@ export interface StoryboardFrameItem {
   imageUrl: string | null;
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   aspectRatio?: string;
   sourceNodeId?: string | null;
   sourceEdgeId?: string | null;
@@ -1507,6 +1517,9 @@ function normalizeStoryboardProductionImageResult(
     imageUrl,
     previewImageUrl: normalizeString(record.previewImageUrl).trim() || imageUrl,
     thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
+    thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+      ? Number(record.thumbnailMaxDimension)
+      : null,
     aspectRatio: normalizeString(record.aspectRatio).trim() || null,
     generationSummary: normalizeExportImageGenerationSummary(record.generationSummary),
     createdAt: Number.isFinite(record.createdAt) ? Number(record.createdAt) : Date.now(),
@@ -1656,6 +1669,9 @@ function normalizeMjReferenceItems(value: unknown): MjReferenceItem[] {
         imageUrl,
         previewImageUrl: previewImageUrl || null,
         thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
+        thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+          ? Number(record.thumbnailMaxDimension)
+          : null,
         sourceNodeId,
         sourceEdgeId,
         role: normalizeMjReferenceRole(record.role),
@@ -1742,6 +1758,9 @@ function normalizeMjBatchImageItems(value: unknown, fallbackAspectRatio: string)
         imageUrl: normalizeString(record.imageUrl).trim() || null,
         previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
         thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
+        thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+          ? Number(record.thumbnailMaxDimension)
+          : null,
         sourceUrl: normalizeString(record.sourceUrl).trim() || null,
         index: Math.max(0, Math.round(normalizeFiniteNumber(record.index, index))),
         aspectRatio: normalizeString(record.aspectRatio).trim() || fallbackAspectRatio,
@@ -1821,6 +1840,10 @@ function normalizeImageCollageLayerItems(value: unknown): ImageCollageLayerItem[
         sourceEdgeId,
         imageUrl,
         previewImageUrl,
+        thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
+        thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+          ? Number(record.thumbnailMaxDimension)
+          : null,
         placed: normalizeBooleanValue(record.placed),
         order: Math.round(normalizeFiniteNumber(record.order, index)),
         centerX: normalizeFiniteNumber(record.centerX, 0.5),
@@ -1891,9 +1914,16 @@ function normalizeImageCompareNodeImageSnapshot(
     imageUrl: normalizeString(record.imageUrl).trim() || null,
     previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
     thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
+    thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+      ? Number(record.thumbnailMaxDimension)
+      : null,
     aspectRatio: normalizeLooseAspectRatioValue(record.aspectRatio),
     displayName: normalizeString(record.displayName).trim() || null,
   };
+}
+
+function normalizeImageThumbnailMaxDimension(value: unknown): number | null {
+  return Number.isFinite(value) ? Number(value) : null;
 }
 
 function normalizeStaticImageCompareSnapshotData(
@@ -1911,6 +1941,9 @@ function normalizeStaticImageCompareSnapshotData(
     imageUrl: normalizeString(record.imageUrl).trim() || null,
     previewImageUrl: normalizeString(record.previewImageUrl).trim() || null,
     thumbnailUrl: normalizeString(record.thumbnailUrl).trim() || null,
+    thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+      ? Number(record.thumbnailMaxDimension)
+      : null,
     aspectRatio: normalizeLooseAspectRatioValue(record.aspectRatio),
     imageWidth: Number.isFinite(record.imageWidth) ? Number(record.imageWidth) : undefined,
     imageHeight: Number.isFinite(record.imageHeight) ? Number(record.imageHeight) : undefined,
@@ -1988,6 +2021,10 @@ function buildImageCompareNodeImageSnapshotFromRestorableNode(
     sourceNodeType: snapshot.type,
     imageUrl: snapshot.data.imageUrl,
     previewImageUrl: snapshot.data.previewImageUrl ?? snapshot.data.imageUrl,
+    thumbnailUrl: snapshot.data.thumbnailUrl ?? null,
+    thumbnailMaxDimension: normalizeImageThumbnailMaxDimension(
+      snapshot.data.thumbnailMaxDimension
+    ),
     aspectRatio: normalizeLooseAspectRatioValue(snapshot.data.aspectRatio),
     displayName: normalizeString(snapshot.data.displayName).trim() || null,
   };
@@ -6048,6 +6085,7 @@ export interface SingleImageConnectionSource {
   imageUrl: string;
   previewImageUrl: string;
   thumbnailUrl: string | null;
+  thumbnailMaxDimension: number | null;
   aspectRatio: string;
 }
 
@@ -6140,6 +6178,9 @@ export function resolveSingleImageConnectionSource(
       imageUrl,
       previewImageUrl: normalizeImageSource(node.data.previewImageUrl) ?? imageUrl,
       thumbnailUrl: normalizeImageSource(node.data.thumbnailUrl),
+      thumbnailMaxDimension: Number.isFinite(node.data.thumbnailMaxDimension)
+        ? Number(node.data.thumbnailMaxDimension)
+        : null,
       aspectRatio: normalizeImageSource(node.data.aspectRatio) ?? DEFAULT_ASPECT_RATIO,
     };
   }
@@ -6156,6 +6197,7 @@ export function resolveSingleImageConnectionSource(
       imageUrl,
       previewImageUrl: normalizeImageSource(node.data.lastSnapshotPreviewUrl) ?? imageUrl,
       thumbnailUrl: null,
+      thumbnailMaxDimension: null,
       aspectRatio: '16:9',
     };
   }
@@ -6176,6 +6218,9 @@ export function resolveSingleImageConnectionSource(
             ?? normalizeImageSource(item.sourceUrl)
             ?? imageUrl,
           thumbnailUrl: normalizeImageSource(item.thumbnailUrl),
+          thumbnailMaxDimension: Number.isFinite(item.thumbnailMaxDimension)
+            ? Number(item.thumbnailMaxDimension)
+            : null,
           aspectRatio:
             normalizeImageSource(item.aspectRatio)
             ?? normalizeImageSource(node.data.aspectRatio)

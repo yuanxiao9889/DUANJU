@@ -121,10 +121,23 @@ export type {
 export type UiRadiusPreset = 'compact' | 'default' | 'large';
 export type ThemeTonePreset = 'neutral' | 'warm' | 'cool';
 export type CanvasEdgeRoutingMode = 'spline' | 'orthogonal' | 'smartOrthogonal';
+export type CanvasOverviewZoomThreshold = 0.2 | 0.4 | 0.6;
+export type CanvasOverviewThumbnailMaxDimension = 96 | 128 | 256 | 512;
+export type CanvasThumbnailMediaCountThreshold = 100 | 250 | 500;
+export type CanvasViewportPreloadMarginScreens = 0 | 1 | 2;
 export type ProviderApiKeys = Record<string, string>;
 export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
 export type OfficialVideoProviderId = 'vidu' | 'volcengine';
 export type ThirdPartyVideoProviderId = 'oopii';
+
+export const CANVAS_OVERVIEW_ZOOM_THRESHOLD_OPTIONS = [0.2, 0.4, 0.6] as const;
+export const CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS = [96, 128, 256, 512] as const;
+export const CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD_OPTIONS = [100, 250, 500] as const;
+export const CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS_OPTIONS = [0, 1, 2] as const;
+export const DEFAULT_CANVAS_OVERVIEW_ZOOM_THRESHOLD: CanvasOverviewZoomThreshold = 0.4;
+export const DEFAULT_CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION: CanvasOverviewThumbnailMaxDimension = 256;
+export const DEFAULT_CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD: CanvasThumbnailMediaCountThreshold = 250;
+export const DEFAULT_CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS: CanvasViewportPreloadMarginScreens = 1;
 
 export interface ThirdPartyVideoProviderConfig {
   oopii: {
@@ -190,6 +203,10 @@ interface SettingsState {
   themeTonePreset: ThemeTonePreset;
   accentColor: string;
   canvasEdgeRoutingMode: CanvasEdgeRoutingMode;
+  canvasOverviewZoomThreshold: CanvasOverviewZoomThreshold;
+  canvasOverviewThumbnailMaxDimension: CanvasOverviewThumbnailMaxDimension;
+  canvasThumbnailMediaCountThreshold: CanvasThumbnailMediaCountThreshold;
+  canvasViewportPreloadMarginScreens: CanvasViewportPreloadMarginScreens;
   autoCheckAppUpdateOnLaunch: boolean;
   enableUpdateDialog: boolean;
   autoUpdateDreaminaCliOnLaunch: boolean;
@@ -290,6 +307,16 @@ interface SettingsState {
   setThemeTonePreset: (preset: ThemeTonePreset) => void;
   setAccentColor: (color: string) => void;
   setCanvasEdgeRoutingMode: (mode: CanvasEdgeRoutingMode) => void;
+  setCanvasOverviewZoomThreshold: (threshold: CanvasOverviewZoomThreshold | number) => void;
+  setCanvasOverviewThumbnailMaxDimension: (
+    dimension: CanvasOverviewThumbnailMaxDimension | number
+  ) => void;
+  setCanvasThumbnailMediaCountThreshold: (
+    threshold: CanvasThumbnailMediaCountThreshold | number
+  ) => void;
+  setCanvasViewportPreloadMarginScreens: (
+    marginScreens: CanvasViewportPreloadMarginScreens | number
+  ) => void;
   setAutoCheckAppUpdateOnLaunch: (enabled: boolean) => void;
   setEnableUpdateDialog: (enabled: boolean) => void;
   setAutoUpdateDreaminaCliOnLaunch: (enabled: boolean) => void;
@@ -624,6 +651,60 @@ function normalizeCanvasEdgeRoutingMode(
   return 'spline';
 }
 
+function normalizeNumberOption<T extends number>(
+  input: number | string | null | undefined,
+  options: readonly T[],
+  fallback: T
+): T {
+  const numericInput =
+    typeof input === 'number'
+      ? input
+      : typeof input === 'string'
+        ? Number(input)
+        : Number.NaN;
+  return options.includes(numericInput as T) ? (numericInput as T) : fallback;
+}
+
+function normalizeCanvasOverviewZoomThreshold(
+  input: CanvasOverviewZoomThreshold | number | string | null | undefined
+): CanvasOverviewZoomThreshold {
+  return normalizeNumberOption(
+    input,
+    CANVAS_OVERVIEW_ZOOM_THRESHOLD_OPTIONS,
+    DEFAULT_CANVAS_OVERVIEW_ZOOM_THRESHOLD
+  );
+}
+
+function normalizeCanvasOverviewThumbnailMaxDimension(
+  input: CanvasOverviewThumbnailMaxDimension | number | string | null | undefined
+): CanvasOverviewThumbnailMaxDimension {
+  return normalizeNumberOption(
+    input,
+    CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS,
+    DEFAULT_CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION
+  );
+}
+
+function normalizeCanvasThumbnailMediaCountThreshold(
+  input: CanvasThumbnailMediaCountThreshold | number | string | null | undefined
+): CanvasThumbnailMediaCountThreshold {
+  return normalizeNumberOption(
+    input,
+    CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD_OPTIONS,
+    DEFAULT_CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD
+  );
+}
+
+function normalizeCanvasViewportPreloadMarginScreens(
+  input: CanvasViewportPreloadMarginScreens | number | string | null | undefined
+): CanvasViewportPreloadMarginScreens {
+  return normalizeNumberOption(
+    input,
+    CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS_OPTIONS,
+    DEFAULT_CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS
+  );
+}
+
 function normalizeApiKeys(input: ProviderApiKeys | null | undefined): ProviderApiKeys {
   if (!input) {
     return {};
@@ -748,6 +829,10 @@ export const useSettingsStore = create<SettingsState>()(
       themeTonePreset: 'neutral',
       accentColor: '#3B82F6',
       canvasEdgeRoutingMode: 'spline',
+      canvasOverviewZoomThreshold: DEFAULT_CANVAS_OVERVIEW_ZOOM_THRESHOLD,
+      canvasOverviewThumbnailMaxDimension: DEFAULT_CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+      canvasThumbnailMediaCountThreshold: DEFAULT_CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD,
+      canvasViewportPreloadMarginScreens: DEFAULT_CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS,
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
       autoUpdateDreaminaCliOnLaunch: true,
@@ -1007,6 +1092,26 @@ export const useSettingsStore = create<SettingsState>()(
       setAccentColor: (color) => set({ accentColor: normalizeHexColor(color) }),
       setCanvasEdgeRoutingMode: (canvasEdgeRoutingMode) =>
         set({ canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(canvasEdgeRoutingMode) }),
+      setCanvasOverviewZoomThreshold: (canvasOverviewZoomThreshold) =>
+        set({
+          canvasOverviewZoomThreshold:
+            normalizeCanvasOverviewZoomThreshold(canvasOverviewZoomThreshold),
+        }),
+      setCanvasOverviewThumbnailMaxDimension: (canvasOverviewThumbnailMaxDimension) =>
+        set({
+          canvasOverviewThumbnailMaxDimension:
+            normalizeCanvasOverviewThumbnailMaxDimension(canvasOverviewThumbnailMaxDimension),
+        }),
+      setCanvasThumbnailMediaCountThreshold: (canvasThumbnailMediaCountThreshold) =>
+        set({
+          canvasThumbnailMediaCountThreshold:
+            normalizeCanvasThumbnailMediaCountThreshold(canvasThumbnailMediaCountThreshold),
+        }),
+      setCanvasViewportPreloadMarginScreens: (canvasViewportPreloadMarginScreens) =>
+        set({
+          canvasViewportPreloadMarginScreens:
+            normalizeCanvasViewportPreloadMarginScreens(canvasViewportPreloadMarginScreens),
+        }),
       setAutoCheckAppUpdateOnLaunch: (enabled) => set({ autoCheckAppUpdateOnLaunch: enabled }),
       setEnableUpdateDialog: (enabled) => set({ enableUpdateDialog: enabled }),
       setAutoUpdateDreaminaCliOnLaunch: (enabled) =>
@@ -1727,7 +1832,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'settings-storage',
-      version: 44,
+      version: 45,
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
@@ -1780,6 +1885,19 @@ export const useSettingsStore = create<SettingsState>()(
           alibabaTextModel?: string;
           codingModel?: string;
           canvasEdgeRoutingMode?: CanvasEdgeRoutingMode | string;
+          canvasOverviewZoomThreshold?: CanvasOverviewZoomThreshold | number | string;
+          canvasOverviewThumbnailMaxDimension?:
+            | CanvasOverviewThumbnailMaxDimension
+            | number
+            | string;
+          canvasThumbnailMediaCountThreshold?:
+            | CanvasThumbnailMediaCountThreshold
+            | number
+            | string;
+          canvasViewportPreloadMarginScreens?:
+            | CanvasViewportPreloadMarginScreens
+            | number
+            | string;
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
           autoUpdateDreaminaCliOnLaunch?: boolean;
@@ -2004,6 +2122,18 @@ export const useSettingsStore = create<SettingsState>()(
             normalizedScriptModelOverrides.coding || DEFAULT_CODING_MODEL,
           hideProviderGuidePopover: state.hideProviderGuidePopover ?? false,
           canvasEdgeRoutingMode: normalizeCanvasEdgeRoutingMode(state.canvasEdgeRoutingMode),
+          canvasOverviewZoomThreshold: normalizeCanvasOverviewZoomThreshold(
+            state.canvasOverviewZoomThreshold
+          ),
+          canvasOverviewThumbnailMaxDimension: normalizeCanvasOverviewThumbnailMaxDimension(
+            state.canvasOverviewThumbnailMaxDimension
+          ),
+          canvasThumbnailMediaCountThreshold: normalizeCanvasThumbnailMediaCountThreshold(
+            state.canvasThumbnailMediaCountThreshold
+          ),
+          canvasViewportPreloadMarginScreens: normalizeCanvasViewportPreloadMarginScreens(
+            state.canvasViewportPreloadMarginScreens
+          ),
           autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,
           enableUpdateDialog: state.enableUpdateDialog ?? true,
           autoUpdateDreaminaCliOnLaunch: state.autoUpdateDreaminaCliOnLaunch ?? true,

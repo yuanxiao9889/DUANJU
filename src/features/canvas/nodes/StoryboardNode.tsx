@@ -475,6 +475,7 @@ interface IncomingImageItem {
   imageUrl: string;
   previewImageUrl: string | null;
   thumbnailUrl?: string | null;
+  thumbnailMaxDimension?: number | null;
   aspectRatio?: string;
   displayUrl: string;
   label: string;
@@ -696,6 +697,9 @@ export const StoryboardNode = memo(
     const downloadPresetPaths = useSettingsStore(
       (state) => state.downloadPresetPaths,
     );
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
 
     const [draggedFrameId, setDraggedFrameId] = useState<string | null>(null);
     const [dropTargetFrameId, setDropTargetFrameId] = useState<string | null>(
@@ -789,6 +793,7 @@ export const StoryboardNode = memo(
             imageUrl: singleImageSource.imageUrl,
             previewImageUrl: singleImageSource.previewImageUrl,
             thumbnailUrl: singleImageSource.thumbnailUrl ?? null,
+            thumbnailMaxDimension: singleImageSource.thumbnailMaxDimension ?? null,
             aspectRatio: singleImageSource.aspectRatio,
           },
         ];
@@ -803,6 +808,7 @@ export const StoryboardNode = memo(
           imageUrl: item.imageUrl,
           previewImageUrl: item.previewImageUrl,
           thumbnailUrl: item.thumbnailUrl ?? null,
+          thumbnailMaxDimension: item.thumbnailMaxDimension ?? null,
           aspectRatio: item.aspectRatio,
           displayUrl: item.previewImageUrl || item.imageUrl,
           label: `图${index + 1}`,
@@ -910,6 +916,7 @@ export const StoryboardNode = memo(
           imageUrl: item.imageUrl,
           previewImageUrl: item.previewImageUrl ?? item.imageUrl,
           thumbnailUrl: item.thumbnailUrl ?? null,
+          thumbnailMaxDimension: item.thumbnailMaxDimension ?? null,
           aspectRatio: item.aspectRatio ?? frameAspectRatio,
           sourceNodeId: item.sourceNodeId,
           sourceEdgeId: item.sourceEdgeId,
@@ -1108,7 +1115,12 @@ export const StoryboardNode = memo(
               ? `分镜 ${frameIndex + 1}`
               : EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit;
 
-          const prepared = await prepareNodeImage(sourceImage);
+          const prepared = await prepareNodeImage(
+            sourceImage,
+            undefined,
+            undefined,
+            canvasOverviewThumbnailMaxDimension,
+          );
           const createdNodeId = addDerivedExportNode(
             id,
             prepared.imageUrl,
@@ -1116,6 +1128,7 @@ export const StoryboardNode = memo(
             prepared.previewImageUrl,
             {
               thumbnailUrl: prepared.thumbnailImageUrl,
+              thumbnailMaxDimension: prepared.thumbnailMaxDimension,
               defaultTitle: frameTitle,
               resultKind: "storyboardFrameEdit",
             },
@@ -1130,7 +1143,13 @@ export const StoryboardNode = memo(
           );
         }
       },
-      [addDerivedExportNode, addEdge, id, orderedFrames],
+      [
+        addDerivedExportNode,
+        addEdge,
+        canvasOverviewThumbnailMaxDimension,
+        id,
+        orderedFrames,
+      ],
     );
 
     const handleExport = useCallback(async () => {

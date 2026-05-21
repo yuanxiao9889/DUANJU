@@ -9,6 +9,7 @@ import {
   type DirectorStageTransform,
 } from '../domain/types';
 import { resolveDirectorStageModelUrl } from '../application/modelUrl';
+import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
 import { rememberDirectorStageBasePose } from './poseManager';
 
 const BLANK_TEXTURE_DATA_URL =
@@ -57,6 +58,13 @@ type MaterialWithColor = THREE.Material & {
 
 type MaterialWithTextureSlots = THREE.Material & Record<string, unknown>;
 
+type DirectorStagePrimitiveKind = 'box' | 'sphere' | 'cylinder' | 'cone' | 'plane' | 'torus';
+
+const PLANE_SURFACE_TEXTURE_KEY = 'directorStagePlaneSurfaceTexture';
+const PLANE_SURFACE_TEXTURE_SOURCE_KEY = 'directorStagePlaneSurfaceTextureSource';
+const PLANE_SURFACE_TEXTURE_STYLE_KEY = 'directorStagePlaneSurfaceTextureStyle';
+const PLANE_SURFACE_TEXTURE_SIZE = 1024;
+
 function isMesh(value: THREE.Object3D): value is THREE.Mesh {
   return (value as THREE.Mesh).isMesh === true;
 }
@@ -92,6 +100,55 @@ function createClayMaterial(color = '#f2f2ee'): THREE.MeshStandardMaterial {
     metalness: 0,
     envMapIntensity: 0.18,
   });
+}
+
+function parseDirectorStagePrimitivePath(modelPath: string): DirectorStagePrimitiveKind | null {
+  if (!modelPath.startsWith('primitive://')) {
+    return null;
+  }
+  const kind = modelPath.slice('primitive://'.length);
+  return kind === 'box'
+    || kind === 'sphere'
+    || kind === 'cylinder'
+    || kind === 'cone'
+    || kind === 'plane'
+    || kind === 'torus'
+    ? kind
+    : null;
+}
+
+function createDirectorStagePrimitiveGeometry(kind: DirectorStagePrimitiveKind): THREE.BufferGeometry {
+  switch (kind) {
+    case 'box':
+      return new THREE.BoxGeometry(1, 1, 1);
+    case 'sphere':
+      return new THREE.SphereGeometry(0.5, 48, 24);
+    case 'cylinder':
+      return new THREE.CylinderGeometry(0.45, 0.45, 1.4, 48);
+    case 'cone':
+      return new THREE.ConeGeometry(0.5, 1.4, 48);
+    case 'plane':
+      return new THREE.PlaneGeometry(1.6, 1.6);
+    case 'torus':
+      return new THREE.TorusGeometry(0.45, 0.12, 20, 56);
+    default:
+      return new THREE.BoxGeometry(1, 1, 1);
+  }
+}
+
+function createDirectorStagePrimitiveModel(kind: DirectorStagePrimitiveKind): THREE.Group {
+  const group = new THREE.Group();
+  const mesh = new THREE.Mesh(createDirectorStagePrimitiveGeometry(kind), createClayMaterial());
+  mesh.name = kind;
+  if (kind === 'plane') {
+    mesh.rotation.x = -Math.PI / 2;
+  }
+  group.add(mesh);
+  group.userData[CONTENT_ROOT_KEY] = mesh;
+  normalizeDirectorStageObjectContent(group);
+  rememberDirectorStageBasePose(group);
+  enableEntityShadows(group);
+  return group;
 }
 
 function getObjectBoxInParentSpace(object: THREE.Object3D): THREE.Box3 {
@@ -169,6 +226,11 @@ export async function loadDirectorStageModelSource(modelPath: string): Promise<T
 }
 
 async function loadDirectorStageModelSourceUncached(modelPath: string): Promise<THREE.Group> {
+  const primitiveKind = parseDirectorStagePrimitivePath(modelPath);
+  if (primitiveKind) {
+    return createDirectorStagePrimitiveModel(primitiveKind);
+  }
+
   const url = resolveDirectorStageModelUrl(modelPath);
   const lowerUrl = url.toLowerCase();
   const loaded = lowerUrl.includes('.fbx')
@@ -235,7 +297,166 @@ export function readEntityTransform(object: THREE.Object3D): DirectorStageTransf
 }
 
 export function applyEntityMaterial(object: THREE.Object3D, entity: DirectorStageEntity): void {
+  if (isDirectorStagePlaneSurfaceEntity(entity)) {
+    applyPlaneSurfaceMaterial(object, entity);
+    return;
+  }
   applyEntityColor(object, entity.color);
+}
+
+function isDirectorStagePlaneSurfaceEntity(entity: DirectorStageEntity): boolean {
+  return entity.source === 'geometry' && entity.modelPath === 'primitive://plane';
+}
+
+function disposePlaneSurfaceTexture(material: THREE.Material): void {
+  const texturedMaterial = material as MaterialWithTextureSlots;
+  const texture = texturedMaterial[PLANE_SURFACE_TEXTURE_KEY];
+  if (isThreeTexture(texture)) {
+    texture.dispose();
+  }
+  texturedMaterial[PLANE_SURFACE_TEXTURE_KEY] = null;
+  texturedMaterial[PLANE_SURFACE_TEXTURE_SOURCE_KEY] = null;
+  texturedMaterial[PLANE_SURFACE_TEXTURE_STYLE_KEY] = null;
+}
+
+function resetPlaneSurfaceMaterial(material: THREE.Material, color: string): void {
+  disposePlaneSurfaceTexture(material);
+  const texturedMaterial = material as MaterialWithTextureSlots;
+  if (isThreeTexture(texturedMaterial.map)) {
+    texturedMaterial.map.dispose();
+  }
+  texturedMaterial.map = null;
+  const coloredMaterial = material as MaterialWithColor;
+  if (isThreeColor(coloredMaterial.color)) {
+    coloredMaterial.color.set(color);
+  }
+  material.needsUpdate = true;
+}
+
+function buildPlaneSurfaceStyleKey(entity: DirectorStageEntity): string {
+  const surface = entity.planeSurface;
+  return [
+    entity.color,
+    surface?.fitMode ?? 'contain',
+    surface?.imageAspectRatio ?? 'unknown',
+    entity.transform.scale.x,
+    entity.transform.scale.z,
+  ].join('|');
+}
+
+function createPlaneSurfaceTexture(
+  sourceTexture: THREE.Texture,
+  entity: DirectorStageEntity
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = PLANE_SURFACE_TEXTURE_SIZE;
+  canvas.height = PLANE_SURFACE_TEXTURE_SIZE;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('Failed to create plane surface canvas');
+  }
+
+  context.fillStyle = entity.color;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const image = sourceTexture.image as CanvasImageSource | undefined;
+  if (!image) {
+    return new THREE.CanvasTexture(canvas);
+  }
+
+  const fitMode = entity.planeSurface?.fitMode ?? 'contain';
+  const imageAspectRatio = entity.planeSurface?.imageAspectRatio ?? 1;
+  const planeAspectRatio = entity.transform.scale.x / Math.max(entity.transform.scale.z, 0.001);
+  let drawWidth = canvas.width;
+  let drawHeight = canvas.height;
+  let drawX = 0;
+  let drawY = 0;
+
+  if (fitMode === 'contain' && Number.isFinite(imageAspectRatio) && Number.isFinite(planeAspectRatio)) {
+    if (imageAspectRatio > planeAspectRatio) {
+      drawHeight = canvas.width / imageAspectRatio * planeAspectRatio;
+      drawY = (canvas.height - drawHeight) / 2;
+    } else {
+      drawWidth = canvas.height * imageAspectRatio / planeAspectRatio;
+      drawX = (canvas.width - drawWidth) / 2;
+    }
+  }
+
+  context.drawImage(image, drawX, drawY, drawWidth, drawHeight);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function applyPlaneSurfaceMaterial(object: THREE.Object3D, entity: DirectorStageEntity): void {
+  const imagePath = entity.planeSurface?.imagePath?.trim() ?? '';
+  object.traverse((child) => {
+    if (!isMesh(child)) {
+      return;
+    }
+
+    const material = Array.isArray(child.material)
+      ? child.material[0] ?? createClayMaterial(entity.color)
+      : child.material;
+    child.material = material;
+    material.side = THREE.DoubleSide;
+
+    if (!imagePath) {
+      resetPlaneSurfaceMaterial(material, entity.color);
+      return;
+    }
+
+    const texturedMaterial = material as MaterialWithTextureSlots;
+    const existingSource = typeof texturedMaterial[PLANE_SURFACE_TEXTURE_SOURCE_KEY] === 'string'
+      ? texturedMaterial[PLANE_SURFACE_TEXTURE_SOURCE_KEY]
+      : null;
+    const styleKey = buildPlaneSurfaceStyleKey(entity);
+    const existingStyle = typeof texturedMaterial[PLANE_SURFACE_TEXTURE_STYLE_KEY] === 'string'
+      ? texturedMaterial[PLANE_SURFACE_TEXTURE_STYLE_KEY]
+      : null;
+    const existingTexture = texturedMaterial[PLANE_SURFACE_TEXTURE_KEY];
+    if (existingSource === imagePath && existingStyle === styleKey && isThreeTexture(existingTexture)) {
+      texturedMaterial.map = existingTexture;
+      const coloredMaterial = material as MaterialWithColor;
+      if (isThreeColor(coloredMaterial.color)) {
+        coloredMaterial.color.set('#ffffff');
+      }
+      material.needsUpdate = true;
+      return;
+    }
+
+    disposePlaneSurfaceTexture(material);
+    texturedMaterial[PLANE_SURFACE_TEXTURE_SOURCE_KEY] = imagePath;
+    texturedMaterial[PLANE_SURFACE_TEXTURE_STYLE_KEY] = styleKey;
+    const loader = new THREE.TextureLoader();
+    loader.load(
+      resolveImageDisplayUrl(imagePath),
+      (sourceTexture) => {
+        if (
+          texturedMaterial[PLANE_SURFACE_TEXTURE_SOURCE_KEY] !== imagePath
+          || texturedMaterial[PLANE_SURFACE_TEXTURE_STYLE_KEY] !== styleKey
+        ) {
+          sourceTexture.dispose();
+          return;
+        }
+        const texture = createPlaneSurfaceTexture(sourceTexture, entity);
+        sourceTexture.dispose();
+        texturedMaterial.map = texture;
+        texturedMaterial[PLANE_SURFACE_TEXTURE_KEY] = texture;
+        const coloredMaterial = material as MaterialWithColor;
+        if (isThreeColor(coloredMaterial.color)) {
+          coloredMaterial.color.set('#ffffff');
+        }
+        material.needsUpdate = true;
+      },
+      undefined,
+      () => {
+        if (texturedMaterial[PLANE_SURFACE_TEXTURE_SOURCE_KEY] === imagePath) {
+          resetPlaneSurfaceMaterial(material, entity.color);
+        }
+      }
+    );
+  });
 }
 
 export function applyDirectorStageClayMaterials(object: THREE.Object3D, color: string): void {
@@ -298,6 +519,9 @@ export function disposeDirectorStageObject(object: THREE.Object3D): void {
       return;
     }
     const materials = Array.isArray(child.material) ? child.material : [child.material];
-    materials.forEach((material) => material.dispose());
+    materials.forEach((material) => {
+      disposePlaneSurfaceTexture(material);
+      material.dispose();
+    });
   });
 }

@@ -7,6 +7,7 @@ import {
   prepareNodeImage,
   type PreparedNodeImage,
 } from '@/features/canvas/application/imageData';
+import { useSettingsStore } from '@/stores/settingsStore';
 import {
   prepareNodeVideoFromSource,
   type PreparedVideo,
@@ -187,7 +188,12 @@ export async function upscaleImageWithSeedvr2(
     throw new Error('The SeedVR2 runtime did not return an upscaled image file.');
   }
 
-  const preparedImage = await prepareNodeImage(outputPath);
+  const preparedImage = await prepareNodeImage(
+    outputPath,
+    undefined,
+    undefined,
+    useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
+  );
 
   return {
     ...preparedImage,

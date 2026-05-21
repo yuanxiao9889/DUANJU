@@ -764,7 +764,12 @@ function CommerceAdWorkspaceInner() {
     try {
       const preparedImages = await Promise.all(
         files.map(async (file, index): Promise<CommerceAdProductImage> => {
-          const prepared = await prepareNodeImageFromFile(file);
+          const prepared = await prepareNodeImageFromFile(
+            file,
+            undefined,
+            undefined,
+            settings.canvasOverviewThumbnailMaxDimension
+          );
           return {
             id: `commerce-product-image-${Date.now()}-${index + 1}`,
             imageUrl: prepared.imageUrl,

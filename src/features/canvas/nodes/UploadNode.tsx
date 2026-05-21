@@ -101,6 +101,9 @@ export const UploadNode = memo(
     const useUploadFilenameAsNodeTitle = useSettingsStore(
       (state) => state.useUploadFilenameAsNodeTitle,
     );
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
     const zoom = useCanvasZoom();
     const inputRef = useRef<HTMLInputElement>(null);
     const uploadSequenceRef = useRef(0);
@@ -211,11 +214,17 @@ export const UploadNode = memo(
         });
 
         try {
-          const prepared = await prepareNodeImageFromFile(file);
+          const prepared = await prepareNodeImageFromFile(
+            file,
+            undefined,
+            undefined,
+            canvasOverviewThumbnailMaxDimension,
+          );
           const nextData: Partial<UploadImageNodeData> = {
             imageUrl: prepared.imageUrl,
             previewImageUrl: prepared.previewImageUrl,
             thumbnailUrl: prepared.thumbnailImageUrl,
+            thumbnailMaxDimension: prepared.thumbnailMaxDimension,
             aspectRatio: prepared.aspectRatio || "1:1",
             imageWidth: undefined,
             imageHeight: undefined,
@@ -240,7 +249,13 @@ export const UploadNode = memo(
           throw error;
         }
       },
-      [clearTransientPreview, id, updateNodeData, useUploadFilenameAsNodeTitle],
+      [
+        canvasOverviewThumbnailMaxDimension,
+        clearTransientPreview,
+        id,
+        updateNodeData,
+        useUploadFilenameAsNodeTitle,
+      ],
     );
 
     const handleImageLoad = useCallback(

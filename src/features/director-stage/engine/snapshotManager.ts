@@ -211,6 +211,7 @@ export async function exportDirectorStageCanvasPng({
     bytes,
     'png',
     SNAPSHOT_PREVIEW_MAX_DIMENSION,
+    undefined,
     createCurrentProjectMediaContext('image')
   );
 }

@@ -822,6 +822,22 @@ export const NodeActionToolbar = memo(({ node }: NodeActionToolbarProps) => {
         )}
         {!isImageEdit && isGroupNode(node) && (
           <UiChipButton
+            key="group-transfer"
+            className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-[rgba(15,23,42,0.32)] hover:!bg-[rgba(15,23,42,0.1)] hover:!text-text-dark dark:hover:!border-accent/45 dark:hover:!bg-accent/14`}
+            onClick={(event) => {
+              event.stopPropagation();
+              closeDownloadMenu();
+              canvasEventBus.publish('canvas-selection-transfer/open', {
+                nodeIds: [node.id],
+              });
+            }}
+          >
+            <Send className="h-3.5 w-3.5" />
+            {t('selection.transferToCanvas')}
+          </UiChipButton>
+        )}
+        {!isImageEdit && isGroupNode(node) && (
+          <UiChipButton
             key="group-layout"
             className={`h-8 ${TOOLBAR_BUTTON_RADIUS_CLASS} px-2.5 text-xs ${TOOLBAR_NEUTRAL_BUTTON_CLASS} hover:!border-[rgba(15,23,42,0.32)] hover:!bg-[rgba(15,23,42,0.1)] hover:!text-text-dark dark:hover:!border-accent/45 dark:hover:!bg-accent/14`}
             onClick={(event) => {

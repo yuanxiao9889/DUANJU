@@ -63,6 +63,7 @@ import {
 } from "@/features/canvas/ui/nodeControlStyles";
 import { NodeResizeHandle } from "@/features/canvas/ui/NodeResizeHandle";
 import { useCanvasStore } from "@/stores/canvasStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 type ImageCollageNodeProps = NodeProps & {
   id: string;
@@ -87,6 +88,8 @@ interface IncomingLayerSource {
   sourceEdgeId: string;
   imageUrl: string;
   previewImageUrl: string;
+  thumbnailUrl: string | null;
+  thumbnailMaxDimension: number | null;
 }
 
 const COLLAGE_LAYER_DRAG_MIME = "application/x-storyboard-collage-layer";
@@ -136,6 +139,8 @@ function createDefaultLayer(
     sourceEdgeId: source.sourceEdgeId,
     imageUrl: source.imageUrl,
     previewImageUrl: source.previewImageUrl,
+    thumbnailUrl: source.thumbnailUrl,
+    thumbnailMaxDimension: source.thumbnailMaxDimension,
     placed: false,
     order,
     centerX: 0.5,
@@ -181,6 +186,9 @@ function areLayersEqual(
       leftLayer.imageUrl !== rightLayer.imageUrl ||
       (leftLayer.previewImageUrl ?? null) !==
         (rightLayer.previewImageUrl ?? null) ||
+      (leftLayer.thumbnailUrl ?? null) !== (rightLayer.thumbnailUrl ?? null) ||
+      (leftLayer.thumbnailMaxDimension ?? null) !==
+        (rightLayer.thumbnailMaxDimension ?? null) ||
       leftLayer.placed !== rightLayer.placed ||
       leftLayer.order !== rightLayer.order ||
       leftLayer.centerX !== rightLayer.centerX ||
@@ -279,6 +287,9 @@ export const ImageCollageNode = memo(
       (state) => state.addDerivedExportNode,
     );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
     const incomingSourceNodes = useCanvasIncomingSourceNodes(id);
     const zoom = useCanvasZoom();
 
@@ -370,6 +381,8 @@ export const ImageCollageNode = memo(
             sourceEdgeId: edge.id,
             imageUrl: source.imageUrl,
             previewImageUrl: source.previewImageUrl,
+            thumbnailUrl: source.thumbnailUrl,
+            thumbnailMaxDimension: source.thumbnailMaxDimension,
           },
         ];
       });
@@ -519,6 +532,8 @@ export const ImageCollageNode = memo(
           sourceNodeId: source.sourceNodeId,
           imageUrl: source.imageUrl,
           previewImageUrl: source.previewImageUrl,
+          thumbnailUrl: source.thumbnailUrl,
+          thumbnailMaxDimension: source.thumbnailMaxDimension,
         };
       });
       const normalizedNextLayers = normalizeLayerOrdering(nextLayers);
@@ -863,6 +878,9 @@ export const ImageCollageNode = memo(
 
         const preparedImage = await prepareNodeImage(
           canvasToDataUrl(exportCanvas),
+          undefined,
+          undefined,
+          canvasOverviewThumbnailMaxDimension,
         );
         addDerivedExportNode(
           id,
@@ -871,6 +889,7 @@ export const ImageCollageNode = memo(
           preparedImage.previewImageUrl,
           {
             thumbnailUrl: preparedImage.thumbnailImageUrl,
+            thumbnailMaxDimension: preparedImage.thumbnailMaxDimension,
             defaultTitle: EXPORT_RESULT_DISPLAY_NAME.imageCollageExport,
             resultKind: "imageCollageExport",
             aspectRatioStrategy: "provided",
@@ -886,6 +905,7 @@ export const ImageCollageNode = memo(
       }
     }, [
       addDerivedExportNode,
+      canvasOverviewThumbnailMaxDimension,
       hasPlacedLayers,
       id,
       imageElements,

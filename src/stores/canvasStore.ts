@@ -773,6 +773,7 @@ interface CanvasState {
     previewImageUrl?: string,
     options?: {
       thumbnailUrl?: string | null;
+      thumbnailMaxDimension?: number | null;
       imageWidth?: number;
       imageHeight?: number;
     }
@@ -784,6 +785,7 @@ interface CanvasState {
     previewImageUrl?: string,
     options?: {
       thumbnailUrl?: string | null;
+      thumbnailMaxDimension?: number | null;
       defaultTitle?: string;
       resultKind?: ExportImageNodeResultKind;
       aspectRatioStrategy?: 'provided' | 'derivedFromSource';
@@ -810,6 +812,7 @@ interface CanvasState {
       imageUrl: string;
       previewImageUrl?: string | null;
       thumbnailUrl?: string | null;
+      thumbnailMaxDimension?: number | null;
       aspectRatio?: string | null;
       title?: string | null;
     }>,
@@ -1738,6 +1741,33 @@ function createNodePatchSnapshot(
         entries,
       }
     : createSnapshot(nodes, fallbackEdges);
+}
+
+function extendNodePatchSnapshot(
+  snapshot: CanvasHistorySnapshot,
+  nodes: CanvasNode[],
+  nodeIds: Iterable<string>,
+  fallbackEdges: CanvasEdge[]
+): CanvasHistorySnapshot {
+  if (!isCanvasNodePatchHistorySnapshot(snapshot)) {
+    return snapshot;
+  }
+
+  const seenNodeIds = new Set(snapshot.entries.map((entry) => entry.nodeId));
+  const extraSnapshot = createNodePatchSnapshot(nodes, nodeIds, fallbackEdges);
+  if (!isCanvasNodePatchHistorySnapshot(extraSnapshot)) {
+    return snapshot;
+  }
+
+  const extraEntries = extraSnapshot.entries.filter((entry) => !seenNodeIds.has(entry.nodeId));
+  if (extraEntries.length === 0) {
+    return snapshot;
+  }
+
+  return {
+    kind: 'nodePatch',
+    entries: [...snapshot.entries, ...extraEntries],
+  };
 }
 
 function createDeletedNodesSnapshot(
@@ -3154,6 +3184,7 @@ function syncAssetItemToNode(
     audioUrl?: string | null;
     previewImageUrl?: string | null;
     thumbnailUrl?: string | null;
+    thumbnailMaxDimension?: number | null;
     aspectRatio?: string;
     audioFileName?: string | null;
     duration?: number;
@@ -3212,6 +3243,7 @@ function syncAssetItemToNode(
     setField('previewImageUrl', nextPreviewImageUrl);
     if (resetImageDimensions) {
       setField('thumbnailUrl', null);
+      setField('thumbnailMaxDimension', null);
     }
     setField('aspectRatio', nextAspectRatio);
     setField('sourceFileName', item.name);
@@ -3579,6 +3611,88 @@ function fitGroupNodeToChildren(nodes: CanvasNode[], groupNodeId: string): Canva
   });
 }
 
+function resolveGroupNodeDepth(
+  groupNodeId: string,
+  nodeMap: Map<string, CanvasNode>
+): number {
+  let depth = 0;
+  let currentParentId = nodeMap.get(groupNodeId)?.parentId;
+  const visited = new Set<string>();
+
+  while (currentParentId && !visited.has(currentParentId)) {
+    visited.add(currentParentId);
+    const parentNode = nodeMap.get(currentParentId);
+    if (!parentNode) {
+      break;
+    }
+
+    if (parentNode.type === CANVAS_NODE_TYPES.group) {
+      depth += 1;
+    }
+
+    currentParentId = parentNode.parentId;
+  }
+
+  return depth;
+}
+
+function collectGroupNodeIdsToFit(
+  nodes: CanvasNode[],
+  changedNodeIds: Iterable<string>
+): string[] {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  const orderIndexById = new Map<string, number>();
+  const groupIds = new Set<string>();
+
+  for (const nodeId of changedNodeIds) {
+    const node = nodeMap.get(nodeId);
+    if (!node) {
+      continue;
+    }
+
+    for (const groupNodeId of collectAncestorGroupNodeIds(node, nodeMap)) {
+      if (!groupIds.has(groupNodeId)) {
+        orderIndexById.set(groupNodeId, orderIndexById.size);
+      }
+      groupIds.add(groupNodeId);
+    }
+  }
+
+  return [...groupIds].sort((leftId, rightId) => {
+    const depthDelta =
+      resolveGroupNodeDepth(rightId, nodeMap) - resolveGroupNodeDepth(leftId, nodeMap);
+    if (depthDelta !== 0) {
+      return depthDelta;
+    }
+
+    return (orderIndexById.get(leftId) ?? 0) - (orderIndexById.get(rightId) ?? 0);
+  });
+}
+
+function fitGroupsForChangedNodes(
+  nodes: CanvasNode[],
+  changedNodeIds: Iterable<string>
+): CanvasNode[] {
+  let nextNodes = nodes;
+  const groupNodeIds = collectGroupNodeIdsToFit(nodes, changedNodeIds);
+  for (const groupNodeId of groupNodeIds) {
+    nextNodes = fitGroupNodeToChildren(nextNodes, groupNodeId);
+  }
+  return nextNodes;
+}
+
+function fitGroupsForChangedNodesWithIds(
+  nodes: CanvasNode[],
+  changedNodeIds: Iterable<string>
+): { nodes: CanvasNode[]; groupNodeIds: string[] } {
+  let nextNodes = nodes;
+  const groupNodeIds = collectGroupNodeIdsToFit(nodes, changedNodeIds);
+  for (const groupNodeId of groupNodeIds) {
+    nextNodes = fitGroupNodeToChildren(nextNodes, groupNodeId);
+  }
+  return { nodes: nextNodes, groupNodeIds };
+}
+
 function pushSnapshot(
   snapshots: CanvasHistorySnapshot[],
   snapshot: CanvasHistorySnapshot
@@ -3747,6 +3861,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
       let nextHistory = state.history;
       let nextDragHistorySnapshot = state.dragHistorySnapshot;
+      let refitGroupNodeIds: string[] = [];
+
+      if (hasInteractionEnd && interactionNodeIds.length > 0) {
+        const refitResult = fitGroupsForChangedNodesWithIds(nextNodes, interactionNodeIds);
+        nextNodes = refitResult.nodes;
+        refitGroupNodeIds = refitResult.groupNodeIds;
+      }
 
       if (hasInteractionMove && !nextDragHistorySnapshot) {
         nextDragHistorySnapshot = interactionNodeIds.length > 0
@@ -3755,13 +3876,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       }
 
       if (hasInteractionEnd) {
-        const snapshot = nextDragHistorySnapshot
-          && !isCanvasNodePatchHistorySnapshot(nextDragHistorySnapshot)
-          && interactionNodeIds.length > 0
-          ? createNodePatchSnapshot(
-              nextDragHistorySnapshot.nodes,
-              interactionNodeIds,
-              nextDragHistorySnapshot.edges
+        const snapshot = nextDragHistorySnapshot && interactionNodeIds.length > 0
+          ? extendNodePatchSnapshot(
+              nextDragHistorySnapshot,
+              state.nodes,
+              refitGroupNodeIds,
+              state.edges
             )
           : nextDragHistorySnapshot ?? createSnapshot(state.nodes, state.edges);
         nextHistory = {
@@ -3981,9 +4101,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         nodeMap,
         options.positionSpace ?? 'canvas'
       );
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, newNode], parentGroupId)
-      : [...state.nodes, newNode];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, newNode], [newNode.id]);
     set({
       nodes: nextNodes,
       history: {
@@ -4009,17 +4127,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
-      const touchedGroupIds = new Set<string>();
-      uniqueNodesToAdd.forEach((node) => {
-        if (node.parentId) {
-          touchedGroupIds.add(node.parentId);
-        }
-      });
-
-      let nextNodes = [...state.nodes, ...uniqueNodesToAdd];
-      touchedGroupIds.forEach((groupNodeId) => {
-        nextNodes = fitGroupNodeToChildren(nextNodes, groupNodeId);
-      });
+      const nextNodes = fitGroupsForChangedNodes(
+        [...state.nodes, ...uniqueNodesToAdd],
+        uniqueNodesToAdd.map((node) => node.id)
+      );
 
       const edgesToAdd = options.edges?.filter(
         (edge) =>
@@ -4298,6 +4409,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
       thumbnailUrl: options?.thumbnailUrl ?? null,
+      thumbnailMaxDimension: options?.thumbnailMaxDimension ?? null,
       aspectRatio: resolvedAspectRatio,
       imageWidth: options?.imageWidth,
       imageHeight: options?.imageHeight,
@@ -4310,9 +4422,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       height: derivedSize.height,
     };
     node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
-      : [...state.nodes, node];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, node], [node.id]);
 
     set({
       nodes: nextNodes,
@@ -4371,6 +4481,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       imageUrl,
       previewImageUrl: previewImageUrl ?? null,
       thumbnailUrl: options?.thumbnailUrl ?? null,
+      thumbnailMaxDimension: options?.thumbnailMaxDimension ?? null,
       aspectRatio: resolvedAspectRatio,
       generationSummary: sourceGenerationSummary,
     };
@@ -4395,9 +4506,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       height: derivedSize.height,
     };
     node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
-      : [...state.nodes, node];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, node], [node.id]);
     const nextEdges = options?.connectToSource && sourceNode && nodeHasSourceHandle(sourceNode.type)
       ? addEdgeLocal({
         id: `e-${sourceNodeId}-${node.id}`,
@@ -4476,9 +4585,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     };
     node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
 
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
-      : [...state.nodes, node];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, node], [node.id]);
     const nextEdges = options?.connectToSource && sourceNode && nodeHasSourceHandle(sourceNode.type)
       ? addEdgeLocal({
         id: `e-${sourceNodeId}-${node.id}`,
@@ -4547,6 +4654,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         imageUrl: frame.imageUrl,
         previewImageUrl: frame.previewImageUrl ?? null,
         thumbnailUrl: frame.thumbnailUrl ?? null,
+        thumbnailMaxDimension: frame.thumbnailMaxDimension ?? null,
         aspectRatio: resolvedAspectRatio,
         resultKind: 'storyboardFrameEdit',
         displayName: frame.title?.trim() || EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit,
@@ -4578,9 +4686,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     });
 
     const nextNodesBase = [...state.nodes, ...createdNodes];
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren(nextNodesBase, parentGroupId)
-      : nextNodesBase;
+    const nextNodes = fitGroupsForChangedNodes(nextNodesBase, createdNodeIds);
 
     set({
       nodes: nextNodes,
@@ -4634,9 +4740,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       height: nodeSize.height,
     };
     node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
-      : [...state.nodes, node];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, node], [node.id]);
 
     set({
       nodes: nextNodes,
@@ -4688,9 +4792,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       height: nodeSize.height,
     };
     node = attachNodeToGroupParent(node, position, parentGroupId, nodeMap);
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, node], parentGroupId)
-      : [...state.nodes, node];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, node], [node.id]);
 
     set({
       nodes: nextNodes,
@@ -4826,9 +4928,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       nextChapterNumber += 1;
     }
 
-    const normalizedNodes = parentGroupId
-      ? fitGroupNodeToChildren(nextNodes, parentGroupId)
-      : nextNodes;
+    const normalizedNodes = fitGroupsForChangedNodes(nextNodes, createdNodeIds);
 
     set({
       nodes: normalizedNodes,
@@ -4909,9 +5009,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     );
 
     const edgeId = `e-${chapterNodeId}-${createdNode.id}`;
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, createdNode], parentGroupId)
-      : [...state.nodes, createdNode];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, createdNode], [createdNode.id]);
     const reindexedResult = reindexScriptSceneNodesByChapter(nextNodes, chapterNodeId);
     const nextEdges = state.edges.some((edge) => edge.id === edgeId)
       ? state.edges
@@ -5037,9 +5135,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     );
 
     const edgeId = `e-${sceneNodeId}-${createdNode.id}`;
-    const nextNodes = parentGroupId
-      ? fitGroupNodeToChildren([...state.nodes, createdNode], parentGroupId)
-      : [...state.nodes, createdNode];
+    const nextNodes = fitGroupsForChangedNodes([...state.nodes, createdNode], [createdNode.id]);
     const nextEdges = state.edges.some((edge) => edge.id === edgeId)
       ? state.edges
       : [
@@ -5315,6 +5411,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         normalizedNextNodes = reindexScriptSceneNodesByChapter(normalizedNextNodes, chapterId).nodes;
       });
 
+      const refitResult = fitGroupsForChangedNodesWithIds(normalizedNextNodes, changedNodeIds);
+      normalizedNextNodes = refitResult.nodes;
+      refitResult.groupNodeIds.forEach((groupNodeId) => changedNodeIds.add(groupNodeId));
+
       if (affectedChapterIds.size > 0) {
         const previousNodeById = new Map(state.nodes.map((node) => [node.id, node] as const));
         normalizedNextNodes.forEach((node) => {
@@ -5349,7 +5449,8 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
     set((state) => {
       let changed = false;
-      const nextNodes = state.nodes.map((node) => {
+      const changedNodeIds = new Set<string>();
+      let nextNodes = state.nodes.map((node) => {
         if (node.id !== nodeId) {
           return node;
         }
@@ -5362,6 +5463,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
 
         changed = true;
+        changedNodeIds.add(node.id);
         return {
           ...node,
           width: nextWidth,
@@ -5377,6 +5479,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       if (!changed) {
         return {};
       }
+
+      const refitResult = fitGroupsForChangedNodesWithIds(nextNodes, changedNodeIds);
+      nextNodes = refitResult.nodes;
 
       return { nodes: nextNodes };
     });
@@ -5951,16 +6056,21 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return null;
       }
 
+      const currentNodes = get().nodes;
+      const nodeMap = new Map(
+        currentNodes.map((currentNode) => [currentNode.id, currentNode] as const)
+      );
+      const nodeAbsolutePosition = resolveAbsolutePosition(node, nodeMap);
       const nodePosition = {
-        x: (node.position?.x ?? 0) + 400,
-        y: node.position?.y ?? 0,
+        x: nodeAbsolutePosition.x + 400,
+        y: nodeAbsolutePosition.y,
       };
 
       const newNodeId = get().addNode(CANVAS_NODE_TYPES.exportImage, nodePosition, {
         displayName: '合并分镜',
         imageUrl: result.imagePath,
         aspectRatio: aspectRatio,
-      });
+      }, { inheritParentFromNodeId: sourceNodeId });
 
       return newNodeId;
     } catch (error) {
@@ -7142,6 +7252,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       bytes,
       extension,
       512,
+      useSettingsStore.getState().canvasOverviewThumbnailMaxDimension,
       createCurrentProjectMediaContext('image')
     );
 
@@ -7159,6 +7270,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       imageUrl: result.imagePath,
       previewImageUrl: result.previewImagePath,
       thumbnailUrl: result.thumbnailImagePath,
+      thumbnailMaxDimension: result.thumbnailMaxDimension ?? useSettingsStore.getState().canvasOverviewThumbnailMaxDimension,
       aspectRatio: result.aspectRatio,
     });
     node.width = nodeSize.width;

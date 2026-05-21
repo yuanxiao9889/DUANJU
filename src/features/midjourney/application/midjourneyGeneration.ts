@@ -28,6 +28,7 @@ import {
 } from '@/features/midjourney/domain/prompt';
 import type { MidjourneyProviderId } from '@/features/midjourney/domain/providers';
 import { normalizeMjPersonalizationCodes } from '@/features/midjourney/domain/styleCodePresets';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 export interface SubmitMidjourneyImagineInput {
   providerId: MidjourneyProviderId;
@@ -224,7 +225,12 @@ async function prepareMidjourneyBatchImage(
   index: number
 ): Promise<MjBatchImageItem> {
   try {
-    const prepared = await prepareNodeImage(sourceUrl);
+    const prepared = await prepareNodeImage(
+      sourceUrl,
+      undefined,
+      undefined,
+      useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
+    );
     const dimensions = await detectImageDimensions(prepared.imageUrl).catch(() => null);
 
     return {
@@ -232,6 +238,7 @@ async function prepareMidjourneyBatchImage(
       imageUrl: prepared.imageUrl,
       previewImageUrl: prepared.previewImageUrl,
       thumbnailUrl: prepared.thumbnailImageUrl,
+      thumbnailMaxDimension: prepared.thumbnailMaxDimension,
       sourceUrl,
       index,
       aspectRatio:

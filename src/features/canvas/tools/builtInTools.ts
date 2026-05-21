@@ -147,5 +147,5 @@ export const builtInToolPlugins: CanvasToolPlugin[] = [
   cropToolPlugin,
   annotateToolPlugin,
   splitStoryboardToolPlugin,
-  // Temporarily disabled: video audio extraction is not exposed in the canvas UI.
+  extractAudioToolPlugin,
 ];

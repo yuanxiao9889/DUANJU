@@ -12,6 +12,7 @@ import {
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 export type BatchAssetResolvedGroupKind = 'character' | 'scene' | 'prop' | 'unresolved';
 export type BatchAssetEditableCategory = Extract<AssetCategory, 'character' | 'scene' | 'prop'>;
@@ -256,7 +257,8 @@ export async function submitBatchAssetsFromDrafts({
       const prepared = await prepareNodeImage(
         draft.mediaSource,
         undefined,
-        createSharedMediaContext('image')
+        createSharedMediaContext('image'),
+        useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
       );
       const item = await createItem({
         libraryId,

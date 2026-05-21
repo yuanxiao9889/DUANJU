@@ -280,6 +280,9 @@ function MainApp() {
   const hasAcceptedApiPlatformNotice = useSettingsStore(
     (state) => state.hasAcceptedApiPlatformNotice,
   );
+  const canvasViewportPreloadMarginScreens = useSettingsStore(
+    (state) => state.canvasViewportPreloadMarginScreens,
+  );
   const setEnableUpdateDialog = useSettingsStore(
     (state) => state.setEnableUpdateDialog,
   );
@@ -464,7 +467,7 @@ function MainApp() {
       currentProject.nodes,
       currentProject.viewport ?? { x: 0, y: 0, zoom: 1 },
       resolveCanvasEntryPreloadViewportSize(),
-      { marginScreens: 1 },
+      { marginScreens: canvasViewportPreloadMarginScreens },
     );
     void import("./features/canvas/CanvasScreen");
 
@@ -491,9 +494,11 @@ function MainApp() {
 
     void (async () => {
       let entryPreloadTimeoutId: number | undefined;
+      const entryPreloadAbortController = new AbortController();
       try {
         await Promise.race([
           preloadProjectImages(imageUrls, {
+            signal: entryPreloadAbortController.signal,
             onProgress: ({ totalCount, loadedCount, failedCount }) => {
               if (canvasEntryPreloadRunRef.current !== runId) {
                 return;
@@ -513,11 +518,13 @@ function MainApp() {
               console.warn(
                 `Canvas entry image preload timed out after ${MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS}ms; continuing into project.`
               );
+              entryPreloadAbortController.abort();
               resolve();
             }, MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS);
           }),
         ]);
       } finally {
+        entryPreloadAbortController.abort();
         if (typeof entryPreloadTimeoutId === "number") {
           window.clearTimeout(entryPreloadTimeoutId);
         }
@@ -544,7 +551,7 @@ function MainApp() {
         });
       }
     })();
-  }, [currentProjectId, currentProjectType]);
+  }, [canvasViewportPreloadMarginScreens, currentProjectId, currentProjectType]);
 
   const isCanvasEntryLoading =
     currentProjectType !== "ad" &&

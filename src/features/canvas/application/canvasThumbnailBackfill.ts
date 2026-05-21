@@ -1,6 +1,9 @@
 import type { Viewport } from '@xyflow/react';
 
-import { createNodeOverviewThumbnail } from '@/features/canvas/application/imageData';
+import {
+  createNodeOverviewThumbnail,
+  DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+} from '@/features/canvas/application/imageData';
 import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 import {
   createViewportPreloadRect,
@@ -19,6 +22,7 @@ interface ThumbnailBackfillJob {
   nodeId: string;
   path: DataPathSegment[];
   source: string;
+  thumbnailMaxDimension: number;
 }
 
 interface ThumbnailBackfillScope {
@@ -72,16 +76,42 @@ function hasRecentFailure(source: string): boolean {
   return false;
 }
 
+function normalizeThumbnailMaxDimension(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? value
+    : DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION;
+}
+
+function shouldBackfillThumbnail(
+  record: Record<string, unknown>,
+  targetThumbnailMaxDimension: number
+): boolean {
+  const existingThumbnail = normalizeSource(record.thumbnailUrl);
+  if (!existingThumbnail) {
+    return true;
+  }
+
+  return normalizeThumbnailMaxDimension(record.thumbnailMaxDimension) !== targetThumbnailMaxDimension;
+}
+
 function collectThumbnailJobsFromValue(
   nodeId: string,
   value: unknown,
   path: DataPathSegment[],
   jobs: ThumbnailBackfillJob[],
-  visited: WeakSet<object>
+  visited: WeakSet<object>,
+  targetThumbnailMaxDimension: number
 ): void {
   if (Array.isArray(value)) {
     value.forEach((item, index) => {
-      collectThumbnailJobsFromValue(nodeId, item, [...path, index], jobs, visited);
+      collectThumbnailJobsFromValue(
+        nodeId,
+        item,
+        [...path, index],
+        jobs,
+        visited,
+        targetThumbnailMaxDimension
+      );
     });
     return;
   }
@@ -96,17 +126,21 @@ function collectThumbnailJobsFromValue(
   visited.add(value);
 
   const record = value as Record<string, unknown>;
-  const existingThumbnail = normalizeSource(record.thumbnailUrl);
   const source =
     normalizeSource(record.previewImageUrl)
     ?? normalizeSource(record.imageUrl)
     ?? normalizeSource(record.sourceUrl);
 
-  if (!existingThumbnail && source && !hasRecentFailure(source)) {
+  if (
+    shouldBackfillThumbnail(record, targetThumbnailMaxDimension)
+    && source
+    && !hasRecentFailure(source)
+  ) {
     jobs.push({
       nodeId,
       path,
       source,
+      thumbnailMaxDimension: targetThumbnailMaxDimension,
     });
   }
 
@@ -120,7 +154,14 @@ function collectThumbnailJobsFromValue(
       return;
     }
 
-    collectThumbnailJobsFromValue(nodeId, nestedValue, [...path, key], jobs, visited);
+    collectThumbnailJobsFromValue(
+      nodeId,
+      nestedValue,
+      [...path, key],
+      jobs,
+      visited,
+      targetThumbnailMaxDimension
+    );
   });
 }
 
@@ -138,19 +179,29 @@ function collectThumbnailBackfillJobs(
   const jobs: ThumbnailBackfillJob[] = [];
   const nodeMap = preloadRect ? new Map(nodes.map((node) => [node.id, node] as const)) : null;
   const visited = new WeakSet<object>();
+  const targetThumbnailMaxDimension = normalizeThumbnailMaxDimension(
+    scope?.options?.thumbnailMaxDimension
+  );
   nodes.forEach((node) => {
     if (preloadRect && nodeMap && !rectIntersects(preloadRect, getCanvasNodeRect(node, nodeMap))) {
       return;
     }
 
-    collectThumbnailJobsFromValue(node.id, node.data, [], jobs, visited);
+    collectThumbnailJobsFromValue(
+      node.id,
+      node.data,
+      [],
+      jobs,
+      visited,
+      targetThumbnailMaxDimension
+    );
   });
   return jobs;
 }
 
 export function buildCanvasThumbnailBackfillSignature(nodes: CanvasNode[]): string {
   return collectThumbnailBackfillJobs(nodes)
-    .map((job) => `${job.nodeId}:${job.path.join('.')}:${job.source}`)
+    .map((job) => `${job.nodeId}:${job.path.join('.')}:${job.source}:${job.thumbnailMaxDimension}`)
     .sort()
     .join('\n');
 }
@@ -162,7 +213,7 @@ export function buildCanvasViewportThumbnailBackfillSignature(
   options?: ViewportImagePreloadOptions
 ): string {
   return collectThumbnailBackfillJobs(nodes, { viewport, viewportSize, options })
-    .map((job) => `${job.nodeId}:${job.path.join('.')}:${job.source}`)
+    .map((job) => `${job.nodeId}:${job.path.join('.')}:${job.source}:${job.thumbnailMaxDimension}`)
     .sort()
     .join('\n');
 }
@@ -170,7 +221,8 @@ export function buildCanvasViewportThumbnailBackfillSignature(
 function setThumbnailAtPath(
   value: unknown,
   path: DataPathSegment[],
-  thumbnailUrl: string
+  thumbnailUrl: string,
+  thumbnailMaxDimension: number
 ): { value: unknown; changed: boolean } {
   if (path.length === 0) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -178,7 +230,10 @@ function setThumbnailAtPath(
     }
 
     const record = value as Record<string, unknown>;
-    if (normalizeSource(record.thumbnailUrl)) {
+    if (
+      normalizeSource(record.thumbnailUrl) === thumbnailUrl
+      && normalizeThumbnailMaxDimension(record.thumbnailMaxDimension) === thumbnailMaxDimension
+    ) {
       return { value, changed: false };
     }
 
@@ -186,6 +241,7 @@ function setThumbnailAtPath(
       value: {
         ...record,
         thumbnailUrl,
+        thumbnailMaxDimension,
       },
       changed: true,
     };
@@ -197,7 +253,12 @@ function setThumbnailAtPath(
       return { value, changed: false };
     }
 
-    const updatedChild = setThumbnailAtPath(value[head], rest, thumbnailUrl);
+    const updatedChild = setThumbnailAtPath(
+      value[head],
+      rest,
+      thumbnailUrl,
+      thumbnailMaxDimension
+    );
     if (!updatedChild.changed) {
       return { value, changed: false };
     }
@@ -221,7 +282,12 @@ function setThumbnailAtPath(
     return { value, changed: false };
   }
 
-  const updatedChild = setThumbnailAtPath(record[head], rest, thumbnailUrl);
+  const updatedChild = setThumbnailAtPath(
+    record[head],
+    rest,
+    thumbnailUrl,
+    thumbnailMaxDimension
+  );
   if (!updatedChild.changed) {
     return { value, changed: false };
   }
@@ -241,7 +307,12 @@ function applyThumbnailBackfill(job: ThumbnailBackfillJob, thumbnailUrl: string)
     return;
   }
 
-  const updatedData = setThumbnailAtPath(node.data, job.path, thumbnailUrl);
+  const updatedData = setThumbnailAtPath(
+    node.data,
+    job.path,
+    thumbnailUrl,
+    job.thumbnailMaxDimension
+  );
   if (!updatedData.changed) {
     return;
   }
@@ -276,7 +347,8 @@ async function runThumbnailBackfill(projectId: string): Promise<void> {
         try {
           const thumbnailUrl = await createNodeOverviewThumbnail(
             job.source,
-            createCurrentProjectMediaContext('image')
+            createCurrentProjectMediaContext('image'),
+            job.thumbnailMaxDimension
           );
           if (activeProjectId !== projectId || isBackfillPaused) {
             break;

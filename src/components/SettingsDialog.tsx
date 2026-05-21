@@ -16,6 +16,14 @@ import {
 import { listErrorLogItems, type ErrorLogItemRecord } from '@/commands/errorLog';
 import {
   useSettingsStore,
+  CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS,
+  CANVAS_OVERVIEW_ZOOM_THRESHOLD_OPTIONS,
+  CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD_OPTIONS,
+  CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS_OPTIONS,
+  type CanvasOverviewThumbnailMaxDimension,
+  type CanvasOverviewZoomThreshold,
+  type CanvasThumbnailMediaCountThreshold,
+  type CanvasViewportPreloadMarginScreens,
   type OfficialVideoProviderId,
   type ThirdPartyVideoProviderId,
 } from '@/stores/settingsStore';
@@ -544,6 +552,10 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
+    canvasOverviewZoomThreshold,
+    canvasOverviewThumbnailMaxDimension,
+    canvasThumbnailMediaCountThreshold,
+    canvasViewportPreloadMarginScreens,
     autoCheckAppUpdateOnLaunch,
     enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
@@ -577,6 +589,10 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
+    setCanvasOverviewZoomThreshold,
+    setCanvasOverviewThumbnailMaxDimension,
+    setCanvasThumbnailMediaCountThreshold,
+    setCanvasViewportPreloadMarginScreens,
     setAutoCheckAppUpdateOnLaunch,
     setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
@@ -725,6 +741,14 @@ export function SettingsDialog({
   const [localThemeTonePreset, setLocalThemeTonePreset] = useState(themeTonePreset);
   const [localAccentColor, setLocalAccentColor] = useState(accentColor);
   const [localCanvasEdgeRoutingMode, setLocalCanvasEdgeRoutingMode] = useState(canvasEdgeRoutingMode);
+  const [localCanvasOverviewZoomThreshold, setLocalCanvasOverviewZoomThreshold] =
+    useState<CanvasOverviewZoomThreshold>(canvasOverviewZoomThreshold);
+  const [localCanvasOverviewThumbnailMaxDimension, setLocalCanvasOverviewThumbnailMaxDimension] =
+    useState<CanvasOverviewThumbnailMaxDimension>(canvasOverviewThumbnailMaxDimension);
+  const [localCanvasThumbnailMediaCountThreshold, setLocalCanvasThumbnailMediaCountThreshold] =
+    useState<CanvasThumbnailMediaCountThreshold>(canvasThumbnailMediaCountThreshold);
+  const [localCanvasViewportPreloadMarginScreens, setLocalCanvasViewportPreloadMarginScreens] =
+    useState<CanvasViewportPreloadMarginScreens>(canvasViewportPreloadMarginScreens);
   const [localAutoCheckAppUpdateOnLaunch, setLocalAutoCheckAppUpdateOnLaunch] = useState(
     autoCheckAppUpdateOnLaunch
   );
@@ -902,6 +926,10 @@ export function SettingsDialog({
     setLocalThemeTonePreset(themeTonePreset);
     setLocalAccentColor(accentColor);
     setLocalCanvasEdgeRoutingMode(canvasEdgeRoutingMode);
+    setLocalCanvasOverviewZoomThreshold(canvasOverviewZoomThreshold);
+    setLocalCanvasOverviewThumbnailMaxDimension(canvasOverviewThumbnailMaxDimension);
+    setLocalCanvasThumbnailMediaCountThreshold(canvasThumbnailMediaCountThreshold);
+    setLocalCanvasViewportPreloadMarginScreens(canvasViewportPreloadMarginScreens);
     setLocalAutoCheckAppUpdateOnLaunch(autoCheckAppUpdateOnLaunch);
     setLocalEnableUpdateDialog(enableUpdateDialog);
     setLocalAutoUpdateDreaminaCliOnLaunch(autoUpdateDreaminaCliOnLaunch);
@@ -947,6 +975,10 @@ export function SettingsDialog({
     themeTonePreset,
     accentColor,
     canvasEdgeRoutingMode,
+    canvasOverviewZoomThreshold,
+    canvasOverviewThumbnailMaxDimension,
+    canvasThumbnailMediaCountThreshold,
+    canvasViewportPreloadMarginScreens,
     autoCheckAppUpdateOnLaunch,
     enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
@@ -1669,6 +1701,10 @@ export function SettingsDialog({
     setThemeTonePreset(localThemeTonePreset);
     setAccentColor(localAccentColor);
     setCanvasEdgeRoutingMode(localCanvasEdgeRoutingMode);
+    setCanvasOverviewZoomThreshold(localCanvasOverviewZoomThreshold);
+    setCanvasOverviewThumbnailMaxDimension(localCanvasOverviewThumbnailMaxDimension);
+    setCanvasThumbnailMediaCountThreshold(localCanvasThumbnailMediaCountThreshold);
+    setCanvasViewportPreloadMarginScreens(localCanvasViewportPreloadMarginScreens);
     setAutoCheckAppUpdateOnLaunch(localAutoCheckAppUpdateOnLaunch);
     setEnableUpdateDialog(localEnableUpdateDialog || localAutoCheckAppUpdateOnLaunch);
     setAutoUpdateDreaminaCliOnLaunch(localAutoUpdateDreaminaCliOnLaunch);
@@ -1697,6 +1733,10 @@ export function SettingsDialog({
     localThemeTonePreset,
     localAccentColor,
     localCanvasEdgeRoutingMode,
+    localCanvasOverviewZoomThreshold,
+    localCanvasOverviewThumbnailMaxDimension,
+    localCanvasThumbnailMediaCountThreshold,
+    localCanvasViewportPreloadMarginScreens,
     localAutoCheckAppUpdateOnLaunch,
     localEnableUpdateDialog,
     localAutoUpdateDreaminaCliOnLaunch,
@@ -1745,6 +1785,10 @@ export function SettingsDialog({
     setThemeTonePreset,
     setAccentColor,
     setCanvasEdgeRoutingMode,
+    setCanvasOverviewZoomThreshold,
+    setCanvasOverviewThumbnailMaxDimension,
+    setCanvasThumbnailMediaCountThreshold,
+    setCanvasViewportPreloadMarginScreens,
     setAutoCheckAppUpdateOnLaunch,
     setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
@@ -3117,6 +3161,117 @@ export function SettingsDialog({
                         <option value="orthogonal">{t('settings.edgeRoutingOrthogonal')}</option>
                         <option value="smartOrthogonal">{t('settings.edgeRoutingSmartOrthogonal')}</option>
                       </UiSelect>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <h3 className="text-sm font-medium text-text-dark">
+                      {t('settings.canvasPerformance')}
+                    </h3>
+                    <p className="mt-1 text-xs text-text-muted">
+                      {t('settings.canvasPerformanceDesc')}
+                    </p>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <label className="block">
+                        <span className="text-xs font-medium text-text-dark">
+                          {t('settings.canvasOverviewZoomThreshold')}
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-5 text-text-muted">
+                          {t('settings.canvasOverviewZoomThresholdDesc')}
+                        </span>
+                        <UiSelect
+                          value={String(localCanvasOverviewZoomThreshold)}
+                          onChange={(event) =>
+                            setLocalCanvasOverviewZoomThreshold(
+                              Number(event.target.value) as CanvasOverviewZoomThreshold
+                            )
+                          }
+                          className="mt-2 h-9 text-sm"
+                        >
+                          {CANVAS_OVERVIEW_ZOOM_THRESHOLD_OPTIONS.map((threshold) => (
+                            <option key={threshold} value={threshold}>
+                              {t('settings.canvasOverviewZoomThresholdOption', {
+                                percent: Math.round(threshold * 100),
+                              })}
+                            </option>
+                          ))}
+                        </UiSelect>
+                      </label>
+
+                      <label className="block">
+                        <span className="text-xs font-medium text-text-dark">
+                          {t('settings.canvasOverviewThumbnailSize')}
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-5 text-text-muted">
+                          {t('settings.canvasOverviewThumbnailSizeDesc')}
+                        </span>
+                        <UiSelect
+                          value={String(localCanvasOverviewThumbnailMaxDimension)}
+                          onChange={(event) =>
+                            setLocalCanvasOverviewThumbnailMaxDimension(
+                              Number(event.target.value) as CanvasOverviewThumbnailMaxDimension
+                            )
+                          }
+                          className="mt-2 h-9 text-sm"
+                        >
+                          {CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS.map((dimension) => (
+                            <option key={dimension} value={dimension}>
+                              {t('settings.canvasOverviewThumbnailSizeOption', { size: dimension })}
+                            </option>
+                          ))}
+                        </UiSelect>
+                      </label>
+
+                      <label className="block">
+                        <span className="text-xs font-medium text-text-dark">
+                          {t('settings.canvasThumbnailMediaCountThreshold')}
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-5 text-text-muted">
+                          {t('settings.canvasThumbnailMediaCountThresholdDesc')}
+                        </span>
+                        <UiSelect
+                          value={String(localCanvasThumbnailMediaCountThreshold)}
+                          onChange={(event) =>
+                            setLocalCanvasThumbnailMediaCountThreshold(
+                              Number(event.target.value) as CanvasThumbnailMediaCountThreshold
+                            )
+                          }
+                          className="mt-2 h-9 text-sm"
+                        >
+                          {CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD_OPTIONS.map((threshold) => (
+                            <option key={threshold} value={threshold}>
+                              {t('settings.canvasThumbnailMediaCountThresholdOption', {
+                                count: threshold,
+                              })}
+                            </option>
+                          ))}
+                        </UiSelect>
+                      </label>
+
+                      <label className="block">
+                        <span className="text-xs font-medium text-text-dark">
+                          {t('settings.canvasViewportPreloadMargin')}
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-5 text-text-muted">
+                          {t('settings.canvasViewportPreloadMarginDesc')}
+                        </span>
+                        <UiSelect
+                          value={String(localCanvasViewportPreloadMarginScreens)}
+                          onChange={(event) =>
+                            setLocalCanvasViewportPreloadMarginScreens(
+                              Number(event.target.value) as CanvasViewportPreloadMarginScreens
+                            )
+                          }
+                          className="mt-2 h-9 text-sm"
+                        >
+                          {CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS_OPTIONS.map((screens) => (
+                            <option key={screens} value={screens}>
+                              {t('settings.canvasViewportPreloadMarginOption', { count: screens })}
+                            </option>
+                          ))}
+                        </UiSelect>
+                      </label>
                     </div>
                   </div>
 

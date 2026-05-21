@@ -2,6 +2,7 @@ import {
   prepareNodeImage,
   type PreparedNodeImage,
 } from '@/features/canvas/application/imageData';
+import { useSettingsStore } from '@/stores/settingsStore';
 import {
   getExtensionRuntimeStatus,
   runExtensionCommand,
@@ -166,7 +167,12 @@ export async function removeBackgroundWithRmbg(
     throw new Error('The RMBG extension runtime did not return a PNG output file.');
   }
 
-  const preparedImage = await prepareNodeImage(outputPath);
+  const preparedImage = await prepareNodeImage(
+    outputPath,
+    undefined,
+    undefined,
+    useSettingsStore.getState().canvasOverviewThumbnailMaxDimension
+  );
 
   return {
     ...preparedImage,

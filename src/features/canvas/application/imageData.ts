@@ -10,6 +10,27 @@ import {
 import type { MediaPersistContext } from '@/commands/media';
 import { createCurrentProjectMediaContext } from './mediaPersistenceContext';
 
+export type OverviewThumbnailMaxDimension = 96 | 128 | 256 | 512;
+
+export const OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS = [96, 128, 256, 512] as const;
+export const DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION: OverviewThumbnailMaxDimension = 256;
+
+export function normalizeOverviewThumbnailMaxDimension(
+  value: number | string | null | undefined
+): OverviewThumbnailMaxDimension {
+  const numericValue =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Number(value)
+        : Number.NaN;
+  return OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS.includes(
+    numericValue as OverviewThumbnailMaxDimension
+  )
+    ? (numericValue as OverviewThumbnailMaxDimension)
+    : DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION;
+}
+
 export function parseAspectRatio(value: string): number {
   const [width, height] = value.split(':').map((item) => Number(item));
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
@@ -42,7 +63,7 @@ function greatestCommonDivisor(a: number, b: number): number {
 }
 
 const DEFAULT_PREVIEW_MAX_DIMENSION = 256;
-export const OVERVIEW_THUMBNAIL_MAX_DIMENSION = 96;
+export const OVERVIEW_THUMBNAIL_MAX_DIMENSION = DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION;
 const LOCAL_PATH_PREFIX_PATTERN = /^(?:[A-Za-z]:[\\/]|\\\\|\/)/;
 const URL_SCHEME_PREFIX_PATTERN = /^[a-z][a-z0-9+\-.]*:\/\//i;
 const LOCAL_IMAGE_DISPLAY_SOURCE_CACHE_LIMIT = 512;
@@ -82,6 +103,7 @@ export interface PreparedNodeImage {
   imageUrl: string;
   previewImageUrl: string;
   thumbnailImageUrl: string;
+  thumbnailMaxDimension: OverviewThumbnailMaxDimension;
   aspectRatio: string;
 }
 
@@ -619,20 +641,22 @@ export async function ensurePreparedNodeImageReadable(
 
 export async function createNodeOverviewThumbnail(
   source: string,
-  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('image')
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('image'),
+  maxDimension: OverviewThumbnailMaxDimension | number = DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION
 ): Promise<string> {
   const trimmedSource = source.trim();
   if (!trimmedSource) {
     throw createImagePipelineError('Thumbnail source is empty', 'source is empty');
   }
 
+  const safeMaxDimension = normalizeOverviewThumbnailMaxDimension(maxDimension);
   if (isTauri()) {
-    return await createNodeThumbnailSource(trimmedSource, mediaContext);
+    return await createNodeThumbnailSource(trimmedSource, mediaContext, safeMaxDimension);
   }
 
   const thumbnailDataUrl = await createPreviewDataUrl(
     trimmedSource,
-    OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+    safeMaxDimension,
     { forceRender: true, mimeType: 'image/png' }
   );
   return await persistImageLocally(
@@ -745,7 +769,8 @@ function resolveFileExtension(file: File): string {
 export async function prepareNodeImageFromFile(
   file: File,
   maxPreviewDimension = DEFAULT_PREVIEW_MAX_DIMENSION,
-  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('image')
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('image'),
+  maxThumbnailDimension: OverviewThumbnailMaxDimension | number = DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION
 ): Promise<PreparedNodeImage> {
   const started = performance.now();
   const tauriFilePath = (file as File & { path?: string }).path;
@@ -754,7 +779,12 @@ export async function prepareNodeImageFromFile(
     normalizedPath.length > 0
     && (isLikelyLocalImagePath(normalizedPath) || normalizedPath.toLowerCase().startsWith('file://'));
   if (canUseLocalPath) {
-    const prepared = await prepareNodeImage(normalizedPath, maxPreviewDimension, mediaContext);
+    const prepared = await prepareNodeImage(
+      normalizedPath,
+      maxPreviewDimension,
+      mediaContext,
+      maxThumbnailDimension
+    );
     console.info(
       `[upload-perf][imageData] prepareNodeImageFromFile path-mode name="${file.name}" size=${file.size}B elapsed=${Math.round(performance.now() - started)}ms`
     );
@@ -763,12 +793,19 @@ export async function prepareNodeImageFromFile(
 
   if (isTauri()) {
     const safeMaxDimension = Math.max(64, Math.floor(maxPreviewDimension));
+    const safeThumbnailMaxDimension = normalizeOverviewThumbnailMaxDimension(maxThumbnailDimension);
     const readStarted = performance.now();
     const bytes = new Uint8Array(await file.arrayBuffer());
     const readElapsed = Math.round(performance.now() - readStarted);
     const extension = resolveFileExtension(file);
     const tauriStarted = performance.now();
-    const prepared = await prepareNodeImageBinary(bytes, extension, safeMaxDimension, mediaContext);
+    const prepared = await prepareNodeImageBinary(
+      bytes,
+      extension,
+      safeMaxDimension,
+      safeThumbnailMaxDimension,
+      mediaContext
+    );
     const tauriElapsed = Math.round(performance.now() - tauriStarted);
     console.info(
       `[upload-perf][imageData] prepareNodeImageFromFile binary-mode name="${file.name}" size=${file.size}B readArrayBuffer=${readElapsed}ms tauriPrepare=${tauriElapsed}ms total=${Math.round(performance.now() - started)}ms`
@@ -777,6 +814,9 @@ export async function prepareNodeImageFromFile(
       imageUrl: prepared.imagePath,
       previewImageUrl: prepared.previewImagePath,
       thumbnailImageUrl: prepared.thumbnailImagePath,
+      thumbnailMaxDimension: normalizeOverviewThumbnailMaxDimension(
+        prepared.thumbnailMaxDimension ?? safeThumbnailMaxDimension
+      ),
       aspectRatio: prepared.aspectRatio,
     };
   }
@@ -784,7 +824,12 @@ export async function prepareNodeImageFromFile(
   const dataUrlStarted = performance.now();
   const source = await readFileAsDataUrl(file);
   const dataUrlElapsed = Math.round(performance.now() - dataUrlStarted);
-  const prepared = await prepareNodeImage(source, maxPreviewDimension, mediaContext);
+  const prepared = await prepareNodeImage(
+    source,
+    maxPreviewDimension,
+    mediaContext,
+    maxThumbnailDimension
+  );
   console.info(
     `[upload-perf][imageData] prepareNodeImageFromFile dataurl-fallback name="${file.name}" size=${file.size}B readDataUrl=${dataUrlElapsed}ms total=${Math.round(performance.now() - started)}ms`
   );
@@ -897,7 +942,8 @@ export async function createPreviewDataUrl(
 export async function prepareNodeImage(
   imageUrl: string,
   maxPreviewDimension = DEFAULT_PREVIEW_MAX_DIMENSION,
-  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('image')
+  mediaContext: MediaPersistContext = createCurrentProjectMediaContext('image'),
+  maxThumbnailDimension: OverviewThumbnailMaxDimension | number = DEFAULT_OVERVIEW_THUMBNAIL_MAX_DIMENSION
 ): Promise<PreparedNodeImage> {
   const trimmedImageUrl = imageUrl.trim();
   if (!trimmedImageUrl) {
@@ -905,6 +951,7 @@ export async function prepareNodeImage(
   }
 
   const started = performance.now();
+  const safeThumbnailMaxDimension = normalizeOverviewThumbnailMaxDimension(maxThumbnailDimension);
   if (isTauri()) {
     const safeMaxDimension = Math.max(64, Math.floor(maxPreviewDimension));
     try {
@@ -912,6 +959,7 @@ export async function prepareNodeImage(
       const prepared = await prepareNodeImageSource(
         trimmedImageUrl,
         safeMaxDimension,
+        safeThumbnailMaxDimension,
         mediaContext
       );
       console.info(
@@ -921,6 +969,9 @@ export async function prepareNodeImage(
         imageUrl: prepared.imagePath,
         previewImageUrl: prepared.previewImagePath,
         thumbnailImageUrl: prepared.thumbnailImagePath,
+        thumbnailMaxDimension: normalizeOverviewThumbnailMaxDimension(
+          prepared.thumbnailMaxDimension ?? safeThumbnailMaxDimension
+        ),
         aspectRatio: prepared.aspectRatio,
       };
     } catch (error) {
@@ -947,7 +998,7 @@ export async function prepareNodeImage(
         );
     const thumbnailDataUrl = await createPreviewDataUrl(
       persistedImagePath,
-      OVERVIEW_THUMBNAIL_MAX_DIMENSION,
+      safeThumbnailMaxDimension,
       { forceRender: true, mimeType: 'image/png' }
     );
     const thumbnailImagePath =
@@ -965,6 +1016,7 @@ export async function prepareNodeImage(
       imageUrl: persistedImagePath,
       previewImageUrl: previewImagePath,
       thumbnailImageUrl: thumbnailImagePath,
+      thumbnailMaxDimension: safeThumbnailMaxDimension,
       aspectRatio: reduceAspectRatio(image.naturalWidth, image.naturalHeight),
     };
   } catch (error) {

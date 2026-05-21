@@ -73,10 +73,12 @@ import {
   isSupportedAudioFile,
   prepareNodeAudioFromFile,
 } from '@/features/canvas/application/audioData';
-import { resolveNodeDownloadSuggestedFileStem } from '@/features/canvas/application/downloadFileName';
 import {
-  buildCanvasThumbnailBackfillSignature,
-  buildCanvasViewportThumbnailBackfillSignature,
+  resolveNodeDownloadSuggestedFileStem,
+  sanitizeDownloadFileName,
+  stripFileExtension,
+} from '@/features/canvas/application/downloadFileName';
+import {
   scheduleCanvasThumbnailBackfill,
 } from '@/features/canvas/application/canvasThumbnailBackfill';
 import {
@@ -151,6 +153,7 @@ import { GroupSidebar } from './ui/GroupSidebar';
 import { SelectionGroupBar } from './ui/SelectionGroupBar';
 import { CanvasAssetDock } from './ui/CanvasAssetDock';
 import { StoryboardAssetExpandDialog } from './ui/StoryboardAssetExpandDialog';
+import { CanvasSelectionTransferDialog } from './ui/CanvasSelectionTransferDialog';
 import { SmartDirectorStoryboardExpandDialog } from './ui/SmartDirectorStoryboardExpandDialog';
 import { SmartDirectorStoryboardResultChoiceDialog } from './ui/SmartDirectorStoryboardResultChoiceDialog';
 import { BatchAddToAssetsDialog } from './ui/BatchAddToAssetsDialog';
@@ -312,8 +315,6 @@ type ImageCompareValidationReason =
 const ALT_DRAG_COPY_Z_INDEX = 2000;
 const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR = '.script-chapter-node__drag-handle';
 const NODE_ALIGNMENT_DRAG_START_THRESHOLD = 4;
-const CANVAS_OVERVIEW_ZOOM_THRESHOLD = 0.4;
-const CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD = 250;
 const GENERATION_JOB_POLL_INTERVAL_MS = 1400;
 const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
 const GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS = 15 * 1000;
@@ -561,10 +562,66 @@ function normalizeDialogDirectoryPath(value: string | string[] | null): string |
   return null;
 }
 
+function normalizePromptFileNameCandidate(value: unknown): string {
+  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+}
+
+function collectPromptFileNameCandidates(value: unknown, candidates: string[]): void {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  const candidateKeys = [
+    'prompt',
+    'finalPrompt',
+    'userPrompt',
+    'renderedPrompt',
+    'genPrompt',
+    'imagePrompt',
+    'visualPrompt',
+    'positivePrompt',
+  ];
+
+  for (const key of candidateKeys) {
+    const candidate = normalizePromptFileNameCandidate(record[key]);
+    if (candidate) {
+      candidates.push(candidate);
+    }
+  }
+}
+
+function resolveSelectedDownloadPromptFileNameStem(node: CanvasNode): string | null {
+  const candidates: string[] = [];
+  const data = node.data as Record<string, unknown>;
+
+  collectPromptFileNameCandidates(data, candidates);
+  collectPromptFileNameCandidates(data.generationSummary, candidates);
+
+  const resultImages = Array.isArray(data.resultImages) ? data.resultImages : [];
+  const firstResultImage = resultImages.find(
+    (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'
+  );
+  collectPromptFileNameCandidates(firstResultImage, candidates);
+
+  const prompt = candidates.find((candidate) => candidate.length > 0);
+  if (!prompt) {
+    return null;
+  }
+
+  const safeStem = stripFileExtension(sanitizeDownloadFileName(prompt)).slice(0, 120).trim();
+  return safeStem || null;
+}
+
 function resolveSelectedDownloadSuggestedFileName(
   node: CanvasNode,
   index: number
 ): string {
+  const promptStem = resolveSelectedDownloadPromptFileNameStem(node);
+  if (promptStem) {
+    return promptStem;
+  }
+
   const resolvedStem = resolveNodeDownloadSuggestedFileStem(node).trim();
   if (resolvedStem) {
     return resolvedStem;
@@ -1215,6 +1272,7 @@ export function Canvas() {
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
   const [storyboardAssetExpandSourceNodeId, setStoryboardAssetExpandSourceNodeId] = useState<string | null>(null);
   const [smartDirectorStoryboardExpandSourceNodeId, setSmartDirectorStoryboardExpandSourceNodeId] = useState<string | null>(null);
+  const [canvasTransferSourceNodeIds, setCanvasTransferSourceNodeIds] = useState<string[] | null>(null);
   const [smartDirectorStoryboardResultChoice, setSmartDirectorStoryboardResultChoice] =
     useState<SmartDirectorStoryboardResultChoiceState | null>(null);
   const [batchAddToAssetsResolution, setBatchAddToAssetsResolution] =
@@ -1389,6 +1447,18 @@ export function Canvas() {
   const showAlignmentGuides = useSettingsStore((state) => state.showAlignmentGuides);
   const showCanvasEdges = useSettingsStore((state) => state.showCanvasEdges);
   const groupNodesShortcut = useSettingsStore((state) => state.groupNodesShortcut);
+  const canvasOverviewZoomThreshold = useSettingsStore(
+    (state) => state.canvasOverviewZoomThreshold
+  );
+  const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+    (state) => state.canvasOverviewThumbnailMaxDimension
+  );
+  const canvasThumbnailMediaCountThreshold = useSettingsStore(
+    (state) => state.canvasThumbnailMediaCountThreshold
+  );
+  const canvasViewportPreloadMarginScreens = useSettingsStore(
+    (state) => state.canvasViewportPreloadMarginScreens
+  );
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
   const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
   const setShowCanvasEdges = useSettingsStore((state) => state.setShowCanvasEdges);
@@ -1423,11 +1493,11 @@ export function Canvas() {
 
   useEffect(() => {
     const nextRenderMode: CanvasRenderMode =
-      canvasZoom <= CANVAS_OVERVIEW_ZOOM_THRESHOLD ? 'overview' : 'full';
+      canvasZoom <= canvasOverviewZoomThreshold ? 'overview' : 'full';
     setCanvasRenderMode((currentMode) => (
       currentMode === nextRenderMode ? currentMode : nextRenderMode
     ));
-  }, [canvasZoom]);
+  }, [canvasOverviewZoomThreshold, canvasZoom]);
 
   useEffect(() => {
     setCanvasEdgeRenderMode((currentMode) => {
@@ -1456,7 +1526,7 @@ export function Canvas() {
     return count;
   }, [dragHistorySnapshot, nodes]);
   const shouldPreferThumbnailMedia =
-    canvasPreviewMediaCount > CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD;
+    canvasPreviewMediaCount > canvasThumbnailMediaCountThreshold;
 
   const canvasMediaPerformanceState = useMemo<CanvasMediaPerformanceState>(
     () => ({
@@ -1754,7 +1824,7 @@ export function Canvas() {
           latestNodes,
           viewportImagePreloadViewportRef.current,
           latestViewportSize,
-          { marginScreens: 1 }
+          { marginScreens: canvasViewportPreloadMarginScreens }
         );
         if (preloadEntries.length === 0) {
           return;
@@ -1783,7 +1853,7 @@ export function Canvas() {
         viewportImagePreloadIdleRef.current = globalThis.setTimeout(scheduleIdlePreload, 80);
       }
     }, VIEWPORT_IMAGE_PRELOAD_THROTTLE_MS);
-  }, [clearScheduledViewportPreload]);
+  }, [canvasViewportPreloadMarginScreens, clearScheduledViewportPreload]);
 
   const warmCopiedNodeImages = useCallback((copiedNodeIds: string[]) => {
     if (copiedNodeIds.length === 0) {
@@ -2104,6 +2174,7 @@ export function Canvas() {
         imageUrl: string;
         previewImageUrl: string;
         thumbnailUrl: string | null;
+        thumbnailMaxDimension?: number | null;
         aspectRatio: string;
         generationSummary: ExportImageGenerationSummary | null;
       }
@@ -2138,6 +2209,9 @@ export function Canvas() {
                   typeof record.thumbnailUrl === 'string' && record.thumbnailUrl.trim()
                     ? record.thumbnailUrl.trim()
                     : null,
+                thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+                  ? Number(record.thumbnailMaxDimension)
+                  : null,
                 aspectRatio:
                   typeof record.aspectRatio === 'string' && record.aspectRatio.trim()
                     ? record.aspectRatio.trim()
@@ -2177,6 +2251,7 @@ export function Canvas() {
         imageUrl: result.imageUrl,
         previewImageUrl: result.previewImageUrl,
         thumbnailUrl: result.thumbnailUrl,
+        thumbnailMaxDimension: result.thumbnailMaxDimension ?? null,
         aspectRatio: result.aspectRatio,
         generationSummary: result.generationSummary,
         createdAt,
@@ -2229,7 +2304,12 @@ export function Canvas() {
           return true;
         }
 
-        const prepared = await prepareNodeImage(resultSource);
+        const prepared = await prepareNodeImage(
+          resultSource,
+          undefined,
+          undefined,
+          canvasOverviewThumbnailMaxDimension
+        );
         const storyboardMetadataRaw = currentData.generationStoryboardMetadata;
         let imageWithMetadata = prepared.imageUrl;
 
@@ -2265,6 +2345,7 @@ export function Canvas() {
             imageUrl: imageWithMetadata,
             previewImageUrl: previewWithMetadata,
             thumbnailUrl: prepared.thumbnailImageUrl,
+            thumbnailMaxDimension: prepared.thumbnailMaxDimension,
             aspectRatio: prepared.aspectRatio,
             generationSummary: nextGenerationSummary,
           }
@@ -2274,6 +2355,7 @@ export function Canvas() {
           imageUrl: imageWithMetadata,
           previewImageUrl: previewWithMetadata,
           thumbnailUrl: prepared.thumbnailImageUrl,
+          thumbnailMaxDimension: prepared.thumbnailMaxDimension,
           aspectRatio: prepared.aspectRatio,
           isGenerating: false,
           generationPhase: 'succeeded',
@@ -2302,6 +2384,7 @@ export function Canvas() {
     },
     [
       buildStoryboardProductionResultPatch,
+      canvasOverviewThumbnailMaxDimension,
       markGenerationNodeActivity,
       updateNodeData,
     ]
@@ -2528,6 +2611,13 @@ export function Canvas() {
         });
       }
     );
+    const unsubscribeCanvasSelectionTransfer = canvasEventBus.subscribe(
+      'canvas-selection-transfer/open',
+      ({ nodeIds }) => {
+        const nextNodeIds = Array.from(new Set(nodeIds.filter((nodeId) => nodeId.trim().length > 0)));
+        setCanvasTransferSourceNodeIds(nextNodeIds.length > 0 ? nextNodeIds : null);
+      }
+    );
 
     return () => {
       unsubscribeOpen();
@@ -2535,6 +2625,7 @@ export function Canvas() {
       unsubscribeStoryboardExpand();
       unsubscribeSmartDirectorStoryboardExpand();
       unsubscribeSmartDirectorStoryboardResultChoice();
+      unsubscribeCanvasSelectionTransfer();
     };
   }, [openToolDialog, closeToolDialog]);
 
@@ -2547,7 +2638,8 @@ export function Canvas() {
       return;
     }
 
-    console.info('[canvas-restore]', {
+    restoredCanvasProjectIdRef.current = activeProject.id;
+    console.debug('[canvas-restore]', {
       projectId: activeProject.id,
       nodeCount: activeProject.nodes.length,
       edgeCount: activeProject.edges.length,
@@ -2563,7 +2655,6 @@ export function Canvas() {
 
     const restoreTimer = setTimeout(() => {
       isRestoringCanvasRef.current = false;
-      restoredCanvasProjectIdRef.current = activeProject.id;
     }, 0);
 
     return () => {
@@ -2636,25 +2727,6 @@ export function Canvas() {
     scheduleCanvasPersist();
   }, [nodes, edges, history, dragHistorySnapshot, scheduleCanvasPersist]);
 
-  const thumbnailBackfillSignatureRef = useRef('');
-  const thumbnailBackfillSignature = useMemo(() => {
-    if (dragHistorySnapshot) {
-      return thumbnailBackfillSignatureRef.current;
-    }
-
-    const signature =
-      canvasViewportSize.width > 0 && canvasViewportSize.height > 0
-        ? buildCanvasViewportThumbnailBackfillSignature(
-          nodes,
-          canvasViewport,
-          canvasViewportSize,
-          { marginScreens: 1 }
-        )
-        : buildCanvasThumbnailBackfillSignature(nodes);
-    thumbnailBackfillSignatureRef.current = signature;
-    return signature;
-  }, [canvasViewport, canvasViewportSize, dragHistorySnapshot, nodes]);
-
   useEffect(() => {
     if (isRestoringCanvasRef.current) {
       return;
@@ -2668,15 +2740,19 @@ export function Canvas() {
         || canvasViewportSize.height <= 0,
       viewport: canvasViewport,
       viewportSize: canvasViewportSize,
-      options: { marginScreens: 1 },
+      options: {
+        marginScreens: canvasViewportPreloadMarginScreens,
+        thumbnailMaxDimension: canvasOverviewThumbnailMaxDimension,
+      },
     });
   }, [
+    canvasOverviewThumbnailMaxDimension,
     canvasViewport,
     canvasViewportSize,
+    canvasViewportPreloadMarginScreens,
     currentProjectId,
     dragHistorySnapshot,
     isCanvasOverviewRender,
-    thumbnailBackfillSignature,
   ]);
 
   useEffect(() => () => {
@@ -3706,6 +3782,7 @@ export function Canvas() {
         imageUrl: imageData.imageUrl,
         previewImageUrl: imageData.previewImageUrl,
         thumbnailUrl: imageData.thumbnailImageUrl,
+        thumbnailMaxDimension: imageData.thumbnailMaxDimension,
         aspectRatio: imageData.aspectRatio,
         ...(sourceFileName ? { sourceFileName } : {}),
         ...(useUploadFilenameAsNodeTitle && sourceFileName ? { displayName: sourceFileName } : {}),
@@ -3724,6 +3801,7 @@ export function Canvas() {
         imageUrl: imageData.imageUrl,
         previewImageUrl: imageData.previewImageUrl,
         thumbnailUrl: imageData.thumbnailImageUrl,
+        thumbnailMaxDimension: imageData.thumbnailMaxDimension,
         aspectRatio: imageData.aspectRatio,
         imageWidth: undefined,
         imageHeight: undefined,
@@ -3737,7 +3815,12 @@ export function Canvas() {
       const position = resolveClipboardInsertPosition();
 
       try {
-        const imageData = await prepareNodeImageFromFile(file);
+        const imageData = await prepareNodeImageFromFile(
+          file,
+          undefined,
+          undefined,
+          canvasOverviewThumbnailMaxDimension
+        );
         const newNodeId = createUploadNodeFromPreparedImage(position, imageData, file.name || null);
         setSelectedNode(newNodeId);
       } catch (error) {
@@ -3762,7 +3845,12 @@ export function Canvas() {
         }
 
         try {
-          const imageData = await prepareNodeImage(imageSource.path);
+          const imageData = await prepareNodeImage(
+            imageSource.path,
+            undefined,
+            undefined,
+            canvasOverviewThumbnailMaxDimension
+          );
           applyPreparedImageToSelectedUploadNode(imageData, imageSource.fileName);
         } catch (error) {
           console.error('Failed to process pasted clipboard image file:', {
@@ -3787,7 +3875,12 @@ export function Canvas() {
 
         try {
           if (item.kind === 'image') {
-            const imageData = await prepareNodeImage(item.path);
+            const imageData = await prepareNodeImage(
+              item.path,
+              undefined,
+              undefined,
+              canvasOverviewThumbnailMaxDimension
+            );
             lastCreatedNodeId = createUploadNodeFromPreparedImage(position, imageData, item.fileName);
             continue;
           }
@@ -3895,6 +3988,7 @@ export function Canvas() {
     };
   }, [
     addNode,
+    canvasOverviewThumbnailMaxDimension,
     reactFlowInstance,
     selectedUploadNodeId,
     setSelectedNode,
@@ -4492,12 +4586,18 @@ export function Canvas() {
       };
 
       try {
-        const imageData = await prepareNodeImageFromFile(file);
+        const imageData = await prepareNodeImageFromFile(
+          file,
+          undefined,
+          undefined,
+          canvasOverviewThumbnailMaxDimension
+        );
         addNode(CANVAS_NODE_TYPES.upload, position, {
           displayName: '上传图片',
           imageUrl: imageData.imageUrl,
           previewImageUrl: imageData.previewImageUrl,
           thumbnailUrl: imageData.thumbnailImageUrl,
+          thumbnailMaxDimension: imageData.thumbnailMaxDimension,
           aspectRatio: imageData.aspectRatio,
         });
       } catch (err) {
@@ -4552,6 +4652,7 @@ export function Canvas() {
     addNode,
     clearDragOverlay,
     insertAssetPayloadNode,
+    canvasOverviewThumbnailMaxDimension,
     reactFlowInstance,
     scheduleCanvasPersist,
     setSelectedNode,
@@ -5429,6 +5530,7 @@ export function Canvas() {
 
   const handleNodeDrag = useCallback(
     (_event: ReactMouseEvent, node: CanvasNode) => {
+      scheduleViewportImagePreload();
       const altCopyState = altDragCopyRef.current;
 
       if (enableNodeAlignment && !altCopyState) {
@@ -5493,7 +5595,12 @@ export function Canvas() {
         applyNodesChange(allChanges);
       }
     },
-    [applyNodesChange, enableNodeAlignment, scheduleAlignmentDuringDrag]
+    [
+      applyNodesChange,
+      enableNodeAlignment,
+      scheduleAlignmentDuringDrag,
+      scheduleViewportImagePreload,
+    ]
   );
 
   const handleNodeDragStop = useCallback(
@@ -6179,6 +6286,16 @@ export function Canvas() {
     }
   }, [isPreparingSelectedAssets, selectedAssetAddableNodeIds]);
 
+  const handleTransferSelectedNodes = useCallback(() => {
+    if (selectedNodeIds.length < 2) {
+      return;
+    }
+
+    canvasEventBus.publish('canvas-selection-transfer/open', {
+      nodeIds: selectedNodeIds,
+    });
+  }, [selectedNodeIds]);
+
   const handleLocateGroup = useCallback((groupId: string) => {
     const groupNode = nodes.find((node) => node.id === groupId && node.type === CANVAS_NODE_TYPES.group);
     if (!groupNode) {
@@ -6257,6 +6374,11 @@ export function Canvas() {
         isOpen={storyboardAssetExpandSourceNodeId !== null}
         sourceNodeId={storyboardAssetExpandSourceNodeId}
         onClose={() => setStoryboardAssetExpandSourceNodeId(null)}
+      />
+      <CanvasSelectionTransferDialog
+        isOpen={canvasTransferSourceNodeIds !== null}
+        sourceNodeIds={canvasTransferSourceNodeIds ?? []}
+        onClose={() => setCanvasTransferSourceNodeIds(null)}
       />
       <SmartDirectorStoryboardExpandDialog
         isOpen={smartDirectorStoryboardExpandSourceNodeId !== null}
@@ -6392,6 +6514,7 @@ export function Canvas() {
             assetAddableCount={selectedAssetAddableNodeIds.length}
             onAddSelectedToAssets={handleAddSelectedToAssets}
             isAddingSelectedToAssets={isPreparingSelectedAssets}
+            onTransferSelected={handleTransferSelectedNodes}
           />
         )}
 

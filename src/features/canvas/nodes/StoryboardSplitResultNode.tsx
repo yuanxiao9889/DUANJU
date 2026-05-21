@@ -216,6 +216,9 @@ export const StoryboardSplitResultNode = memo(
     const downloadPresetPaths = useSettingsStore(
       (state) => state.downloadPresetPaths,
     );
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
 
     const [isExportingFrames, setIsExportingFrames] = useState(false);
     const [isSeparatingFrames, setIsSeparatingFrames] = useState(false);
@@ -381,7 +384,12 @@ export const StoryboardSplitResultNode = memo(
           const frameTitle =
             t("node.storyboardNode.frameIndex", { index: index + 1 }) ||
             EXPORT_RESULT_DISPLAY_NAME.storyboardFrameEdit;
-          const prepared = await prepareNodeImage(sourceImage);
+          const prepared = await prepareNodeImage(
+            sourceImage,
+            undefined,
+            undefined,
+            canvasOverviewThumbnailMaxDimension,
+          );
           const createdNodeId = addDerivedExportNode(
             id,
             prepared.imageUrl,
@@ -389,6 +397,7 @@ export const StoryboardSplitResultNode = memo(
             prepared.previewImageUrl,
             {
               thumbnailUrl: prepared.thumbnailImageUrl,
+              thumbnailMaxDimension: prepared.thumbnailMaxDimension,
               defaultTitle: frameTitle,
               resultKind: "storyboardFrameEdit",
             },
@@ -405,7 +414,7 @@ export const StoryboardSplitResultNode = memo(
           );
         }
       },
-      [addDerivedExportNode, addEdge, id, t],
+      [addDerivedExportNode, addEdge, canvasOverviewThumbnailMaxDimension, id, t],
     );
 
     const handleSeparateAllFrames = useCallback(async () => {
@@ -433,11 +442,17 @@ export const StoryboardSplitResultNode = memo(
       try {
         const preparedFrames = await Promise.all(
           frameEntries.map(async (frame) => {
-            const prepared = await prepareNodeImage(frame.sourceImage);
+            const prepared = await prepareNodeImage(
+              frame.sourceImage,
+              undefined,
+              undefined,
+              canvasOverviewThumbnailMaxDimension,
+            );
             return {
               imageUrl: prepared.imageUrl,
               previewImageUrl: prepared.previewImageUrl,
               thumbnailUrl: prepared.thumbnailImageUrl,
+              thumbnailMaxDimension: prepared.thumbnailMaxDimension,
               aspectRatio: prepared.aspectRatio,
               title: frame.title,
             };
@@ -458,6 +473,7 @@ export const StoryboardSplitResultNode = memo(
       }
     }, [
       addStoryboardSplitFrameExportNodes,
+      canvasOverviewThumbnailMaxDimension,
       gridCols,
       id,
       isSeparatingFrames,

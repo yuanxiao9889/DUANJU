@@ -385,6 +385,7 @@ export const SeedVR2ImageUpscaleNode = memo(
           preparedImage.previewImageUrl,
           {
             thumbnailUrl: preparedImage.thumbnailImageUrl,
+            thumbnailMaxDimension: preparedImage.thumbnailMaxDimension,
             connectToSource: true,
             defaultTitle: t("node.seedvr2ImageUpscale.resultTitle"),
           },

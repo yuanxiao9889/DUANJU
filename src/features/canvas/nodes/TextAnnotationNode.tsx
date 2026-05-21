@@ -289,7 +289,8 @@ export const TextAnnotationNode = memo(
           id="source"
           className="!h-3 !w-3 !border-2 !border-white !bg-accent"
         />
-        {resolvedNodeType === CANVAS_NODE_TYPES.textAnnotation ? (
+        {resolvedNodeType === CANVAS_NODE_TYPES.textAnnotation ||
+        resolvedNodeType === CANVAS_NODE_TYPES.ttsText ? (
           <CanvasHandle
             type="target"
             position={Position.Left}

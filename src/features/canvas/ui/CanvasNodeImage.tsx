@@ -150,6 +150,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   onError,
   onLoad,
   className,
+  fetchPriority,
   src,
   ...props
 }, forwardedRef) => {
@@ -438,14 +439,18 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     viewerImageList,
   ]);
 
+  const fetchPriorityAttribute = {
+    fetchpriority: fetchPriority ?? 'low',
+  } as Record<string, string>;
+
   return (
     <img
       {...props}
+      {...fetchPriorityAttribute}
       ref={forwardedRef}
       className={className ? `canvas-node-image ${className}` : 'canvas-node-image'}
       src={renderedSrc ?? EMPTY_IMAGE_DATA_URL}
       decoding={props.decoding ?? 'async'}
-      fetchPriority={props.fetchPriority ?? 'low'}
       data-image-load-state={activeSrc ? (isUsingFallback ? 'fallback' : 'primary') : 'failed'}
       data-viewer-src={
         normalizedViewerSource

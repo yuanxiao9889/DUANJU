@@ -16,6 +16,9 @@ interface GroupSidebarProps {
   onSelectGroup?: (groupId: string) => void;
 }
 
+const SIDEBAR_MAX_HEIGHT = 'min(62vh, 560px)';
+const SIDEBAR_LIST_MAX_HEIGHT = 'calc(min(62vh, 560px) - 65px)';
+
 export function GroupSidebar({
   groups,
   selectedGroupId,
@@ -42,7 +45,8 @@ export function GroupSidebar({
 
   return (
     <aside
-      className={`pointer-events-auto absolute left-4 top-4 z-[1100] overflow-hidden border border-border-dark bg-surface-dark/92 shadow-[0_8px_20px_rgba(15,23,42,0.12)] backdrop-blur dark:shadow-[0_10px_24px_rgba(0,0,0,0.22)] ${collapsed ? 'flex h-[52px] w-[52px] items-center justify-center rounded-full' : 'flex h-[min(62vh,560px)] w-[228px] flex-col rounded-2xl'}`}
+      className={`pointer-events-auto absolute left-4 top-4 z-[1100] overflow-hidden border border-border-dark bg-surface-dark/92 shadow-[0_8px_20px_rgba(15,23,42,0.12)] backdrop-blur dark:shadow-[0_10px_24px_rgba(0,0,0,0.22)] ${collapsed ? 'flex h-[52px] w-[52px] items-center justify-center rounded-full' : 'flex w-[228px] flex-col rounded-2xl'}`}
+      style={collapsed ? undefined : { maxHeight: SIDEBAR_MAX_HEIGHT }}
     >
       {collapsed ? (
         <div className="flex items-center justify-center">
@@ -77,7 +81,8 @@ export function GroupSidebar({
 
       {!collapsed && (
         <UiScrollArea
-          className="min-h-0 flex-1"
+          className="min-h-0 flex-none"
+          viewportStyle={{ maxHeight: SIDEBAR_LIST_MAX_HEIGHT }}
           viewportClassName="px-2 py-2"
           contentClassName="space-y-1.5 pr-3"
         >

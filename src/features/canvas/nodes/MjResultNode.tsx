@@ -716,6 +716,9 @@ export const MjResultNode = memo(
     const currentNode = useCanvasNodeById(id);
     const parentResultNode = useCanvasNodeById(data.parentResultNodeId ?? "");
     const mjApiKeys = useSettingsStore((state) => state.mjApiKeys);
+    const canvasOverviewThumbnailMaxDimension = useSettingsStore(
+      (state) => state.canvasOverviewThumbnailMaxDimension,
+    );
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addDerivedUploadNode = useCanvasStore(
@@ -1274,7 +1277,12 @@ export const MjResultNode = memo(
             return;
           }
 
-          const prepared = await prepareNodeImage(sourceImage);
+          const prepared = await prepareNodeImage(
+            sourceImage,
+            undefined,
+            undefined,
+            canvasOverviewThumbnailMaxDimension,
+          );
           const createdNodeId = addDerivedUploadNode(
             id,
             prepared.imageUrl,
@@ -1284,6 +1292,7 @@ export const MjResultNode = memo(
             prepared.previewImageUrl,
             {
               thumbnailUrl: prepared.thumbnailImageUrl,
+              thumbnailMaxDimension: prepared.thumbnailMaxDimension,
               imageWidth: item.width,
               imageHeight: item.height,
             },
@@ -1304,7 +1313,7 @@ export const MjResultNode = memo(
           );
         }
       },
-      [addDerivedUploadNode, addEdge, id, t],
+      [addDerivedUploadNode, addEdge, canvasOverviewThumbnailMaxDimension, id, t],
     );
 
     const handleSelectBatch = useCallback(

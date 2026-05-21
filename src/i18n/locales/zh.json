@@ -492,7 +492,8 @@
         "unresolved": "待确认 {{count}}",
         "skipped": "跳过 {{count}}"
       }
-    }
+    },
+    "transferToCanvas": "传递到画布"
   },
   "tool": {
     "crop": "裁剪",
@@ -2578,6 +2579,31 @@
         "newHint": "在右侧创建一个新的剧本分镜表节点，旧结果会继续保留方便对比。",
         "cancel": "取消"
       }
+    },
+    "canvasSelectionTransfer": {
+      "title": "传递到画布",
+      "modeNew": "新建画布",
+      "modeNewHint": "创建一个同类型画布，并把选中的节点复制过去。",
+      "modeExisting": "已有画布",
+      "modeExistingHint": "选择一个同类型画布，把选中的节点追加进去。",
+      "newNameLabel": "新画布名称",
+      "newNamePlaceholder": "输入新画布名称",
+      "existingLabel": "目标画布",
+      "existingPlaceholder": "选择一个同类型画布",
+      "noCandidates": "暂无可传递的同类型画布，可以改为新建画布。",
+      "recommended": "推荐",
+      "candidateMeta": "{{count}} 个节点 · 更新于 {{value}}",
+      "defaultProjectName": "{{source}} - 副本",
+      "confirm": "开始传递",
+      "submitting": "正在传递...",
+      "errors": {
+        "generic": "传递节点失败，请稍后重试。",
+        "noSourceProject": "找不到当前画布。",
+        "noNodes": "没有可传递的节点。",
+        "sameProject": "不能传递到当前画布。",
+        "targetProjectMissing": "目标画布不存在。",
+        "typeMismatch": "只能传递到同类型画布。"
+      }
     }
   },
   "adProject": {
@@ -3142,7 +3168,7 @@
     "storyboardCustomModelDisplayNamePlaceholder": "显示名称，例如 香蕉2",
     "storyboardNewApiCustomModelType": "模型类型",
     "storyboardNewApiCustomModelTypePlaceholder": "请选择 NewAPI 模型类型",
-    "storyboardNewApiCustomModelTypeGptImage2": "all-image-2（OpenAI 图片）",
+    "storyboardNewApiCustomModelTypeGptImage2": "gpt-image-2（OpenAI 图片）",
     "storyboardNewApiCustomModelTypeGoogleImage": "Google/Gemini 图片",
     "storyboardNewApiCustomModelTypeOpenaiCompatible": "OpenAI 兼容兜底",
     "addProvider": "添加供应商",
@@ -3164,7 +3190,7 @@
     "storyboardCompatibleHint": "设置好请求格式、接口地址与上方的兼容模型列表后再保存。未配置有效接口的兼容模型，不会出现在 AI 图片节点和分镜节点的模型列表中。",
     "storyboardCompatibleNoConnectionTest": "这条实验兼容配置不复用当前的文本连接测试。请保存后直接在分镜节点里验证生成链路。",
     "storyboardNewApiTitle": "NewAPI 图片接口",
-    "storyboardNewApiDesc": "这里只配置接口地址和默认请求格式。具体模型统一在上方“模型选择”里添加和切换；添加 NewAPI 模型时请按 all-image-2、Google/Gemini 图片或 OpenAI 兼容兜底分类。",
+    "storyboardNewApiDesc": "这里只配置接口地址和默认请求格式。具体模型统一在上方“模型选择”里添加和切换；添加 NewAPI 模型时请按 gpt-image-2、Google/Gemini 图片或 OpenAI 兼容兜底分类。",
     "storyboardNewApiFormat": "请求格式",
     "storyboardNewApiFormatOpenai": "OpenAI 兼容",
     "storyboardNewApiFormatOpenaiImages": "OpenAI 图片直连",
@@ -3201,6 +3227,20 @@
     "edgeRoutingSpline": "曲线",
     "edgeRoutingOrthogonal": "直角",
     "edgeRoutingSmartOrthogonal": "智能避让（直角）",
+    "canvasPerformance": "画布性能",
+    "canvasPerformanceDesc": "调整大项目中的概览显示和视口预加载策略，默认值更稳。",
+    "canvasOverviewZoomThreshold": "概览模式缩放阈值",
+    "canvasOverviewZoomThresholdDesc": "缩放低于该比例时切换为轻量概览渲染。",
+    "canvasOverviewZoomThresholdOption": "{{percent}}%",
+    "canvasOverviewThumbnailSize": "概览缩略图尺寸",
+    "canvasOverviewThumbnailSizeDesc": "尺寸越大越清晰，但会占用更多磁盘、显存和解码时间。",
+    "canvasOverviewThumbnailSizeOption": "{{size}} px",
+    "canvasThumbnailMediaCountThreshold": "大项目缩略图阈值",
+    "canvasThumbnailMediaCountThresholdDesc": "图片数量超过该值后，节点优先使用缩略图以减少渲染压力。",
+    "canvasThumbnailMediaCountThresholdOption": "{{count}} 张图片",
+    "canvasViewportPreloadMargin": "视口预加载范围",
+    "canvasViewportPreloadMarginDesc": "预加载当前视口外扩的屏数，范围越大越顺滑但后台负载更高。",
+    "canvasViewportPreloadMarginOption": "外扩 {{count}} 屏",
     "accentColor": "强调色",
     "accentColorDesc": "用于按钮、选中边框和交互高亮。",
     "resetAccentColor": "恢复默认",
@@ -4671,7 +4711,8 @@
     "title": "3D 导演台",
     "headerMeta": "{{objects}} 个对象 / {{shots}} 个镜头",
     "assetPack": {
-      "a3d": "A3D 预设资产"
+      "a3d": "A3D 预设资产",
+      "geometry": "基础几何体"
     },
     "tabs": {
       "a3d": "内置预设",
@@ -4680,7 +4721,13 @@
     "assets": {
       "lily": "Lily",
       "xbot": "Xbot",
-      "mannequin": "Mannequin"
+      "mannequin": "Mannequin",
+      "box": "立方体",
+      "sphere": "球体",
+      "cylinder": "圆柱",
+      "cone": "圆锥",
+      "plane": "平面",
+      "torus": "圆环"
     },
     "assetCard": {
       "poseCount": "{{count}} 个姿势"
@@ -4868,6 +4915,20 @@
       "saved": "项目已保存",
       "snapshotSent": "截图已发送到画布",
       "modelLoadFailed": "模型加载失败"
+    },
+    "planeSurface": {
+      "title": "平面",
+      "aspectRatio": "宽高比例",
+      "customAspectRatio": "自定义",
+      "image": "图片",
+      "chooseImage": "选择图片",
+      "removeImage": "移除图片",
+      "noImage": "未选择图片",
+      "fitMode": "显示方式",
+      "fitContain": "完整适应",
+      "fitStretch": "拉伸",
+      "imageFilter": "图片",
+      "imageLoadFailed": "平面图片加载失败"
     }
   },
   "scriptStoryboardTable": {

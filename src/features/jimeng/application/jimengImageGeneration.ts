@@ -18,6 +18,7 @@ import {
   jimengImageModelSupportsReferenceImages,
   normalizeJimengImageResolutionForModel,
 } from "@/features/jimeng/domain/jimengOptions";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 const LEGACY_IMAGE_MODEL_VERSION_MAP: Record<string, JimengImageModelVersion> =
   {
@@ -119,13 +120,19 @@ async function buildGeneratedImageItems(
 ): Promise<JimengGeneratedImageItem[]> {
   return await Promise.all(
     generatedImages.map(async (result, index) => {
-      const prepared = await prepareNodeImage(result.sourceUrl);
+      const prepared = await prepareNodeImage(
+        result.sourceUrl,
+        undefined,
+        undefined,
+        useSettingsStore.getState().canvasOverviewThumbnailMaxDimension,
+      );
       return {
         id: `jimeng-image-${Date.now()}-${index + 1}`,
         sourceUrl: result.sourceUrl,
         imageUrl: prepared.imageUrl,
         previewImageUrl: prepared.previewImageUrl,
         thumbnailUrl: prepared.thumbnailImageUrl,
+        thumbnailMaxDimension: prepared.thumbnailMaxDimension,
         aspectRatio: aspectRatio ?? "1:1",
         width: result.width ?? undefined,
         height: result.height ?? undefined,
