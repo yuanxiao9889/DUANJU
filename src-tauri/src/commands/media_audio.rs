@@ -22,6 +22,23 @@ fn ffmpeg_binary_name(name: &str) -> String {
     name.to_string()
 }
 
+#[cfg(target_os = "macos")]
+fn ffmpeg_platform_subdir() -> &'static str {
+    #[cfg(target_arch = "aarch64")]
+    {
+        "darwin-arm64"
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        "darwin-x64"
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn ffmpeg_platform_subdir() -> &'static str {
+    ""
+}
+
 fn dev_ffmpeg_search_roots() -> Vec<PathBuf> {
     let Ok(workspace) = workspace_root() else {
         return Vec::new();
@@ -266,9 +283,16 @@ fn resolve_bundled_binary_path(app: &AppHandle, file_name: &str) -> Option<PathB
         let candidates = [
             root.join(file_name),
             root.join(BUNDLED_FFMPEG_DIR_NAME).join(file_name),
+            root.join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(ffmpeg_platform_subdir())
+                .join(file_name),
             root.join("resources").join(file_name),
             root.join("resources")
                 .join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(file_name),
+            root.join("resources")
+                .join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(ffmpeg_platform_subdir())
                 .join(file_name),
         ];
         for candidate in candidates {
@@ -300,11 +324,24 @@ fn collect_ffmpeg_search_candidates(app: &AppHandle, file_name: &str) -> Vec<Pat
             &mut candidates,
             root.join(BUNDLED_FFMPEG_DIR_NAME).join(file_name),
         );
+        push_unique_path(
+            &mut candidates,
+            root.join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(ffmpeg_platform_subdir())
+                .join(file_name),
+        );
         push_unique_path(&mut candidates, root.join("resources").join(file_name));
         push_unique_path(
             &mut candidates,
             root.join("resources")
                 .join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(file_name),
+        );
+        push_unique_path(
+            &mut candidates,
+            root.join("resources")
+                .join(BUNDLED_FFMPEG_DIR_NAME)
+                .join(ffmpeg_platform_subdir())
                 .join(file_name),
         );
     }

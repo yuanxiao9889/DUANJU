@@ -21,28 +21,25 @@ function executableName(name) {
 const ffmpegBinaryName = executableName("ffmpeg");
 const ffprobeBinaryName = executableName("ffprobe");
 
-function resolveNpmStaticBinaryPackages() {
+function resolveNpmStaticBinaryTargets() {
   if (process.platform !== "darwin") {
-    return null;
+    return [];
   }
 
-  if (process.arch === "arm64") {
-    return {
+  return [
+    {
       platform: "darwin-arm64",
       ffmpegPackage: "@ffmpeg-installer/darwin-arm64",
       ffprobePackage: "@ffprobe-installer/darwin-arm64",
-    };
-  }
-
-  if (process.arch === "x64") {
-    return {
+      outputDir: path.join(destinationDir, "darwin-arm64"),
+    },
+    {
       platform: "darwin-x64",
       ffmpegPackage: "@ffmpeg-installer/darwin-x64",
       ffprobePackage: "@ffprobe-installer/darwin-x64",
-    };
-  }
-
-  return null;
+      outputDir: path.join(destinationDir, "darwin-x64"),
+    },
+  ];
 }
 
 function getBundledSourceCandidates() {
@@ -306,19 +303,45 @@ async function prepareNpmStaticBinary(packageName, binaryName) {
   return binaryPath;
 }
 
-async function resolveNpmStaticBinaryPair() {
-  const packages = resolveNpmStaticBinaryPackages();
-  if (!packages) {
+async function prepareNpmStaticBinaryTargets() {
+  const targets = resolveNpmStaticBinaryTargets();
+  if (targets.length === 0) {
     return null;
   }
 
-  const ffmpegPath = await prepareNpmStaticBinary(packages.ffmpegPackage, ffmpegBinaryName);
-  const ffprobePath = await prepareNpmStaticBinary(packages.ffprobePackage, ffprobeBinaryName);
+  const prepared = [];
+  for (const target of targets) {
+    const ffmpegPath = await prepareNpmStaticBinary(target.ffmpegPackage, ffmpegBinaryName);
+    const ffprobePath = await prepareNpmStaticBinary(target.ffprobePackage, ffprobeBinaryName);
+    await mkdir(target.outputDir, { recursive: true });
+    const ffmpegTargetPath = path.join(target.outputDir, ffmpegBinaryName);
+    const ffprobeTargetPath = path.join(target.outputDir, ffprobeBinaryName);
+    await copyFile(ffmpegPath, ffmpegTargetPath);
+    await copyFile(ffprobePath, ffprobeTargetPath);
+    await Promise.all([chmod(ffmpegTargetPath, 0o755), chmod(ffprobeTargetPath, 0o755)]);
+    prepared.push(target);
+  }
+
+  const hostTarget =
+    prepared.find((target) =>
+      (process.arch === "arm64" && target.platform === "darwin-arm64")
+        || (process.arch === "x64" && target.platform === "darwin-x64"),
+    ) ?? prepared[0];
+
+  await copyFile(path.join(hostTarget.outputDir, ffmpegBinaryName), path.join(destinationDir, ffmpegBinaryName));
+  await copyFile(path.join(hostTarget.outputDir, ffprobeBinaryName), path.join(destinationDir, ffprobeBinaryName));
+  await Promise.all([
+    chmod(path.join(destinationDir, ffmpegBinaryName), 0o755),
+    chmod(path.join(destinationDir, ffprobeBinaryName), 0o755),
+  ]);
+
   return {
-    mode: `copy-from-npm-static-${packages.platform}`,
-    source: `${packages.ffmpegPackage}, ${packages.ffprobePackage}`,
-    ffmpegPath,
-    ffprobePath,
+    copied: true,
+    mode: `copy-from-npm-static-universal-darwin`,
+    source: prepared
+      .map((target) => `${target.ffmpegPackage}, ${target.ffprobePackage}`)
+      .join("; "),
+    platforms: prepared.map((target) => target.platform),
   };
 }
 
@@ -376,11 +399,6 @@ async function resolveBinaryPair(options) {
     }
   }
 
-  const npmStaticPair = await resolveNpmStaticBinaryPair();
-  if (npmStaticPair) {
-    return npmStaticPair;
-  }
-
   const ffmpegPath = await runWhere(ffmpegBinaryName);
   const ffprobePath = await runWhere(ffprobeBinaryName);
   if (ffmpegPath && ffprobePath) {
@@ -398,6 +416,27 @@ async function resolveBinaryPair(options) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   await mkdir(destinationDir, { recursive: true });
+
+  const preparedStaticTargets = await prepareNpmStaticBinaryTargets();
+  if (preparedStaticTargets) {
+    await writeFile(
+      manifestPath,
+      JSON.stringify(
+        {
+          copied: preparedStaticTargets.copied,
+          source: preparedStaticTargets.source,
+          mode: preparedStaticTargets.mode,
+          platforms: preparedStaticTargets.platforms,
+          preparedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    console.log(`[prepare-app-ffmpeg] bundled ffmpeg from ${preparedStaticTargets.source}`);
+    return;
+  }
 
   let resolvedPair = await resolveBinaryPair(options);
   if (!resolvedPair && !options.skipDownload) {
