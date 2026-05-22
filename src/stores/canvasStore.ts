@@ -754,6 +754,7 @@ interface CanvasState {
   closeDirectorStage: () => void;
 
   setCanvasData: (nodes: CanvasNode[], edges: CanvasEdge[], history?: CanvasHistoryState) => void;
+  setCanvasHistory: (history?: CanvasHistoryState) => void;
   addNode: (
     type: CanvasNodeType,
     position: { x: number; y: number },
@@ -3985,6 +3986,13 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       activeShotParamsPanelNodeId: null,
       activeDirectorStageNodeId: null,
       nodeDescriptionPanelOpenById: {},
+      history: normalizeHistory(history),
+      dragHistorySnapshot: null,
+    });
+  },
+
+  setCanvasHistory: (history) => {
+    set({
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
     });

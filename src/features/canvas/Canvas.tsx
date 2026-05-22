@@ -1350,11 +1350,20 @@ function resolveDropNodeId(
   return resolveDropNodeElement(eventTarget, clientPosition)?.dataset?.id ?? null;
 }
 
+function logCanvasPerf(label: string, payload: Record<string, unknown>) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  console.debug(label, payload);
+}
+
 interface ConnectNodeBusinessRuleOptions {
   schedulePersist?: boolean;
 }
 
 export function Canvas() {
+  const canvasRenderStartedAtRef = useRef(performance.now());
   const { t } = useTranslation();
   const reactFlowInstance = useReactFlow();
   const { zoomIn, zoomOut } = reactFlowInstance;
@@ -1410,6 +1419,8 @@ export function Canvas() {
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextCanvasAutoPersistRef = useRef(false);
+  const deferredHistoryRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deferredHistoryRestoreFrameRef = useRef<number | null>(null);
   const copiedSnapshotRef = useRef<ClipboardSnapshot | null>(null);
   const pasteIterationRef = useRef(0);
   const pasteImageHandledRef = useRef(false);
@@ -1474,6 +1485,7 @@ export function Canvas() {
   const applyEdgesChange = useCanvasStore((state) => state.onEdgesChange);
   const connectNodes = useCanvasStore((state) => state.onConnect);
   const setCanvasData = useCanvasStore((state) => state.setCanvasData);
+  const setCanvasHistory = useCanvasStore((state) => state.setCanvasHistory);
   const addPreparedNodes = useCanvasStore((state) => state.addPreparedNodes);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const applySemanticColorToSelected = useCanvasStore(
@@ -1614,11 +1626,19 @@ export function Canvas() {
         : canvasEdgeRenderMode;
   const canvasPreviewMediaCountRef = useRef(0);
   const canvasPreviewMediaCount = useMemo(() => {
+    const startedAt = performance.now();
     if (dragHistorySnapshot) {
       return canvasPreviewMediaCountRef.current;
     }
 
     const count = countCanvasPreviewMedia(nodes);
+    if (nodes.length > 100) {
+      logCanvasPerf('[canvas-perf] countCanvasPreviewMedia', {
+        nodeCount: nodes.length,
+        mediaCount: count,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+    }
     canvasPreviewMediaCountRef.current = count;
     return count;
   }, [dragHistorySnapshot, nodes]);
@@ -2749,7 +2769,7 @@ export function Canvas() {
     }
 
     restoredCanvasProjectIdRef.current = activeProject.id;
-    console.debug('[canvas-restore]', {
+    logCanvasPerf('[canvas-restore]', {
       projectId: activeProject.id,
       nodeCount: activeProject.nodes.length,
       edgeCount: activeProject.edges.length,
@@ -2757,18 +2777,59 @@ export function Canvas() {
     });
 
     isRestoringCanvasRef.current = true;
-    setCanvasData(activeProject.nodes, activeProject.edges, activeProject.history);
+    if (deferredHistoryRestoreTimerRef.current) {
+      clearTimeout(deferredHistoryRestoreTimerRef.current);
+      deferredHistoryRestoreTimerRef.current = null;
+    }
+    if (deferredHistoryRestoreFrameRef.current !== null) {
+      cancelAnimationFrame(deferredHistoryRestoreFrameRef.current);
+      deferredHistoryRestoreFrameRef.current = null;
+    }
+
+    const restoreStartedAt = performance.now();
+    setCanvasData(activeProject.nodes, activeProject.edges);
+    logCanvasPerf('[canvas-perf] setCanvasData', {
+      projectId: activeProject.id,
+      nodeCount: activeProject.nodes.length,
+      edgeCount: activeProject.edges.length,
+      deferredHistoryPastCount: activeProject.history?.past?.length ?? 0,
+      deferredHistoryFutureCount: activeProject.history?.future?.length ?? 0,
+      elapsedMs: Math.round(performance.now() - restoreStartedAt),
+    });
     syncViewportState(activeProject.viewport ?? DEFAULT_VIEWPORT);
     requestAnimationFrame(() => {
+      logCanvasPerf('[canvas-perf] restore rAF before setViewport', {
+        elapsedSinceCanvasRenderMs: Math.round(performance.now() - canvasRenderStartedAtRef.current),
+        elapsedSinceRestoreMs: Math.round(performance.now() - restoreStartedAt),
+      });
       reactFlowInstance.setViewport(activeProject.viewport ?? DEFAULT_VIEWPORT, { duration: 0 });
     });
 
-    const restoreTimer = setTimeout(() => {
-      isRestoringCanvasRef.current = false;
-    }, 0);
+    deferredHistoryRestoreFrameRef.current = requestAnimationFrame(() => {
+      deferredHistoryRestoreFrameRef.current = null;
+      deferredHistoryRestoreTimerRef.current = setTimeout(() => {
+        deferredHistoryRestoreTimerRef.current = null;
+        const historyRestoreStartedAt = performance.now();
+        setCanvasHistory(activeProject.history);
+        isRestoringCanvasRef.current = false;
+        logCanvasPerf('[canvas-perf] deferred history restore', {
+          projectId: activeProject.id,
+          historyPastCount: activeProject.history?.past?.length ?? 0,
+          historyFutureCount: activeProject.history?.future?.length ?? 0,
+          elapsedMs: Math.round(performance.now() - historyRestoreStartedAt),
+        });
+      }, 80);
+    });
 
     return () => {
-      clearTimeout(restoreTimer);
+      if (deferredHistoryRestoreTimerRef.current) {
+        clearTimeout(deferredHistoryRestoreTimerRef.current);
+        deferredHistoryRestoreTimerRef.current = null;
+      }
+      if (deferredHistoryRestoreFrameRef.current !== null) {
+        cancelAnimationFrame(deferredHistoryRestoreFrameRef.current);
+        deferredHistoryRestoreFrameRef.current = null;
+      }
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
         saveTimerRef.current = null;
@@ -2779,6 +2840,7 @@ export function Canvas() {
     project?.id,
     reactFlowInstance,
     setCanvasData,
+    setCanvasHistory,
     syncViewportState,
   ]);
 
@@ -2796,6 +2858,14 @@ export function Canvas() {
 
     restoredCanvasProjectIdRef.current = null;
     isRestoringCanvasRef.current = false;
+    if (deferredHistoryRestoreTimerRef.current) {
+      clearTimeout(deferredHistoryRestoreTimerRef.current);
+      deferredHistoryRestoreTimerRef.current = null;
+    }
+    if (deferredHistoryRestoreFrameRef.current !== null) {
+      cancelAnimationFrame(deferredHistoryRestoreFrameRef.current);
+      deferredHistoryRestoreFrameRef.current = null;
+    }
   }, [currentProjectId]);
 
   const scriptWelcomePresenceSignatureRef = useRef('');
@@ -6151,6 +6221,7 @@ export function Canvas() {
   );
   const flowNodes = useMemo<CanvasNode[]>(
     () => {
+      const startedAt = performance.now();
       const previousCache = flowNodePresentationCacheRef.current;
       const nextCache = new Map<
         string,
@@ -6194,6 +6265,13 @@ export function Canvas() {
       });
 
       flowNodePresentationCacheRef.current = nextCache;
+      if (nodes.length > 100) {
+        logCanvasPerf('[canvas-perf] flowNodes useMemo', {
+          nodeCount: nodes.length,
+          overview: isCanvasOverviewRender,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+      }
       return nextFlowNodes;
     },
     [isCanvasOverviewRender, nodes]
@@ -6221,7 +6299,19 @@ export function Canvas() {
     ));
   }, [edgeCutHitEdgeIds, edges]);
   const visibleFlowEdges = useMemo<CanvasEdge[]>(
-    () => (effectiveCanvasEdgeRenderMode === 'hidden' ? [] : flowEdges),
+    () => {
+      const startedAt = performance.now();
+      const nextEdges = effectiveCanvasEdgeRenderMode === 'hidden' ? [] : flowEdges;
+      if (flowEdges.length > 100) {
+        logCanvasPerf('[canvas-perf] visibleFlowEdges useMemo', {
+          edgeCount: flowEdges.length,
+          visibleEdgeCount: nextEdges.length,
+          mode: effectiveCanvasEdgeRenderMode,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+      }
+      return nextEdges;
+    },
     [effectiveCanvasEdgeRenderMode, flowEdges]
   );
   const colorLegendLabels = project?.colorLabels ?? createDefaultCanvasColorLabelMap();

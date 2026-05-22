@@ -129,11 +129,24 @@ function resolveCanvasEntryPreloadViewportSize(): { width: number; height: numbe
   };
 }
 
-const CanvasScreen = lazy(() =>
-  import("./features/canvas/CanvasScreen").then((module) => ({
-    default: module.CanvasScreen,
-  })),
-);
+const CanvasScreen = lazy(() => {
+  const startedAt = performance.now();
+  if (import.meta.env.DEV) {
+    console.debug("[canvas-perf] CanvasScreen import:start", {
+      at: Math.round(startedAt),
+    });
+  }
+  return import("./features/canvas/CanvasScreen").then((module) => {
+    if (import.meta.env.DEV) {
+      console.debug("[canvas-perf] CanvasScreen import:done", {
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+    }
+    return {
+      default: module.CanvasScreen,
+    };
+  });
+});
 const AdProjectWorkspace = lazy(() =>
   import("./features/ad/AdProjectWorkspace").then((module) => ({
     default: module.AdProjectWorkspace,
