@@ -29,6 +29,7 @@ import {
   resolveSingleImageConnectionSource,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
+import { useIsOverviewCanvasRender } from "@/features/canvas/CanvasPerformanceContext";
 import { canvasAiGateway } from "@/features/canvas/application/canvasServices";
 import {
   loadImageElement,
@@ -106,6 +107,7 @@ interface MultiAngleSceneProps {
   verticalAngle: number;
   zoom: number;
   cameraView: boolean;
+  onActivate: () => void;
   onAnglesChange: (nextValue: {
     horizontalAngle?: number;
     verticalAngle?: number;
@@ -385,6 +387,7 @@ function MultiAngleScene({
   verticalAngle,
   zoom,
   cameraView,
+  onActivate,
   onAnglesChange,
 }: MultiAngleSceneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -394,11 +397,16 @@ function MultiAngleScene({
     zoom,
     cameraView,
   });
+  const onActivateRef = useRef(onActivate);
   const onAnglesChangeRef = useRef(onAnglesChange);
 
   useEffect(() => {
     anglesRef.current = { horizontalAngle, verticalAngle, zoom, cameraView };
   }, [cameraView, horizontalAngle, verticalAngle, zoom]);
+
+  useEffect(() => {
+    onActivateRef.current = onActivate;
+  }, [onActivate]);
 
   useEffect(() => {
     onAnglesChangeRef.current = onAnglesChange;
@@ -727,6 +735,7 @@ function MultiAngleScene({
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      onActivateRef.current();
       stopCanvasEvent(event);
       updateMouse(event);
       dragging = true;
@@ -1006,8 +1015,14 @@ function MultiAngleScene({
     <div
       ref={hostRef}
       className="nodrag nowheel relative h-full w-full cursor-grab touch-none active:cursor-grabbing"
-      onClick={(event) => event.stopPropagation()}
-      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => {
+        onActivate();
+        event.stopPropagation();
+      }}
+      onPointerDown={(event) => {
+        onActivate();
+        event.stopPropagation();
+      }}
       onWheel={(event) => event.stopPropagation()}
     />
   );
@@ -1050,6 +1065,7 @@ export const MultiAngleImageNode = memo(
     const setLastImageEditDefaults = useSettingsStore(
       (state) => state.setLastImageEditDefaults,
     );
+    const isOverviewRender = useIsOverviewCanvasRender();
 
     const [error, setError] = useState<string | null>(null);
 
@@ -1357,6 +1373,9 @@ export const MultiAngleImageNode = memo(
         title={error}
       />
     ) : undefined;
+    const activateNode = useCallback(() => {
+      setSelectedNode(id);
+    }, [id, setSelectedNode]);
 
     useEffect(() => {
       updateNodeInternals(id);
@@ -1725,13 +1744,11 @@ export const MultiAngleImageNode = memo(
 
     return (
       <div
-        className={`group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-all duration-150 ${
-          selected
-            ? "border-[#222222] shadow-[0_0_0_2px_rgba(34,34,34,0.38),0_4px_14px_rgba(15,23,42,0.12)] dark:border-white/70 dark:shadow-[0_0_0_2px_rgba(245,245,245,0.2),0_4px_14px_rgba(0,0,0,0.24)]"
-            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]"
+        className={`canvas-node-selection-pass-through group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] bg-transparent p-0 transition-all duration-150 ${
+          selected ? "shadow-[0_4px_20px_rgba(59,130,246,0.16)]" : ""
         }`}
         style={{ width: `${resolvedWidth}px`, height: `${resolvedHeight}px` }}
-        onClick={() => setSelectedNode(id)}
+        onClick={activateNode}
       >
         <NodeHeader
           className={NODE_HEADER_FLOATING_POSITION_CLASS}
@@ -1744,20 +1761,51 @@ export const MultiAngleImageNode = memo(
           }
         />
 
-        <div className="relative min-h-0 flex-1 overflow-hidden rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/70">
-          <MultiAngleScene
-            sourceImageUrl={
-              sourceImage?.imageUrl ?? sourceImage?.previewImageUrl ?? null
-            }
-            fallbackImageUrl={sourceImage?.previewImageUrl ?? null}
-            horizontalAngle={horizontalAngle}
-            verticalAngle={verticalAngle}
-            zoom={zoom}
-            cameraView={data.cameraView === true}
-            onAnglesChange={handleAnglesChange}
-          />
+        <div
+          className={`relative min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] border bg-surface-dark/90 ${
+            selected
+              ? "border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]"
+              : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]"
+          }`}
+        >
+          {isOverviewRender ? (
+            <div className="relative h-full w-full overflow-hidden bg-bg-dark/70">
+              {sourceImage ? (
+                <CanvasNodeImage
+                  src={sourceImage.previewImageUrl || sourceImage.imageUrl}
+                  alt={t("node.multiAngleImage.sourceAlt")}
+                  viewerSourceUrl={sourceImage.imageUrl}
+                  className="h-full w-full object-cover opacity-80"
+                  draggable={false}
+                />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-bg-dark/72 px-4 text-text-muted">
+                  <Move3D className="h-7 w-7 opacity-70" />
+                  <span className="text-center text-xs leading-5">
+                    {t("node.multiAngleImage.noInput")}
+                  </span>
+                </div>
+              )}
+              <div className="absolute bottom-2 left-2 right-2 truncate rounded-md bg-black/55 px-2 py-1 text-[10px] leading-4 text-white">
+                {statusText}
+              </div>
+            </div>
+          ) : (
+            <MultiAngleScene
+              sourceImageUrl={
+                sourceImage?.imageUrl ?? sourceImage?.previewImageUrl ?? null
+              }
+              fallbackImageUrl={sourceImage?.previewImageUrl ?? null}
+              horizontalAngle={horizontalAngle}
+              verticalAngle={verticalAngle}
+              zoom={zoom}
+              cameraView={data.cameraView === true}
+              onActivate={activateNode}
+              onAnglesChange={handleAnglesChange}
+            />
+          )}
 
-          {sourceImage ? (
+          {!isOverviewRender && sourceImage ? (
             <div className="pointer-events-auto absolute left-2 top-2 h-16 w-20 overflow-hidden rounded-md border border-[rgba(255,255,255,0.18)] bg-black/20 shadow-lg">
               <CanvasNodeImage
                 src={sourceImage.previewImageUrl || sourceImage.imageUrl}
@@ -1767,218 +1815,229 @@ export const MultiAngleImageNode = memo(
                 draggable={false}
               />
             </div>
-          ) : (
+          ) : !isOverviewRender ? (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2 bg-bg-dark/72 px-4 text-text-muted">
               <Move3D className="h-7 w-7 opacity-70" />
               <span className="text-center text-xs leading-5">
                 {t("node.multiAngleImage.noInput")}
               </span>
             </div>
-          )}
+          ) : null}
 
-          <div className="absolute bottom-2 left-2 right-2 grid grid-cols-3 gap-2 rounded-lg border border-[rgba(255,255,255,0.12)] bg-black/35 p-2 backdrop-blur">
-            <label className="nodrag nowheel min-w-0 text-[10px] leading-4 text-text-muted">
-              <span className="mb-1 flex items-center gap-1 text-text-dark">
-                <Rotate3D className="h-3 w-3" />
-                {t("node.multiAngleImage.horizontalAngle")} {horizontalAngle}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={359}
-                step={1}
-                value={horizontalAngle}
-                onPointerDown={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  handleAnglesChange({
-                    horizontalAngle: Number(event.currentTarget.value),
-                  })
-                }
-                className="w-full accent-accent"
-              />
-            </label>
-            <label className="nodrag nowheel min-w-0 text-[10px] leading-4 text-text-muted">
-              <span className="mb-1 flex items-center gap-1 text-text-dark">
-                <Camera className="h-3 w-3" />
-                {t("node.multiAngleImage.elevation")} {verticalAngle}
-              </span>
-              <input
-                type="range"
-                min={-30}
-                max={60}
-                step={1}
-                value={verticalAngle}
-                onPointerDown={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  handleAnglesChange({
-                    verticalAngle: Number(event.currentTarget.value),
-                  })
-                }
-                className="w-full accent-accent"
-              />
-            </label>
-            <label className="nodrag nowheel min-w-0 text-[10px] leading-4 text-text-muted">
-              <span className="mb-1 flex items-center gap-1 text-text-dark">
-                <Move3D className="h-3 w-3" />
-                {t("node.multiAngleImage.distance")} {zoom.toFixed(1)}
-              </span>
-              <input
-                type="range"
-                min={0}
-                max={10}
-                step={0.1}
-                value={zoom}
-                onPointerDown={(event) => event.stopPropagation()}
-                onChange={(event) =>
-                  handleAnglesChange({
-                    zoom: Number(event.currentTarget.value),
-                  })
-                }
-                className="w-full accent-accent"
-              />
-            </label>
-          </div>
+          {!isOverviewRender ? (
+            <div className="absolute bottom-2 left-2 right-2 grid grid-cols-3 gap-2 rounded-lg border border-[rgba(255,255,255,0.12)] bg-black/35 p-2 backdrop-blur">
+              <label className="nodrag nowheel min-w-0 text-[10px] leading-4 text-text-muted">
+                <span className="mb-1 flex items-center gap-1 text-text-dark">
+                  <Rotate3D className="h-3 w-3" />
+                  {t("node.multiAngleImage.horizontalAngle")} {horizontalAngle}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={359}
+                  step={1}
+                  value={horizontalAngle}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onChange={(event) =>
+                    handleAnglesChange({
+                      horizontalAngle: Number(event.currentTarget.value),
+                    })
+                  }
+                  className="w-full accent-accent"
+                />
+              </label>
+              <label className="nodrag nowheel min-w-0 text-[10px] leading-4 text-text-muted">
+                <span className="mb-1 flex items-center gap-1 text-text-dark">
+                  <Camera className="h-3 w-3" />
+                  {t("node.multiAngleImage.elevation")} {verticalAngle}
+                </span>
+                <input
+                  type="range"
+                  min={-30}
+                  max={60}
+                  step={1}
+                  value={verticalAngle}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onChange={(event) =>
+                    handleAnglesChange({
+                      verticalAngle: Number(event.currentTarget.value),
+                    })
+                  }
+                  className="w-full accent-accent"
+                />
+              </label>
+              <label className="nodrag nowheel min-w-0 text-[10px] leading-4 text-text-muted">
+                <span className="mb-1 flex items-center gap-1 text-text-dark">
+                  <Move3D className="h-3 w-3" />
+                  {t("node.multiAngleImage.distance")} {zoom.toFixed(1)}
+                </span>
+                <input
+                  type="range"
+                  min={0}
+                  max={10}
+                  step={0.1}
+                  value={zoom}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  onChange={(event) =>
+                    handleAnglesChange({
+                      zoom: Number(event.currentTarget.value),
+                    })
+                  }
+                  className="w-full accent-accent"
+                />
+              </label>
+            </div>
+          ) : null}
         </div>
 
-        <div className="mt-2 flex shrink-0 items-center gap-2">
-          <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-            <div className="flex w-max min-w-full items-center gap-1">
-              <ModelParamsControls
-                imageModels={imageModels}
-                selectedModel={selectedModel}
-                resolutionOptions={resolutionOptions}
-                selectedResolution={selectedResolution}
-                selectedAspectRatio={selectedAspectRatio}
-                aspectRatioOptions={aspectRatioOptions}
-                onModelChange={handleModelChange}
-                onResolutionChange={(resolution) => {
-                  const normalizedResolution = resolution as ImageSize;
-                  updateNodeData(id, { size: normalizedResolution });
-                  setLastImageEditDefaults({
-                    modelId: selectedModel.id,
-                    size: normalizedResolution,
-                    requestAspectRatio: selectedAspectRatio.value,
-                  });
-                }}
-                onAspectRatioChange={(aspectRatio) => {
-                  updateNodeData(id, { requestAspectRatio: aspectRatio });
-                  setLastImageEditDefaults({
-                    modelId: selectedModel.id,
-                    size: selectedResolution.value as ImageSize,
-                    requestAspectRatio: aspectRatio,
-                  });
-                }}
-                extraParams={resolvedModelExtraParams}
-                onExtraParamChange={(key, value) => {
-                  updateNodeData(id, {
-                    extraParams: {
-                      ...(data.extraParams ?? {}),
-                      [key]: value,
-                    },
-                  });
-                  setLastImageGenerationExtraParams({ [key]: value });
-                }}
-                triggerSize="sm"
-                chipClassName={NODE_CONTROL_CHIP_CLASS}
-                modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
-                paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
-                styleTemplateDisabled
-              />
-              <UiChipButton
-                type="button"
-                active={data.cameraView === true}
-                className={`${NODE_CONTROL_CHIP_CLASS} w-auto shrink-0 justify-center`}
-                title={t("node.multiAngleImage.cameraView")}
+        {selected && !isOverviewRender ? (
+          <div
+            className="nodrag nowheel nopan pointer-events-auto absolute left-0 right-0 top-[calc(100%+10px)] z-30 rounded-[var(--node-radius)] border border-[rgba(15,23,42,0.24)] bg-surface-dark/95 p-2 shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-[rgba(255,255,255,0.22)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]"
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onWheelCapture={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-2">
+              <div className="ui-scrollbar nodrag nowheel nopan min-w-0 flex-1 cursor-default overflow-x-auto overflow-y-hidden">
+                <div className="flex w-max items-center gap-1.5 pr-1">
+                  <ModelParamsControls
+                    imageModels={imageModels}
+                    selectedModel={selectedModel}
+                    resolutionOptions={resolutionOptions}
+                    selectedResolution={selectedResolution}
+                    selectedAspectRatio={selectedAspectRatio}
+                    aspectRatioOptions={aspectRatioOptions}
+                    onModelChange={handleModelChange}
+                    onResolutionChange={(resolution) => {
+                      const normalizedResolution = resolution as ImageSize;
+                      updateNodeData(id, { size: normalizedResolution });
+                      setLastImageEditDefaults({
+                        modelId: selectedModel.id,
+                        size: normalizedResolution,
+                        requestAspectRatio: selectedAspectRatio.value,
+                      });
+                    }}
+                    onAspectRatioChange={(aspectRatio) => {
+                      updateNodeData(id, { requestAspectRatio: aspectRatio });
+                      setLastImageEditDefaults({
+                        modelId: selectedModel.id,
+                        size: selectedResolution.value as ImageSize,
+                        requestAspectRatio: aspectRatio,
+                      });
+                    }}
+                    extraParams={resolvedModelExtraParams}
+                    onExtraParamChange={(key, value) => {
+                      updateNodeData(id, {
+                        extraParams: {
+                          ...(data.extraParams ?? {}),
+                          [key]: value,
+                        },
+                      });
+                      setLastImageGenerationExtraParams({ [key]: value });
+                    }}
+                    triggerSize="sm"
+                    chipClassName={NODE_CONTROL_CHIP_CLASS}
+                    modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
+                    paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
+                    styleTemplateDisabled
+                  />
+                  <UiChipButton
+                    type="button"
+                    active={data.cameraView === true}
+                    className={`${NODE_CONTROL_CHIP_CLASS} w-auto shrink-0 justify-center`}
+                    title={t("node.multiAngleImage.cameraView")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      updateNodeData(
+                        id,
+                        { cameraView: data.cameraView !== true },
+                        { historyMode: "skip" },
+                      );
+                    }}
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span className="text-[11px]">
+                      {t("node.multiAngleImage.cameraView")}
+                    </span>
+                  </UiChipButton>
+                </div>
+              </div>
+
+              <UiButton
                 onClick={(event) => {
                   event.stopPropagation();
-                  updateNodeData(
-                    id,
-                    { cameraView: data.cameraView !== true },
-                    { historyMode: "skip" },
-                  );
+                  void handleGenerate();
                 }}
+                disabled={!sourceImage || data.isGenerating === true}
+                variant="primary"
+                className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
               >
-                <Camera className="h-4 w-4" />
-                <span className="text-[11px]">
-                  {t("node.multiAngleImage.cameraView")}
-                </span>
-              </UiChipButton>
+                <Sparkles
+                  className={NODE_CONTROL_GENERATE_ICON_CLASS}
+                  strokeWidth={2.5}
+                />
+                {t("canvas.generate")}
+              </UiButton>
+            </div>
+
+            <div className="mt-2 flex items-start justify-between gap-2">
+              <div className="flex min-w-0 flex-1 flex-wrap gap-1">
+                {AZIMUTH_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    className="nodrag rounded-md border border-[rgba(255,255,255,0.1)] bg-bg-dark/55 px-1.5 py-1 text-[10px] leading-none text-text-muted transition-colors hover:border-accent/40 hover:text-text-dark"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleAnglesChange({ horizontalAngle: preset.value });
+                    }}
+                  >
+                    {t(`node.multiAngleImage.presets.${preset.key}`)}
+                  </button>
+                ))}
+              </div>
+              <div className="flex shrink-0 flex-wrap justify-center gap-1">
+                {ELEVATION_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    className="nodrag rounded-md border border-[rgba(255,255,255,0.1)] bg-bg-dark/55 px-1.5 py-1 text-[10px] leading-none text-text-muted transition-colors hover:border-accent/40 hover:text-text-dark"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleAnglesChange({ verticalAngle: preset.value });
+                    }}
+                  >
+                    {t(`node.multiAngleImage.presets.${preset.key}`)}
+                  </button>
+                ))}
+              </div>
+              <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                {DISTANCE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.key}
+                    type="button"
+                    className="nodrag rounded-md border border-[rgba(255,255,255,0.1)] bg-bg-dark/55 px-1.5 py-1 text-[10px] leading-none text-text-muted transition-colors hover:border-accent/40 hover:text-text-dark"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      handleAnglesChange({ zoom: preset.value });
+                    }}
+                  >
+                    {t(`node.multiAngleImage.presets.${preset.key}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div
+              className={`mt-1 min-h-[18px] truncate text-[10px] leading-4 ${
+                error ? "text-red-200" : "text-text-muted"
+              }`}
+              title={statusText}
+            >
+              {statusText}
             </div>
           </div>
-
-          <UiButton
-            onClick={(event) => {
-              event.stopPropagation();
-              void handleGenerate();
-            }}
-            disabled={!sourceImage || data.isGenerating === true}
-            variant="primary"
-            className={NODE_CONTROL_PRIMARY_BUTTON_CLASS}
-          >
-            <Sparkles
-              className={NODE_CONTROL_GENERATE_ICON_CLASS}
-              strokeWidth={2.5}
-            />
-            {t("canvas.generate")}
-          </UiButton>
-        </div>
-
-        <div className="mt-2 grid grid-cols-3 gap-1">
-          <div className="flex flex-wrap gap-1">
-            {AZIMUTH_PRESETS.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                className="nodrag rounded-md border border-[rgba(255,255,255,0.1)] bg-bg-dark/55 px-1.5 py-1 text-[10px] leading-none text-text-muted transition-colors hover:border-accent/40 hover:text-text-dark"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleAnglesChange({ horizontalAngle: preset.value });
-                }}
-              >
-                {t(`node.multiAngleImage.presets.${preset.key}`)}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {ELEVATION_PRESETS.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                className="nodrag rounded-md border border-[rgba(255,255,255,0.1)] bg-bg-dark/55 px-1.5 py-1 text-[10px] leading-none text-text-muted transition-colors hover:border-accent/40 hover:text-text-dark"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleAnglesChange({ verticalAngle: preset.value });
-                }}
-              >
-                {t(`node.multiAngleImage.presets.${preset.key}`)}
-              </button>
-            ))}
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {DISTANCE_PRESETS.map((preset) => (
-              <button
-                key={preset.key}
-                type="button"
-                className="nodrag rounded-md border border-[rgba(255,255,255,0.1)] bg-bg-dark/55 px-1.5 py-1 text-[10px] leading-none text-text-muted transition-colors hover:border-accent/40 hover:text-text-dark"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  handleAnglesChange({ zoom: preset.value });
-                }}
-              >
-                {t(`node.multiAngleImage.presets.${preset.key}`)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div
-          className={`mt-1 min-h-[18px] truncate text-[10px] leading-4 ${
-            error ? "text-red-200" : "text-text-muted"
-          }`}
-          title={statusText}
-        >
-          {statusText}
-        </div>
+        ) : null}
 
         <CanvasHandle
           type="target"

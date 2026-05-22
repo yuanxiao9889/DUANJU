@@ -8,6 +8,7 @@ type NodeResizeHandleProps = {
   maxHeight?: number;
   isVisible?: boolean;
   position?: ControlPosition;
+  className?: string;
 };
 
 const DEFAULT_MIN_WIDTH = 160;
@@ -29,6 +30,7 @@ export function NodeResizeHandle({
   maxHeight = DEFAULT_MAX_HEIGHT,
   isVisible = false,
   position = 'bottom-right',
+  className = '',
 }: NodeResizeHandleProps) {
   return (
     <NodeResizeControl
@@ -37,7 +39,7 @@ export function NodeResizeHandle({
       maxWidth={maxWidth}
       maxHeight={maxHeight}
       position={position}
-      className={`!h-4 !w-4 !min-h-0 !min-w-0 !rounded-none !border-0 !bg-transparent !p-0 transition-opacity duration-150 ${isVisible ? '!opacity-100' : '!opacity-0'} hover:!opacity-100 focus-within:!opacity-100 group-hover:!opacity-70`}
+      className={`!h-4 !w-4 !min-h-0 !min-w-0 !rounded-none !border-0 !bg-transparent !p-0 transition-opacity duration-150 ${isVisible ? '!opacity-100' : '!opacity-0'} hover:!opacity-100 focus-within:!opacity-100 group-hover:!opacity-70 ${className}`}
     >
       <div className={`pointer-events-none absolute h-2.5 w-2.5 border-[#222222]/70 dark:border-white/65 ${CORNER_STYLES[position]}`} />
     </NodeResizeControl>

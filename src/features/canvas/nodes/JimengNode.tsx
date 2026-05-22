@@ -300,6 +300,7 @@ const JIMENG_NODE_MIN_WIDTH = 980;
 const JIMENG_NODE_MIN_HEIGHT = 420;
 const JIMENG_NODE_MAX_WIDTH = 1480;
 const JIMENG_NODE_MAX_HEIGHT = 1040;
+const JIMENG_NODE_MAIN_WIDTH_RATIO = 0.6;
 const DEFAULT_ASPECT_RATIO = "16:9";
 const DEFAULT_DURATION: JimengDurationSeconds = 5;
 const DEFAULT_VIDEO_RESOLUTION: JimengVideoResolution = "720p";
@@ -929,18 +930,16 @@ function FixedControlChip<T extends string | number>({
   return (
     <div
       ref={chipRef}
-      className="flex h-7 min-w-[100px] shrink-0 items-center gap-1 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
+      className="flex h-7 min-w-[76px] shrink-0 items-center rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
       onMouseDown={(event) => event.stopPropagation()}
+      title={label}
     >
-      <span className="shrink-0 text-[10px] text-text-muted/90" title={label}>
-        {label}
-      </span>
       <div className="min-w-0 flex-1">
         <UiSelect
           value={value}
           aria-label={label}
           menuAnchorRef={chipRef}
-          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-medium hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
+          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-semibold hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
           onChange={(event) =>
             onChange(
               typeof value === "number"
@@ -1494,6 +1493,9 @@ export const JimengNode = memo(
         JIMENG_NODE_MAX_WIDTH,
         Math.round(width ?? JIMENG_NODE_DEFAULT_WIDTH),
       ),
+    );
+    const compactResolvedWidth = Math.round(
+      resolvedWidth * JIMENG_NODE_MAIN_WIDTH_RATIO,
     );
     const resolvedHeight = Math.max(
       JIMENG_NODE_MIN_HEIGHT,
@@ -2932,6 +2934,17 @@ export const JimengNode = memo(
     ]);
 
     const headerStatus = useMemo(() => {
+      if (data.isGenerating) {
+        return (
+          <NodeStatusBadge
+            icon={<Loader2 className="h-3 w-3" />}
+            label={t("nodeStatus.generating")}
+            tone="processing"
+            animate
+          />
+        );
+      }
+
       if (isOptimizingPrompt) {
         return (
           <NodeStatusBadge
@@ -2955,7 +2968,7 @@ export const JimengNode = memo(
       }
 
       return null;
-    }, [combinedError, isOptimizingPrompt, t]);
+    }, [combinedError, data.isGenerating, isOptimizingPrompt, t]);
 
     const statusInfoText =
       combinedError ??
@@ -3090,14 +3103,14 @@ export const JimengNode = memo(
       <div
         ref={rootRef}
         className={`
-        group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-all duration-150
+        canvas-node-selection-pass-through group relative flex h-full flex-col overflow-visible rounded-[var(--node-radius)] bg-transparent p-0 transition-all duration-150
         ${
           selected
-            ? "border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]"
-            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]"
+            ? "shadow-[0_4px_20px_rgba(59,130,246,0.16)]"
+            : ""
         }
       `}
-        style={{ width: `${resolvedWidth}px`, height: `${resolvedHeight}px` }}
+        style={{ width: `${compactResolvedWidth}px`, height: `${resolvedHeight}px` }}
         onClick={() => setSelectedNode(id)}
       >
         <NodeHeader
@@ -3113,7 +3126,11 @@ export const JimengNode = memo(
 
         <div
           ref={promptPanelRef}
-          className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
+          className={`relative min-h-0 flex-1 rounded-[var(--node-radius)] border bg-surface-dark/90 px-3 py-3 ${
+            selected
+              ? "border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]"
+              : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]"
+          }`}
         >
           {isOverviewRender ? (
             <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
@@ -3140,7 +3157,7 @@ export const JimengNode = memo(
             </div>
           ) : (
             <>
-              <div className="flex h-full min-h-0 flex-col gap-2">
+              <div className="flex h-full min-h-0 flex-col">
                 <div
                   ref={promptPreviewHostRef}
                   className="relative min-h-[148px] flex-1"
@@ -3151,7 +3168,7 @@ export const JimengNode = memo(
                     className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                     style={{ scrollbarGutter: "stable" }}
                   >
-                    <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                    <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-0.5 py-0">
                       {renderPromptWithHighlights(
                         displayedPrompt,
                         incomingVisualItems.length,
@@ -3167,7 +3184,7 @@ export const JimengNode = memo(
                     className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                     style={{ scrollbarGutter: "stable" }}
                   >
-                    <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                    <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-0.5 py-0">
                       {renderPromptReferenceHoverTargets(
                         displayedPrompt,
                         incomingVisualItems.length,
@@ -3192,10 +3209,10 @@ export const JimengNode = memo(
                       rememberPromptSelection(event.currentTarget);
                     }}
                     placeholder={t("node.jimeng.promptPlaceholder")}
-                    className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
+                    className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-transparent bg-transparent px-0.5 py-0 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                       isPromptLockedByUpstream
                         ? "cursor-default caret-transparent"
-                        : "caret-text-dark focus:border-accent/50"
+                        : "caret-text-dark focus:border-transparent"
                     }`}
                     style={{ scrollbarGutter: "stable" }}
                     spellCheck={false}
@@ -3260,7 +3277,82 @@ export const JimengNode = memo(
                   ) : null}
                 </div>
 
-                <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+              </div>
+
+              {showImagePicker && referencePickerItems.length > 0 && (
+                <div
+                  className="nowheel absolute z-30 w-[156px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+                  style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onWheelCapture={(event) => event.stopPropagation()}
+                >
+                  <div
+                    className="ui-scrollbar nowheel max-h-[200px] overflow-y-auto"
+                    onWheelCapture={(event) => event.stopPropagation()}
+                    role="listbox"
+                  >
+                    {referencePickerItems.map((item, index) => (
+                      <button
+                        key={item.key}
+                        ref={(node) => {
+                          pickerItemRefs.current[index] = node;
+                        }}
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          insertReferenceItem(index);
+                        }}
+                        onMouseEnter={() => setPickerActiveIndex(index)}
+                        role="option"
+                        aria-selected={pickerActiveIndex === index}
+                        className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
+                          pickerActiveIndex === index
+                            ? "border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]"
+                            : ""
+                        }`}
+                      >
+                        {item.kind === "visual" ? (
+                          <div className="relative h-8 w-8 shrink-0">
+                            <ReferenceVisualThumbnail
+                              kind={item.previewKind ?? "image"}
+                              displayUrl={item.displayUrl ?? null}
+                              label={item.label}
+                              durationSeconds={item.durationSeconds ?? null}
+                              imageClassName="h-8 w-8 rounded object-cover"
+                              placeholderClassName="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
+                              viewerImageList={incomingVisualDisplayList}
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
+                            <AudioLines className="h-4 w-4" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <div className="truncate text-[11px] font-medium text-text-dark">
+                            {item.tokenLabel}
+                          </div>
+                          <div className="truncate text-[11px] text-text-muted">
+                            {item.label}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {selected && !isOverviewRender ? (
+          <div
+            className="nodrag nowheel nopan pointer-events-auto absolute left-1/2 top-[calc(100%+10px)] z-30 w-max max-w-[166.6667%] -translate-x-1/2 rounded-[var(--node-radius)] border border-[rgba(15,23,42,0.24)] bg-surface-dark/95 p-2 shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-[rgba(255,255,255,0.22)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]"
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onWheelCapture={(event) => event.stopPropagation()}
+          >
+            <div className="mb-2 flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
                   {incomingVisualItems.length > 0 ? (
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
                       {incomingVisualItems.map((item, index) => (
@@ -3362,73 +3454,6 @@ export const JimengNode = memo(
                     </div>
                   ) : null}
                 </div>
-              </div>
-
-              {showImagePicker && referencePickerItems.length > 0 && (
-                <div
-                  className="nowheel absolute z-30 w-[156px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
-                  style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
-                  onMouseDown={(event) => event.stopPropagation()}
-                  onWheelCapture={(event) => event.stopPropagation()}
-                >
-                  <div
-                    className="ui-scrollbar nowheel max-h-[200px] overflow-y-auto"
-                    onWheelCapture={(event) => event.stopPropagation()}
-                    role="listbox"
-                  >
-                    {referencePickerItems.map((item, index) => (
-                      <button
-                        key={item.key}
-                        ref={(node) => {
-                          pickerItemRefs.current[index] = node;
-                        }}
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          insertReferenceItem(index);
-                        }}
-                        onMouseEnter={() => setPickerActiveIndex(index)}
-                        role="option"
-                        aria-selected={pickerActiveIndex === index}
-                        className={`flex w-full items-center gap-2 border border-transparent bg-bg-dark/70 px-2 py-2 text-left text-sm text-text-dark transition-colors hover:border-[rgba(255,255,255,0.18)] ${
-                          pickerActiveIndex === index
-                            ? "border-accent/55 bg-white/[0.08] shadow-[0_0_0_1px_rgba(59,130,246,0.22)]"
-                            : ""
-                        }`}
-                      >
-                        {item.kind === "visual" ? (
-                          <div className="relative h-8 w-8 shrink-0">
-                            <ReferenceVisualThumbnail
-                              kind={item.previewKind ?? "image"}
-                              displayUrl={item.displayUrl ?? null}
-                              label={item.label}
-                              durationSeconds={item.durationSeconds ?? null}
-                              imageClassName="h-8 w-8 rounded object-cover"
-                              placeholderClassName="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
-                              viewerImageList={incomingVisualDisplayList}
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white/[0.06] text-text-muted">
-                            <AudioLines className="h-4 w-4" />
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <div className="truncate text-[11px] font-medium text-text-dark">
-                            {item.tokenLabel}
-                          </div>
-                          <div className="truncate text-[11px] text-text-muted">
-                            {item.label}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
 
         {draggedReferenceItem && dragReferencePreview && !isOverviewRender ? (
           <div
@@ -3464,10 +3489,9 @@ export const JimengNode = memo(
           </div>
         ) : null}
 
-        {!isOverviewRender ? (
-          <div className="mt-2 flex items-center gap-2">
-            <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-              <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+          <div className="flex items-center justify-start gap-2">
+            <div className="ui-scrollbar nodrag nowheel nopan max-w-full shrink-0 cursor-default overflow-x-auto overflow-y-hidden">
+              <div className="flex w-max items-center gap-1.5 pr-1">
                 <FixedControlChip
                   label={t("node.jimeng.parameters.model")}
                   value={selectedModel}
@@ -3564,7 +3588,7 @@ export const JimengNode = memo(
                 </UiChipButton>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="nodrag nowheel nopan flex cursor-default items-center gap-2">
               <UiButton
                 type="button"
                 variant="muted"
@@ -3589,21 +3613,25 @@ export const JimengNode = memo(
               </UiButton>
             </div>
           </div>
-        ) : null}
 
-        {statusInfoText ? (
-          <div
-            className={`mt-1 min-h-[16px] truncate text-[10px] leading-4 ${
-              combinedError ? "text-rose-300" : "text-text-muted"
-            }`}
-            title={statusInfoText}
-          >
-            {statusInfoText}
+            {statusInfoText ? (
+              <div className="nodrag nowheel nopan cursor-default">
+                <div
+                  className={`mt-1 min-h-[16px] truncate text-[10px] leading-4 ${
+                    combinedError ? "text-rose-300" : "text-text-muted"
+                  }`}
+                  title={statusInfoText}
+                >
+                  {statusInfoText}
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
         {isShotParamsPanelOpen &&
         !isPromptLockedByUpstream &&
+        selected &&
         !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
@@ -3634,7 +3662,7 @@ export const JimengNode = memo(
           variant="bare"
         />
         <JimengVideoQueueScheduleModal
-          isOpen={!isOverviewRender && showQueueScheduleModal}
+          isOpen={selected && !isOverviewRender && showQueueScheduleModal}
           title={t("jimengQueue.schedule.createTitle")}
           initialScheduledAt={null}
           confirmLabel={t("node.jimeng.addToQueue")}

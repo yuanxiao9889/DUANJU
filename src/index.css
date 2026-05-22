@@ -637,6 +637,12 @@ html[data-platform="macos"] #root {
   box-shadow: var(--node-selected-shadow) !important;
 }
 
+.react-flow__node.selected
+  > .canvas-node-selection-pass-through {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
 .canvas-render-dragging
   .react-flow__node.dragging
   > :is(

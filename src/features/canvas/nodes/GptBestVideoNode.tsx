@@ -42,10 +42,6 @@ import {
 } from '@/features/canvas/application/textareaSelection';
 import {
   CANVAS_NODE_TYPES,
-  GPT_BEST_VIDEO_NODE_DEFAULT_HEIGHT,
-  GPT_BEST_VIDEO_NODE_DEFAULT_WIDTH,
-  GPT_BEST_VIDEO_NODE_MIN_HEIGHT,
-  GPT_BEST_VIDEO_NODE_MIN_WIDTH,
   GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
   GPT_BEST_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
   type GptBestVideoNodeData,
@@ -53,7 +49,7 @@ import {
 } from '@/features/canvas/domain/canvasNodes';
 import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { useIsOverviewCanvasRender } from '@/features/canvas/CanvasPerformanceContext';
-import { useCanvasConnectedReferenceVisuals, useCanvasNodeById } from '@/features/canvas/hooks/useCanvasNodeGraph';
+import { useCanvasConnectedReferenceVisuals } from '@/features/canvas/hooks/useCanvasNodeGraph';
 import { useCanvasZoom } from '@/features/canvas/hooks/useCanvasZoom';
 import { CameraTriggerIcon } from '@/features/canvas/ui/CameraTriggerIcon';
 import { CanvasHandle } from '@/features/canvas/ui/CanvasHandle';
@@ -148,6 +144,14 @@ interface PanelAnchor {
 
 const PICKER_Y_OFFSET_PX = 20;
 
+const GPT_BEST_VIDEO_NODE_DEFAULT_WIDTH = 1000;
+const GPT_BEST_VIDEO_NODE_DEFAULT_HEIGHT = 500;
+const GPT_BEST_VIDEO_NODE_MIN_WIDTH = 980;
+const GPT_BEST_VIDEO_NODE_MIN_HEIGHT = 420;
+const GPT_BEST_VIDEO_NODE_MAX_WIDTH = 1480;
+const GPT_BEST_VIDEO_NODE_MAX_HEIGHT = 1040;
+const GPT_BEST_VIDEO_NODE_MAIN_WIDTH_RATIO = 0.6;
+
 function FixedControlChip<T extends string | number>({
   label,
   value,
@@ -166,19 +170,17 @@ function FixedControlChip<T extends string | number>({
   return (
     <div
       ref={chipRef}
-      className="flex h-7 min-w-[96px] shrink-0 items-center gap-1 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
+      className="flex h-7 min-w-[76px] shrink-0 items-center rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
       onMouseDown={(event) => event.stopPropagation()}
+      title={label}
     >
-      <span className="shrink-0 text-[10px] text-text-muted/90" title={label}>
-        {label}
-      </span>
       <div className="min-w-0 flex-1">
         <UiSelect
           disabled={disabled}
           value={value}
           aria-label={label}
           menuAnchorRef={chipRef}
-          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-medium hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none disabled:opacity-60"
+          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-semibold hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none disabled:opacity-60"
           onChange={(event) =>
             onChange(
               typeof value === 'number'
@@ -384,11 +386,10 @@ function ReferenceVisualCard({ item }: { item: ReferenceVisualItem }) {
 }
 
 export const GptBestVideoNode = memo(
-  ({ id, data, selected, width, type }: GptBestVideoNodeProps) => {
+  ({ id, data, selected, width, height, type }: GptBestVideoNodeProps) => {
     const { t, i18n } = useTranslation();
     const isOverviewRender = useIsOverviewCanvasRender();
     const zoom = useCanvasZoom();
-    const currentNode = useCanvasNodeById(id);
     const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
     const thirdPartyVideoApiKeys = useSettingsStore((state) => state.thirdPartyVideoApiKeys);
     const thirdPartyVideoProviderConfig = useSettingsStore((state) => state.thirdPartyVideoProviderConfig);
@@ -459,17 +460,20 @@ export const GptBestVideoNode = memo(
     );
     const resolvedWidth = Math.max(
       GPT_BEST_VIDEO_NODE_MIN_WIDTH,
-      Math.round(width ?? GPT_BEST_VIDEO_NODE_DEFAULT_WIDTH)
+      Math.min(
+        GPT_BEST_VIDEO_NODE_MAX_WIDTH,
+        Math.round(width ?? GPT_BEST_VIDEO_NODE_DEFAULT_WIDTH)
+      )
     );
-    const explicitHeight =
-      typeof currentNode?.height === 'number' && Number.isFinite(currentNode.height)
-        ? currentNode.height
-        : typeof currentNode?.style?.height === 'number' && Number.isFinite(currentNode.style.height)
-          ? currentNode.style.height
-          : null;
+    const compactResolvedWidth = Math.round(
+      resolvedWidth * GPT_BEST_VIDEO_NODE_MAIN_WIDTH_RATIO
+    );
     const resolvedHeight = Math.max(
       GPT_BEST_VIDEO_NODE_MIN_HEIGHT,
-      Math.round(explicitHeight ?? GPT_BEST_VIDEO_NODE_DEFAULT_HEIGHT)
+      Math.min(
+        GPT_BEST_VIDEO_NODE_MAX_HEIGHT,
+        Math.round(height ?? GPT_BEST_VIDEO_NODE_DEFAULT_HEIGHT)
+      )
     );
     const lastSubmittedTime = useMemo(() => {
       if (!data.lastSubmittedAt) {
@@ -1203,12 +1207,12 @@ export const GptBestVideoNode = memo(
 
     return (
       <div
-        className={`group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150 ${
+        className={`canvas-node-selection-pass-through group relative flex flex-col overflow-visible rounded-[var(--node-radius)] bg-transparent p-0 transition-colors duration-150 ${
           selected
-            ? 'border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]'
-            : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]'
+            ? 'shadow-[0_4px_20px_rgba(59,130,246,0.16)]'
+            : ''
         }`}
-        style={{ width: `${resolvedWidth}px`, height: `${resolvedHeight}px` }}
+        style={{ width: `${compactResolvedWidth}px`, height: `${resolvedHeight}px` }}
         onClick={() => setSelectedNode(id)}
       >
         <NodeHeader
@@ -1220,9 +1224,16 @@ export const GptBestVideoNode = memo(
           onTitleChange={(displayName) => updateCurrentNodeData({ displayName })}
         />
 
-        <div ref={promptPanelRef} className="relative flex min-h-0 flex-1 flex-col pt-5">
+        <div
+          ref={promptPanelRef}
+          className={`relative min-h-0 flex-1 rounded-[var(--node-radius)] border bg-surface-dark/90 px-3 py-3 ${
+            selected
+              ? 'border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]'
+              : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'
+          }`}
+        >
           {isOverviewRender ? (
-            <div className="min-h-0 flex-1 overflow-hidden rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/80 px-3 py-3 text-sm leading-6 text-text-muted">
+            <div className="h-full min-h-0 overflow-hidden text-sm leading-6 text-text-muted">
               <div className="line-clamp-6 whitespace-pre-wrap">
                 {promptDraft.trim() || (sourceKind === 'grok'
                   ? t('node.gptBestVideo.grokPromptPlaceholder')
@@ -1232,7 +1243,7 @@ export const GptBestVideoNode = memo(
           ) : (
             <div
               ref={promptPreviewHostRef}
-              className="relative min-h-0 flex-1 rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/80"
+              className="relative min-h-[148px] flex-1"
             >
               <div
                 ref={promptHighlightRef}
@@ -1240,7 +1251,7 @@ export const GptBestVideoNode = memo(
                 className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                 style={{ scrollbarGutter: 'stable' }}
               >
-                <div className="canvas-textarea-wrap min-h-full rounded-[var(--node-radius)] border border-transparent px-3 py-3">
+                <div className="canvas-textarea-wrap min-h-full rounded-[var(--node-radius)] border border-transparent px-0.5 py-0">
                   {renderPromptWithHighlights(promptDraft, referenceVisualItems.length)}
                 </div>
               </div>
@@ -1251,7 +1262,7 @@ export const GptBestVideoNode = memo(
                 className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                 style={{ scrollbarGutter: 'stable' }}
               >
-                <div className="canvas-textarea-wrap min-h-full rounded-[var(--node-radius)] border border-transparent px-3 py-3">
+                <div className="canvas-textarea-wrap min-h-full rounded-[var(--node-radius)] border border-transparent px-0.5 py-0">
                   {renderPromptReferenceHoverTargets(
                     promptDraft,
                     referenceVisualItems.length,
@@ -1287,7 +1298,7 @@ export const GptBestVideoNode = memo(
                 placeholder={sourceKind === 'grok'
                   ? t('node.gptBestVideo.grokPromptPlaceholder')
                   : t('node.gptBestVideo.seedancePromptPlaceholder')}
-                className="canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full min-h-0 w-full resize-none rounded-[var(--node-radius)] border border-transparent bg-transparent px-3 py-3 text-sm leading-6 text-transparent outline-none transition-colors placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-accent/50"
+                className="canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-[var(--node-radius)] border border-transparent bg-transparent px-0.5 py-0 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-transparent"
                 style={{ scrollbarGutter: 'stable' }}
                 spellCheck={false}
                 onScroll={syncPromptHighlightScroll}
@@ -1329,7 +1340,81 @@ export const GptBestVideoNode = memo(
             </div>
           )}
 
-          <div className="mt-3 rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/50 p-3">
+          {showReferencePicker && referencePickerItems.length > 0 ? (
+            <div
+              className="nowheel absolute z-30 w-[168px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
+              style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
+              onMouseDown={(event) => event.stopPropagation()}
+              onWheelCapture={(event) => event.stopPropagation()}
+            >
+              <div
+                className="ui-scrollbar nowheel max-h-[220px] overflow-y-auto"
+                onWheelCapture={(event) => event.stopPropagation()}
+                role="listbox"
+              >
+                {referencePickerItems.map((item, index) => (
+                  <button
+                    key={item.key}
+                    ref={(node) => {
+                      pickerItemRefs.current[index] = node;
+                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={index === pickerActiveIndex}
+                    className={`flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors ${
+                      index === pickerActiveIndex
+                        ? 'bg-accent/18 text-text-dark'
+                        : 'text-text-muted hover:bg-white/[0.06] hover:text-text-dark'
+                    }`}
+                    onMouseEnter={() => setPickerActiveIndex(index)}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                    }}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      insertReferenceItem(index);
+                    }}
+                  >
+                    <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black/35">
+                      {item.displayUrl ? (
+                        <CanvasNodeImage
+                          src={item.displayUrl}
+                          alt={item.label}
+                          className="h-full w-full object-cover"
+                          disableViewer
+                          draggable={false}
+                        />
+                      ) : item.previewKind === 'video' ? (
+                        <Video className="m-2 h-5 w-5 text-text-muted" />
+                      ) : (
+                        <ImageIcon className="m-2 h-5 w-5 text-text-muted" />
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="truncate font-medium text-text-dark">
+                        {item.tokenLabel}
+                      </div>
+                      <div className="truncate text-[10px] text-text-muted">
+                        {item.label}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {selected && !isOverviewRender ? (
+          <div
+            className="nodrag nowheel nopan pointer-events-auto absolute left-1/2 top-[calc(100%+10px)] z-30 w-max max-w-[166.6667%] -translate-x-1/2 rounded-[var(--node-radius)] border border-[rgba(15,23,42,0.24)] bg-surface-dark/95 p-2 shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-[rgba(255,255,255,0.22)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]"
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onWheelCapture={(event) => event.stopPropagation()}
+          >
+            <div className="mb-2 rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/50 p-3">
             <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-muted">
               <span>{t('node.gptBestVideo.referenceStatusLabel')}</span>
               {connectedImages.length > 0 ? (
@@ -1380,79 +1465,12 @@ export const GptBestVideoNode = memo(
               </div>
             )}
 
-            {showReferencePicker && referencePickerItems.length > 0 ? (
-              <div
-                className="nowheel absolute z-30 w-[168px] overflow-hidden rounded-xl border border-[rgba(255,255,255,0.16)] bg-surface-dark shadow-xl"
-                style={{ left: pickerAnchor.left, top: pickerAnchor.top }}
-                onMouseDown={(event) => event.stopPropagation()}
-                onWheelCapture={(event) => event.stopPropagation()}
-              >
-                <div
-                  className="ui-scrollbar nowheel max-h-[220px] overflow-y-auto"
-                  onWheelCapture={(event) => event.stopPropagation()}
-                  role="listbox"
-                >
-                  {referencePickerItems.map((item, index) => (
-                    <button
-                      key={item.key}
-                      ref={(node) => {
-                        pickerItemRefs.current[index] = node;
-                      }}
-                      type="button"
-                      role="option"
-                      aria-selected={index === pickerActiveIndex}
-                      className={`flex w-full items-center gap-2 px-2 py-2 text-left text-xs transition-colors ${
-                        index === pickerActiveIndex
-                          ? 'bg-accent/18 text-text-dark'
-                          : 'text-text-muted hover:bg-white/[0.06] hover:text-text-dark'
-                      }`}
-                      onMouseEnter={() => setPickerActiveIndex(index)}
-                      onMouseDown={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        insertReferenceItem(index);
-                      }}
-                    >
-                      <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black/35">
-                        {item.displayUrl ? (
-                          <CanvasNodeImage
-                            src={item.displayUrl}
-                            alt={item.label}
-                            className="h-full w-full object-cover"
-                            disableViewer
-                            draggable={false}
-                          />
-                        ) : item.previewKind === 'video' ? (
-                          <Video className="m-2 h-5 w-5 text-text-muted" />
-                        ) : (
-                          <ImageIcon className="m-2 h-5 w-5 text-text-muted" />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate font-medium text-text-dark">
-                          {item.tokenLabel}
-                        </div>
-                        <div className="truncate text-[10px] text-text-muted">
-                          {item.label}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </div>
+            </div>
 
-        {!isOverviewRender ? (
-          <div className="mt-2 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-                <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-start gap-2">
+                <div className="ui-scrollbar nodrag nowheel nopan max-w-full shrink-0 cursor-default overflow-x-auto overflow-y-hidden">
+                  <div className="flex w-max items-center gap-1.5 pr-1">
                   <div ref={modelTriggerRef} className="shrink-0">
                     <UiChipButton
                       active={isModelPanelOpen}
@@ -1576,8 +1594,8 @@ export const GptBestVideoNode = memo(
                   >
                     <Undo2 className="h-4 w-4 origin-center scale-[1.08]" strokeWidth={2.3} />
                   </UiChipButton>
+                  </div>
                 </div>
-              </div>
 
               <UiButton
                 type="button"
@@ -1602,6 +1620,7 @@ export const GptBestVideoNode = memo(
               title={statusInfoText}
             >
               {statusInfoText}
+            </div>
             </div>
           </div>
         ) : null}
@@ -1684,7 +1703,7 @@ export const GptBestVideoNode = memo(
           document.body
         )}
 
-        {isShotParamsPanelOpen && !isOverviewRender ? (
+        {isShotParamsPanelOpen && selected && !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
             onInsert={(option) => insertPromptText(option.value)}
@@ -1745,7 +1764,12 @@ export const GptBestVideoNode = memo(
           position={Position.Right}
           className="!border-2 !border-surface-dark !bg-accent"
         />
-        <NodeResizeHandle minWidth={GPT_BEST_VIDEO_NODE_MIN_WIDTH} minHeight={GPT_BEST_VIDEO_NODE_MIN_HEIGHT} />
+        <NodeResizeHandle
+          minWidth={GPT_BEST_VIDEO_NODE_MIN_WIDTH}
+          minHeight={GPT_BEST_VIDEO_NODE_MIN_HEIGHT}
+          maxWidth={GPT_BEST_VIDEO_NODE_MAX_WIDTH}
+          maxHeight={GPT_BEST_VIDEO_NODE_MAX_HEIGHT}
+        />
       </div>
     );
   }

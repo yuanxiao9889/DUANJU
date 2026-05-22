@@ -191,6 +191,7 @@ interface PromptReferencePreviewState {
   top: number;
 }
 
+
 interface IncomingReferenceImageItem {
   referenceUrl: string;
   requestImageUrl: string;
@@ -1061,6 +1062,17 @@ export const ImageEditNode = memo(
       ? `${NODE_CONTROL_CHIP_CLASS} !w-8 !border-emerald-400/55 !bg-emerald-500/14 !px-0 !text-emerald-300 shadow-[0_0_0_1px_rgba(52,211,153,0.12)] hover:!bg-emerald-500/20 shrink-0 justify-center`
       : `${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`;
     const headerStatus = useMemo(() => {
+      if (data.isGenerating) {
+        return (
+          <NodeStatusBadge
+            icon={<Loader2 className="h-3 w-3" />}
+            label={t("nodeStatus.generating")}
+            tone="processing"
+            animate
+          />
+        );
+      }
+
       if (isOptimizingPrompt) {
         return (
           <NodeStatusBadge
@@ -1084,7 +1096,7 @@ export const ImageEditNode = memo(
           title={error}
         />
       );
-    }, [error, isOptimizingPrompt, t]);
+    }, [data.isGenerating, error, isOptimizingPrompt, t]);
     const headerRightSlot = useMemo(() => {
       if (!headerStatus) {
         return undefined;
@@ -2224,7 +2236,7 @@ export const ImageEditNode = memo(
 
         <div
           ref={promptPanelRef}
-          className="relative min-h-0 flex-1 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
+          className="relative min-h-0 flex-1 rounded-[calc(var(--node-radius)-6px)] bg-transparent px-1 py-1.5"
         >
           {isOverviewRender ? (
             <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
@@ -2261,7 +2273,7 @@ export const ImageEditNode = memo(
                   className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                   style={{ scrollbarGutter: "stable" }}
                 >
-                  <div className="canvas-textarea-wrap min-h-full px-1 py-0.5">
+                  <div className="canvas-textarea-wrap min-h-full px-0.5 py-0">
                     {renderPromptWithHighlights(
                       displayedPrompt,
                       incomingImages.length,
@@ -2276,7 +2288,7 @@ export const ImageEditNode = memo(
                   className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                   style={{ scrollbarGutter: "stable" }}
                 >
-                  <div className="canvas-textarea-wrap min-h-full px-1 py-0.5">
+                  <div className="canvas-textarea-wrap min-h-full px-0.5 py-0">
                     {renderPromptReferenceHoverTargets(
                       displayedPrompt,
                       incomingImages.length,
@@ -2318,7 +2330,7 @@ export const ImageEditNode = memo(
                   }
                   onBlur={() => setIsPromptTextSelectionActive(false)}
                   placeholder={t("node.imageEdit.promptPlaceholder")}
-                  className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/80 selection:bg-accent/30 selection:text-transparent ${
+                  className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-0.5 py-0 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/80 selection:bg-accent/30 selection:text-transparent ${
                     isPromptLockedByUpstream
                       ? "cursor-default caret-transparent"
                       : "caret-text-dark focus:border-transparent"
@@ -2411,150 +2423,155 @@ export const ImageEditNode = memo(
           )}
         </div>
 
-        {!isOverviewRender ? (
-          <div className="mt-2 flex shrink-0 items-center gap-2">
-            <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-              <div className="flex w-max min-w-full items-center gap-1">
-                <ModelParamsControls
-                  imageModels={imageModels}
-                  selectedModel={selectedModel}
-                  resolutionOptions={resolutionOptions}
-                  selectedResolution={selectedResolution}
-                  selectedAspectRatio={selectedAspectRatio}
-                  aspectRatioOptions={aspectRatioOptions}
-                  onModelChange={handleModelChange}
-                  onResolutionChange={handleResolutionChange}
-                  onAspectRatioChange={(aspectRatio) => {
-                    updateNodeData(id, { requestAspectRatio: aspectRatio });
-                    setLastImageEditDefaults({
-                      modelId: selectedModel.id,
-                      size: selectedResolution.value as ImageSize,
-                      requestAspectRatio: aspectRatio,
-                    });
-                  }}
-                  extraParams={resolvedModelExtraParams}
-                  onExtraParamChange={(key, value) => {
-                    updateNodeData(id, {
-                      extraParams: {
-                        ...(data.extraParams ?? {}),
-                        [key]: value,
-                      },
-                    });
-                    setLastImageGenerationExtraParams({ [key]: value });
-                  }}
-                  onStyleTemplateApply={(template) => {
-                    if (isPromptLockedByUpstream) {
-                      return;
+        {selected && !isOverviewRender ? (
+          <div
+            className="nodrag nowheel nopan pointer-events-auto absolute left-0 right-0 top-[calc(100%+10px)] z-30 rounded-[var(--node-radius)] border border-[rgba(15,23,42,0.24)] bg-surface-dark/95 p-2 shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-[rgba(255,255,255,0.22)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]"
+            onClick={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
+            onWheelCapture={(event) => event.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="ui-scrollbar nodrag nowheel nopan min-w-0 flex-1 cursor-default overflow-x-auto overflow-y-hidden">
+                <div className="flex w-max min-w-full items-center gap-1">
+                  <ModelParamsControls
+                    imageModels={imageModels}
+                    selectedModel={selectedModel}
+                    resolutionOptions={resolutionOptions}
+                    selectedResolution={selectedResolution}
+                    selectedAspectRatio={selectedAspectRatio}
+                    aspectRatioOptions={aspectRatioOptions}
+                    onModelChange={handleModelChange}
+                    onResolutionChange={handleResolutionChange}
+                    onAspectRatioChange={(aspectRatio) => {
+                      updateNodeData(id, { requestAspectRatio: aspectRatio });
+                      setLastImageEditDefaults({
+                        modelId: selectedModel.id,
+                        size: selectedResolution.value as ImageSize,
+                        requestAspectRatio: aspectRatio,
+                      });
+                    }}
+                    extraParams={resolvedModelExtraParams}
+                    onExtraParamChange={(key, value) => {
+                      updateNodeData(id, {
+                        extraParams: {
+                          ...(data.extraParams ?? {}),
+                          [key]: value,
+                        },
+                      });
+                      setLastImageGenerationExtraParams({ [key]: value });
+                    }}
+                    onStyleTemplateApply={(template) => {
+                      if (isPromptLockedByUpstream) {
+                        return;
+                      }
+                      updateNodeData(id, {
+                        selectedStyleTemplateId: template.id,
+                        selectedStyleTemplateName: template.name,
+                        selectedStyleTemplatePrompt: template.prompt,
+                      });
+                      const nextPrompt = appendStyleTemplatePrompt(
+                        promptDraftRef.current,
+                        template.prompt,
+                      );
+                      setPromptDraft(nextPrompt);
+                      commitPromptDraft(nextPrompt);
+                      setLastPromptOptimizationUndoState(null);
+                    }}
+                    selectedStyleTemplateName={data.selectedStyleTemplateName ?? null}
+                    triggerSize="sm"
+                    chipClassName={NODE_CONTROL_CHIP_CLASS}
+                    modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
+                    paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
+                    styleTemplateTriggerMode="icon"
+                    styleTemplateDisabled={
+                      isPromptLockedByUpstream || isBatchGroupOverrideActive
                     }
-                    updateNodeData(id, {
-                      selectedStyleTemplateId: template.id,
-                      selectedStyleTemplateName: template.name,
-                      selectedStyleTemplatePrompt: template.prompt,
-                    });
-                    const nextPrompt = appendStyleTemplatePrompt(
-                      promptDraftRef.current,
-                      template.prompt,
-                    );
-                    setPromptDraft(nextPrompt);
-                    commitPromptDraft(nextPrompt);
-                    setLastPromptOptimizationUndoState(null);
-                  }}
-                  selectedStyleTemplateName={data.selectedStyleTemplateName ?? null}
-                  triggerSize="sm"
-                  chipClassName={NODE_CONTROL_CHIP_CLASS}
-                  modelChipClassName={NODE_CONTROL_MODEL_CHIP_CLASS}
-                  paramsChipClassName={NODE_CONTROL_PARAMS_CHIP_CLASS}
-                  styleTemplateTriggerMode="icon"
-                  styleTemplateDisabled={
-                    isPromptLockedByUpstream || isBatchGroupOverrideActive
-                  }
-                  modelSelectionDisabled={isBatchGroupOverrideActive}
-                  paramsSelectionDisabled={isBatchGroupOverrideActive}
-                  modelSelectionLockedByGroup={isBatchGroupOverrideActive}
-                  paramsSelectionLockedByGroup={isBatchGroupOverrideActive}
-                  styleTemplateLockedByGroup={isBatchGroupOverrideActive}
-                  afterStyleTemplateSlot={
-                    <Fragment>
-                      <UiChipButton
-                        type="button"
-                        active={showCameraParamsDialog || isCameraParamsApplied}
-                        className={cameraParamsButtonClassName}
-                        aria-label={t("cameraParams.trigger")}
-                        title={cameraParamsButtonTitle}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setShowCameraParamsDialog(true);
-                        }}
-                      >
-                        <CameraTriggerIcon
-                          active={isCameraParamsApplied}
-                          variant="photo"
-                          className={`h-4 w-4 origin-center scale-[1.24] ${
-                            isCameraParamsApplied
-                              ? "text-emerald-300"
-                              : "text-text-dark"
-                          }`}
-                        />
-                      </UiChipButton>
-                      <UiChipButton
-                        type="button"
-                        active={isOptimizingPrompt}
-                        disabled={
-                          isPromptLockedByUpstream ||
-                          isOptimizingPrompt ||
-                          promptDraft.trim().length === 0 ||
-                          isPromptOptimizationControlledByGroup
-                        }
-                        className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
-                        aria-label={
-                          isOptimizingPrompt
-                            ? t("node.imageEdit.optimizingPrompt")
-                            : t("node.imageEdit.optimizePrompt")
-                        }
-                        title={
-                          isOptimizingPrompt
-                            ? t("node.imageEdit.optimizingPrompt")
-                            : t("node.imageEdit.optimizePrompt")
-                        }
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleOptimizePrompt();
-                        }}
-                      >
-                        <Wand2
-                          className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
-                          strokeWidth={2.45}
-                        />
-                      </UiChipButton>
-                      <UiChipButton
-                        type="button"
-                        disabled={
-                          isPromptLockedByUpstream ||
-                          isOptimizingPrompt ||
-                          !canUndoPromptOptimization ||
-                          isPromptOptimizationControlledByGroup
-                        }
-                        className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
-                        aria-label={t("node.imageEdit.undoOptimizedPrompt")}
-                        title={t("node.imageEdit.undoOptimizedPrompt")}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleUndoOptimizedPrompt();
-                        }}
-                      >
-                        <Undo2
-                          className="h-4 w-4 origin-center scale-[1.08] text-text-dark"
-                          strokeWidth={2.3}
-                        />
-                      </UiChipButton>
-                    </Fragment>
-                  }
-                />
+                    modelSelectionDisabled={isBatchGroupOverrideActive}
+                    paramsSelectionDisabled={isBatchGroupOverrideActive}
+                    modelSelectionLockedByGroup={isBatchGroupOverrideActive}
+                    paramsSelectionLockedByGroup={isBatchGroupOverrideActive}
+                    styleTemplateLockedByGroup={isBatchGroupOverrideActive}
+                    afterStyleTemplateSlot={
+                      <Fragment>
+                        <UiChipButton
+                          type="button"
+                          active={showCameraParamsDialog || isCameraParamsApplied}
+                          className={cameraParamsButtonClassName}
+                          aria-label={t("cameraParams.trigger")}
+                          title={cameraParamsButtonTitle}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setShowCameraParamsDialog(true);
+                          }}
+                        >
+                          <CameraTriggerIcon
+                            active={isCameraParamsApplied}
+                            variant="photo"
+                            className={`h-4 w-4 origin-center scale-[1.24] ${
+                              isCameraParamsApplied
+                                ? "text-emerald-300"
+                                : "text-text-dark"
+                            }`}
+                          />
+                        </UiChipButton>
+                        <UiChipButton
+                          type="button"
+                          active={isOptimizingPrompt}
+                          disabled={
+                            isPromptLockedByUpstream ||
+                            isOptimizingPrompt ||
+                            promptDraft.trim().length === 0 ||
+                            isPromptOptimizationControlledByGroup
+                          }
+                          className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
+                          aria-label={
+                            isOptimizingPrompt
+                              ? t("node.imageEdit.optimizingPrompt")
+                              : t("node.imageEdit.optimizePrompt")
+                          }
+                          title={
+                            isOptimizingPrompt
+                              ? t("node.imageEdit.optimizingPrompt")
+                              : t("node.imageEdit.optimizePrompt")
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleOptimizePrompt();
+                          }}
+                        >
+                          <Wand2
+                            className="h-4 w-4 origin-center scale-[1.18] text-text-dark"
+                            strokeWidth={2.45}
+                          />
+                        </UiChipButton>
+                        <UiChipButton
+                          type="button"
+                          disabled={
+                            isPromptLockedByUpstream ||
+                            isOptimizingPrompt ||
+                            !canUndoPromptOptimization ||
+                            isPromptOptimizationControlledByGroup
+                          }
+                          className={`${NODE_CONTROL_CHIP_CLASS} !w-8 !px-0 shrink-0 justify-center`}
+                          aria-label={t("node.imageEdit.undoOptimizedPrompt")}
+                          title={t("node.imageEdit.undoOptimizedPrompt")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleUndoOptimizedPrompt();
+                          }}
+                        >
+                          <Undo2
+                            className="h-4 w-4 origin-center scale-[1.08] text-text-dark"
+                            strokeWidth={2.3}
+                          />
+                        </UiChipButton>
+                      </Fragment>
+                    }
+                  />
+                </div>
               </div>
-            </div>
 
-            <div className="flex shrink-0 items-center gap-1">
-              <div className="shrink-0">
+              <div className="nodrag nowheel nopan flex shrink-0 cursor-default items-center gap-1">
                 <UiButton
                   onClick={(event) => {
                     event.stopPropagation();
@@ -2571,16 +2588,18 @@ export const ImageEditNode = memo(
                 </UiButton>
               </div>
             </div>
+            <div className="nodrag nowheel nopan cursor-default">
+              <div
+                className={`mt-1 min-h-[18px] text-[10px] leading-4 ${
+                  error ? "text-red-200" : "text-text-muted"
+                }`}
+                title={statusInfoText}
+              >
+                {statusInfoText}
+              </div>
+            </div>
           </div>
         ) : null}
-        <div
-          className={`mt-1 min-h-[18px] text-[10px] leading-4 ${
-            error ? "text-red-200" : "text-text-muted"
-          }`}
-          title={statusInfoText}
-        >
-          {statusInfoText}
-        </div>
         <CanvasHandle
           type="target"
           id="target"
@@ -2608,7 +2627,7 @@ export const ImageEditNode = memo(
         />
 
         <CameraParamsDialog
-          isOpen={!isOverviewRender && showCameraParamsDialog}
+          isOpen={selected && !isOverviewRender && showCameraParamsDialog}
           value={resolvedCameraParams}
           onApply={(nextValue) =>
             updateNodeData(id, { cameraParams: nextValue })

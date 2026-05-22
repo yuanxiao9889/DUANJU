@@ -59,10 +59,6 @@ import {
 import { formatVideoTime } from "@/features/canvas/application/videoData";
 import {
   CANVAS_NODE_TYPES,
-  SEEDANCE_NODE_DEFAULT_HEIGHT,
-  SEEDANCE_NODE_DEFAULT_WIDTH,
-  SEEDANCE_NODE_MIN_HEIGHT,
-  SEEDANCE_NODE_MIN_WIDTH,
   SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
   SEEDANCE_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
   type ExportImageNodeData,
@@ -77,7 +73,6 @@ import {
   useCanvasConnectedAudioReferences,
   useCanvasConnectedTextInput,
   useCanvasConnectedReferenceVisuals,
-  useCanvasNodeById,
   useCanvasStoryboardProductionPlaceholder,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
@@ -219,6 +214,13 @@ const MAX_REFERENCE_IMAGE_COUNT = 9;
 const MAX_REFERENCE_VIDEO_COUNT = 3;
 const MAX_REFERENCE_AUDIO_COUNT = 3;
 const MAX_REFERENCE_TOTAL_DURATION_SECONDS = 15;
+const SEEDANCE_VIDEO_NODE_DEFAULT_WIDTH = 1000;
+const SEEDANCE_VIDEO_NODE_DEFAULT_HEIGHT = 500;
+const SEEDANCE_VIDEO_NODE_MIN_WIDTH = 980;
+const SEEDANCE_VIDEO_NODE_MIN_HEIGHT = 420;
+const SEEDANCE_VIDEO_NODE_MAX_WIDTH = 1480;
+const SEEDANCE_VIDEO_NODE_MAX_HEIGHT = 1040;
+const SEEDANCE_NODE_MAIN_WIDTH_RATIO = 0.6;
 const PICKER_Y_OFFSET_PX = 20;
 const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(["@", "\uFF20"]);
 const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
@@ -649,18 +651,16 @@ function FixedControlChip<T extends string | number>({
   return (
     <div
       ref={chipRef}
-      className="flex h-7 min-w-[96px] shrink-0 items-center gap-1 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
+      className="flex h-7 min-w-[76px] shrink-0 items-center rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
       onMouseDown={(event) => event.stopPropagation()}
+      title={label}
     >
-      <span className="shrink-0 text-[10px] text-text-muted/90" title={label}>
-        {label}
-      </span>
       <div className="min-w-0 flex-1">
         <UiSelect
           value={value}
           aria-label={label}
           menuAnchorRef={chipRef}
-          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-medium hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
+          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-semibold hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
           onChange={(event) =>
             onChange(
               typeof value === "number"
@@ -777,13 +777,12 @@ function ReferenceAudioChip({
 }
 
 export const SeedanceNode = memo(
-  ({ id, data, selected, width }: SeedanceNodeProps) => {
+  ({ id, data, selected, width, height }: SeedanceNodeProps) => {
     const { t, i18n } = useTranslation();
     const isOverviewRender = useIsOverviewCanvasRender();
     const shouldSuspendMedia = useShouldSuspendCanvasMedia();
     const zoom = useCanvasZoom();
     const updateNodeInternals = useUpdateNodeInternals();
-    const currentNode = useCanvasNodeById(id);
     const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
     const connectedAudios = useCanvasConnectedAudioReferences(id);
     const { connectedText, hasConnectedTextSource, hasNonEmptyConnectedText } =
@@ -842,21 +841,22 @@ export const SeedanceNode = memo(
     const resolvedGenerateAudio = data.generateAudio ?? true;
     const resolvedReturnLastFrame = data.returnLastFrame ?? false;
     const resolvedWidth = Math.max(
-      SEEDANCE_NODE_MIN_WIDTH,
-      Math.round(width ?? SEEDANCE_NODE_DEFAULT_WIDTH),
+      SEEDANCE_VIDEO_NODE_MIN_WIDTH,
+      Math.min(
+        SEEDANCE_VIDEO_NODE_MAX_WIDTH,
+        Math.round(width ?? SEEDANCE_VIDEO_NODE_DEFAULT_WIDTH),
+      ),
     );
-    const explicitHeight =
-      typeof currentNode?.height === "number" &&
-      Number.isFinite(currentNode.height)
-        ? currentNode.height
-        : typeof currentNode?.style?.height === "number" &&
-            Number.isFinite(currentNode.style.height)
-          ? currentNode.style.height
-          : null;
-    const hasExplicitHeight = typeof explicitHeight === "number";
-    const resolvedHeight = hasExplicitHeight
-      ? Math.max(SEEDANCE_NODE_MIN_HEIGHT, Math.round(explicitHeight))
-      : SEEDANCE_NODE_DEFAULT_HEIGHT;
+    const compactResolvedWidth = Math.round(
+      resolvedWidth * SEEDANCE_NODE_MAIN_WIDTH_RATIO,
+    );
+    const resolvedHeight = Math.max(
+      SEEDANCE_VIDEO_NODE_MIN_HEIGHT,
+      Math.min(
+        SEEDANCE_VIDEO_NODE_MAX_HEIGHT,
+        Math.round(height ?? SEEDANCE_VIDEO_NODE_DEFAULT_HEIGHT),
+      ),
+    );
     const promptPanelRef = useRef<HTMLDivElement>(null);
     const promptPreviewHostRef = useRef<HTMLDivElement>(null);
     const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -1112,11 +1112,11 @@ export const SeedanceNode = memo(
     );
 
     const headerStatus = useMemo(() => {
-      if (data.isSubmitting) {
+      if (data.isSubmitting || data.isGenerating) {
         return (
           <NodeStatusBadge
             icon={<Loader2 className="h-3 w-3" />}
-            label={t("node.seedance.submitting")}
+            label={data.isSubmitting ? t("node.seedance.submitting") : t("nodeStatus.generating")}
             tone="processing"
             animate
           />
@@ -1135,7 +1135,7 @@ export const SeedanceNode = memo(
       }
 
       return null;
-    }, [data.isSubmitting, data.lastError, promptOptimizationError, t]);
+    }, [data.isGenerating, data.isSubmitting, data.lastError, promptOptimizationError, t]);
 
     const modeHintKey = `node.seedance.modeHints.${selectedInputMode}`;
     const shotParamsTriggerTitle = t("shotParams.trigger");
@@ -1143,7 +1143,6 @@ export const SeedanceNode = memo(
     useEffect(() => {
       updateNodeInternals(id);
     }, [
-      hasExplicitHeight,
       id,
       referenceAudioItems.length,
       referenceVisualItems.length,
@@ -2069,16 +2068,15 @@ export const SeedanceNode = memo(
     return (
       <div
         className={`
-          group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150
-          ${hasExplicitHeight ? "h-full" : ""}
-          ${
+          canvas-node-selection-pass-through group relative flex flex-col overflow-visible rounded-[var(--node-radius)] bg-transparent p-0 transition-colors duration-150
+        ${
             selected
-              ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
-              : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
+              ? "shadow-[0_4px_20px_rgba(59,130,246,0.16)]"
+              : ""
           }
         `}
         style={{
-          width: `${resolvedWidth}px`,
+          width: `${compactResolvedWidth}px`,
           height: `${resolvedHeight}px`,
         }}
         onClick={() => setSelectedNode(id)}
@@ -2094,11 +2092,14 @@ export const SeedanceNode = memo(
           }
         />
 
-        <div className="flex min-h-0 flex-1 flex-col gap-2 pt-3">
-          <div
-            ref={promptPanelRef}
-            className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/12 p-2"
-          >
+        <div
+          ref={promptPanelRef}
+          className={`relative min-h-0 flex-1 rounded-[var(--node-radius)] border bg-surface-dark/90 px-3 py-3 ${
+            selected
+              ? "border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]"
+              : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]"
+          }`}
+        >
             {isOverviewRender ? (
               <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
                 <div className="line-clamp-5 whitespace-pre-wrap break-words">
@@ -2128,10 +2129,10 @@ export const SeedanceNode = memo(
               </div>
             ) : (
               <>
-                <div className="flex h-full min-h-0 flex-col gap-2">
+                <div className="flex h-full min-h-0 flex-col">
                   <div
                     ref={promptPreviewHostRef}
-                    className="relative min-h-[148px] flex-1 overflow-hidden rounded-xl"
+                    className="relative min-h-[148px] flex-1"
                   >
                     <div
                       ref={promptHighlightRef}
@@ -2139,7 +2140,7 @@ export const SeedanceNode = memo(
                       className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                       style={{ scrollbarGutter: "stable" }}
                     >
-                      <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                      <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-0.5 py-0">
                         {renderPromptWithHighlights(
                           displayedPrompt,
                           referenceVisualItems.length,
@@ -2155,7 +2156,7 @@ export const SeedanceNode = memo(
                       className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                       style={{ scrollbarGutter: "stable" }}
                     >
-                      <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                      <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-0.5 py-0">
                         {renderPromptReferenceHoverTargets(
                           displayedPrompt,
                           referenceVisualItems.length,
@@ -2189,10 +2190,10 @@ export const SeedanceNode = memo(
                       }}
                       onBeforeInput={handlePromptBeforeInput}
                       placeholder={t("node.seedance.promptPlaceholder")}
-                      className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full min-h-[148px] w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
+                      className={`canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-transparent bg-transparent px-0.5 py-0 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent ${
                         isPromptLockedByUpstream
                           ? "cursor-default caret-transparent"
-                          : "caret-text-dark focus:border-accent/50"
+                          : "caret-text-dark focus:border-transparent"
                       }`}
                       style={{ scrollbarGutter: "stable" }}
                       spellCheck={false}
@@ -2244,64 +2245,6 @@ export const SeedanceNode = memo(
                             displayName: null,
                           }}
                         />
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
-                    {referenceVisualItems.length > 0 ? (
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        {referenceVisualItems.map((item) => (
-                          <ReferenceVisualChip
-                            key={`${item.sourceEdgeId}-${item.referenceUrl}`}
-                            kind={item.kind}
-                            displayUrl={item.displayUrl}
-                            label={item.label}
-                            tokenLabel={item.tokenLabel}
-                            metaLabel={
-                              item.kind === "video"
-                                ? item.durationSeconds
-                                  ? formatVideoTime(item.durationSeconds)
-                                  : "VIDEO"
-                                : isSeedanceAssetUri(item.referenceUrl)
-                                  ? t("assets.seedanceOfficialBadge")
-                                  : null
-                            }
-                            isActive={
-                              highlightedReferenceSourceNodeId ===
-                              item.sourceNodeId
-                            }
-                            onMouseDown={(event) => {
-                              event.stopPropagation();
-                              if (event.button !== 0) {
-                                return;
-                              }
-                              handleReferenceSourceHighlight(item.sourceNodeId);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {referenceAudioItems.length > 0 ? (
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        {referenceAudioItems.map((item) => (
-                          <ReferenceAudioChip
-                            key={`${item.sourceEdgeId}-${item.audioUrl}`}
-                            item={item}
-                            removeLabel={t("common.delete")}
-                            onRemove={() =>
-                              handleRemoveReferenceAudio(item.sourceEdgeId)
-                            }
-                          />
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {referenceVisualItems.length === 0 &&
-                    referenceAudioItems.length === 0 ? (
-                      <div className="text-[11px] text-text-muted">
-                        {t("node.seedance.noReferences")}
                       </div>
                     ) : null}
                   </div>
@@ -2384,10 +2327,74 @@ export const SeedanceNode = memo(
             ) : null}
           </div>
 
-          {!isOverviewRender ? (
-            <div className="flex items-center gap-2">
-              <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-                <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+          {selected && !isOverviewRender ? (
+            <div
+              className="nodrag nowheel nopan pointer-events-auto absolute left-1/2 top-[calc(100%+10px)] z-30 w-max max-w-[166.6667%] -translate-x-1/2 rounded-[var(--node-radius)] border border-[rgba(15,23,42,0.24)] bg-surface-dark/95 p-2 shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-[rgba(255,255,255,0.22)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]"
+              onClick={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+              onWheelCapture={(event) => event.stopPropagation()}
+            >
+              <div className="mb-2 flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+                {referenceVisualItems.length > 0 ? (
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    {referenceVisualItems.map((item) => (
+                      <ReferenceVisualChip
+                        key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                        kind={item.kind}
+                        displayUrl={item.displayUrl}
+                        label={item.label}
+                        tokenLabel={item.tokenLabel}
+                        metaLabel={
+                          item.kind === "video"
+                            ? item.durationSeconds
+                              ? formatVideoTime(item.durationSeconds)
+                              : "VIDEO"
+                            : isSeedanceAssetUri(item.referenceUrl)
+                              ? t("assets.seedanceOfficialBadge")
+                              : null
+                        }
+                        isActive={
+                          highlightedReferenceSourceNodeId ===
+                          item.sourceNodeId
+                        }
+                        onMouseDown={(event) => {
+                          event.stopPropagation();
+                          if (event.button !== 0) {
+                            return;
+                          }
+                          handleReferenceSourceHighlight(item.sourceNodeId);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {referenceAudioItems.length > 0 ? (
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    {referenceAudioItems.map((item) => (
+                      <ReferenceAudioChip
+                        key={`${item.sourceEdgeId}-${item.audioUrl}`}
+                        item={item}
+                        removeLabel={t("common.delete")}
+                        onRemove={() =>
+                          handleRemoveReferenceAudio(item.sourceEdgeId)
+                        }
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {referenceVisualItems.length === 0 &&
+                referenceAudioItems.length === 0 ? (
+                  <div className="text-[11px] text-text-muted">
+                    {t("node.seedance.noReferences")}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="flex items-center justify-start gap-2">
+                <div className="ui-scrollbar nodrag nowheel nopan max-w-full shrink-0 cursor-default overflow-x-auto overflow-y-hidden">
+                  <div className="flex w-max items-center gap-1.5 pr-1">
                   <FixedControlChip
                     label={t("node.seedance.modelLabel")}
                     value={selectedModelId}
@@ -2513,40 +2520,45 @@ export const SeedanceNode = memo(
                       strokeWidth={2.3}
                     />
                   </UiChipButton>
+                  </div>
+                </div>
+
+                <div className="nodrag nowheel nopan flex shrink-0 cursor-default">
+                  <UiButton
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    disabled={Boolean(data.isSubmitting)}
+                    className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void handleGenerate();
+                    }}
+                  >
+                    <Sparkles className="h-4 w-4" strokeWidth={2.3} />
+                    {data.isSubmitting
+                      ? t("node.seedance.submitting")
+                      : t("node.seedance.submit")}
+                  </UiButton>
                 </div>
               </div>
 
-              <UiButton
-                type="button"
-                size="sm"
-                variant="primary"
-                disabled={Boolean(data.isSubmitting)}
-                className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void handleGenerate();
-                }}
-              >
-                <Sparkles className="h-4 w-4" strokeWidth={2.3} />
-                {data.isSubmitting
-                  ? t("node.seedance.submitting")
-                  : t("node.seedance.submit")}
-              </UiButton>
+              <div className="nodrag nowheel nopan cursor-default">
+                <div
+                  className={`mt-1 min-h-[16px] truncate text-[10px] leading-4 ${
+                    combinedError ? "text-rose-300" : "text-text-muted"
+                  }`}
+                  title={statusInfoText}
+                >
+                  {statusInfoText}
+                </div>
+              </div>
             </div>
           ) : null}
 
-          <div
-            className={`min-h-[16px] truncate text-[10px] leading-4 ${
-              combinedError ? "text-rose-300" : "text-text-muted"
-            }`}
-            title={statusInfoText}
-          >
-            {statusInfoText}
-          </div>
-        </div>
-
         {isShotParamsPanelOpen &&
         !isPromptLockedByUpstream &&
+        selected &&
         !isOverviewRender ? (
           <ShotParamsPanel
             onClose={closeShotParamsPanel}
@@ -2567,8 +2579,10 @@ export const SeedanceNode = memo(
           className="!border-2 !border-surface-dark !bg-accent"
         />
         <NodeResizeHandle
-          minWidth={SEEDANCE_NODE_MIN_WIDTH}
-          minHeight={SEEDANCE_NODE_MIN_HEIGHT}
+          minWidth={SEEDANCE_VIDEO_NODE_MIN_WIDTH}
+          minHeight={SEEDANCE_VIDEO_NODE_MIN_HEIGHT}
+          maxWidth={SEEDANCE_VIDEO_NODE_MAX_WIDTH}
+          maxHeight={SEEDANCE_VIDEO_NODE_MAX_HEIGHT}
         />
         <UiLoadingOverlay
           visible={showBlockingOverlay}

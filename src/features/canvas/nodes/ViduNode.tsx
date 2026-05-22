@@ -54,10 +54,6 @@ import {
   VIDU_ASPECT_RATIOS,
   VIDU_DURATION_SECONDS,
   VIDU_RESOLUTIONS,
-  VIDU_VIDEO_NODE_DEFAULT_HEIGHT,
-  VIDU_VIDEO_NODE_DEFAULT_WIDTH,
-  VIDU_VIDEO_NODE_MIN_HEIGHT,
-  VIDU_VIDEO_NODE_MIN_WIDTH,
   VIDU_VIDEO_RESULT_NODE_DEFAULT_HEIGHT,
   VIDU_VIDEO_RESULT_NODE_DEFAULT_WIDTH,
   type ViduNodeData,
@@ -66,7 +62,6 @@ import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import {
   useCanvasConnectedAudioReferences,
   useCanvasConnectedReferenceVisuals,
-  useCanvasNodeById,
 } from "@/features/canvas/hooks/useCanvasNodeGraph";
 import { useCanvasZoom } from "@/features/canvas/hooks/useCanvasZoom";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
@@ -118,6 +113,14 @@ interface ViduOption<T extends string | number | boolean> {
   value: T;
   labelKey: string;
 }
+
+const VIDU_VIDEO_NODE_DEFAULT_WIDTH = 1000;
+const VIDU_VIDEO_NODE_DEFAULT_HEIGHT = 500;
+const VIDU_VIDEO_NODE_MIN_WIDTH = 980;
+const VIDU_VIDEO_NODE_MIN_HEIGHT = 420;
+const VIDU_VIDEO_NODE_MAX_WIDTH = 1480;
+const VIDU_VIDEO_NODE_MAX_HEIGHT = 1040;
+const VIDU_VIDEO_NODE_MAIN_WIDTH_RATIO = 0.6;
 
 interface PromptOptimizationUndoState {
   previousPrompt: string;
@@ -448,18 +451,16 @@ function FixedControlChip<T extends string | number | boolean>({
   return (
     <div
       ref={chipRef}
-      className="flex h-7 min-w-[96px] shrink-0 items-center gap-1 rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
+      className="flex h-7 min-w-[76px] shrink-0 items-center rounded-lg border border-[color:var(--ui-border-soft)] bg-[var(--ui-surface-field)] px-2"
       onMouseDown={(event) => event.stopPropagation()}
+      title={label}
     >
-      <span className="shrink-0 text-[10px] text-text-muted/90" title={label}>
-        {label}
-      </span>
       <div className="min-w-0 flex-1">
         <UiSelect
           value={String(value)}
           aria-label={label}
           menuAnchorRef={chipRef}
-          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-medium hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
+          className="nodrag !h-6 !w-full !rounded-md !border-0 !bg-transparent !px-0.5 !text-[10.5px] !font-semibold hover:!border-0 focus-visible:!border-0 focus-visible:!shadow-none"
           onChange={(event) => {
             const nextValue = event.target.value;
             onChange(
@@ -566,12 +567,11 @@ async function resolveInitialViduResultAspectRatio(
   }
 }
 
-export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
+export const ViduNode = memo(({ id, data, selected, width, height }: ViduNodeProps) => {
   const { t, i18n } = useTranslation();
   const isOverviewRender = useIsOverviewCanvasRender();
   const shouldSuspendMedia = useShouldSuspendCanvasMedia();
   const zoom = useCanvasZoom();
-  const currentNode = useCanvasNodeById(id);
   const connectedVisuals = useCanvasConnectedReferenceVisuals(id);
   const connectedAudioReferences = useCanvasConnectedAudioReferences(id);
   const officialVideoApiKeys = useSettingsStore(
@@ -688,19 +688,20 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
   );
   const resolvedWidth = Math.max(
     VIDU_VIDEO_NODE_MIN_WIDTH,
-    Math.round(width ?? VIDU_VIDEO_NODE_DEFAULT_WIDTH),
+    Math.min(
+      VIDU_VIDEO_NODE_MAX_WIDTH,
+      Math.round(width ?? VIDU_VIDEO_NODE_DEFAULT_WIDTH),
+    ),
   );
-  const explicitHeight =
-    typeof currentNode?.height === "number" &&
-    Number.isFinite(currentNode.height)
-      ? currentNode.height
-      : typeof currentNode?.style?.height === "number" &&
-          Number.isFinite(currentNode.style.height)
-        ? currentNode.style.height
-        : null;
+  const compactResolvedWidth = Math.round(
+    resolvedWidth * VIDU_VIDEO_NODE_MAIN_WIDTH_RATIO,
+  );
   const resolvedHeight = Math.max(
     VIDU_VIDEO_NODE_MIN_HEIGHT,
-    Math.round(explicitHeight ?? VIDU_VIDEO_NODE_DEFAULT_HEIGHT),
+    Math.min(
+      VIDU_VIDEO_NODE_MAX_HEIGHT,
+      Math.round(height ?? VIDU_VIDEO_NODE_DEFAULT_HEIGHT),
+    ),
   );
   const lastSubmittedTime = useMemo(() => {
     if (!data.lastSubmittedAt) {
@@ -1414,10 +1415,10 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
 
   return (
     <div
-      className={`relative flex flex-col rounded-[var(--node-radius)] border bg-surface-dark p-4 shadow-lg ${
-        selected ? "border-accent shadow-accent/20" : "border-border-dark"
+      className={`canvas-node-selection-pass-through group relative flex flex-col overflow-visible rounded-[var(--node-radius)] bg-transparent p-0 transition-colors duration-150 ${
+        selected ? "shadow-[0_4px_20px_rgba(59,130,246,0.16)]" : ""
       }`}
-      style={{ width: resolvedWidth, height: resolvedHeight }}
+      style={{ width: compactResolvedWidth, height: resolvedHeight }}
       onClick={() => setSelectedNode(id)}
     >
       <NodeHeader
@@ -1431,10 +1432,14 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
 
       <div
         ref={promptPanelRef}
-        className="relative flex min-h-0 flex-1 flex-col pt-5"
+        className={`relative min-h-0 flex-1 rounded-[var(--node-radius)] border bg-surface-dark/90 px-3 py-3 ${
+          selected
+            ? "border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]"
+            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]"
+        }`}
       >
         {isOverviewRender ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-xs leading-5 text-text-muted">
+          <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden text-xs leading-5 text-text-muted">
             <div className="line-clamp-5 whitespace-pre-wrap break-words">
               {promptDraft.trim() || t("node.vidu.promptPlaceholder")}
             </div>
@@ -1463,7 +1468,7 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
           <>
             <div
               ref={promptPreviewHostRef}
-              className="relative min-h-0 flex-1 rounded-xl border border-white/10 bg-black/15"
+              className="relative min-h-[148px] flex-1"
             >
               <div
                 ref={promptHighlightRef}
@@ -1471,7 +1476,7 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
                 className="ui-scrollbar pointer-events-none absolute inset-0 overflow-y-auto overflow-x-hidden text-sm leading-6 text-text-dark"
                 style={{ scrollbarGutter: "stable" }}
               >
-                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-0.5 py-0">
                   {renderPromptWithHighlights(
                     promptDraft,
                     referenceVisualItems.length,
@@ -1485,7 +1490,7 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
                 className="ui-scrollbar pointer-events-none absolute inset-0 z-20 overflow-y-auto overflow-x-hidden text-sm leading-6 text-transparent"
                 style={{ scrollbarGutter: "stable" }}
               >
-                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-3 py-2">
+                <div className="canvas-textarea-wrap min-h-full rounded-xl border border-transparent px-0.5 py-0">
                   {renderPromptReferenceHoverTargets(
                     promptDraft,
                     referenceVisualItems.length,
@@ -1520,7 +1525,7 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
                   }
                 }}
                 placeholder={t("node.vidu.promptPlaceholder")}
-                className="canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full min-h-0 w-full resize-none rounded-xl border border-transparent bg-transparent px-3 py-2 text-sm leading-6 text-transparent outline-none transition-colors placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-accent/50"
+                className="canvas-textarea-wrap canvas-textarea-mirror-input ui-scrollbar nodrag nowheel relative z-10 h-full w-full resize-none rounded-xl border border-transparent bg-transparent px-0.5 py-0 text-sm leading-6 text-transparent outline-none placeholder:text-text-muted/70 selection:bg-accent/30 selection:text-transparent caret-text-dark focus:border-transparent"
                 style={{ scrollbarGutter: "stable" }}
                 spellCheck={false}
                 onScroll={syncPromptHighlightScroll}
@@ -1562,96 +1567,6 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
                       tokenLabel: "",
                     }}
                   />
-                </div>
-              ) : null}
-            </div>
-
-            <div className="mt-3 rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/50 p-2">
-              <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-muted">
-                <span>
-                  {t("node.vidu.references", {
-                    images: connectedImages.length,
-                    videos: connectedVideos.length,
-                    audios: connectedAudioReferences.length,
-                  })}
-                </span>
-                {lastSubmittedTime ? (
-                  <span>
-                    {t("node.vidu.lastSubmitted", { time: lastSubmittedTime })}
-                  </span>
-                ) : null}
-              </div>
-              {referenceVisualItems.length > 0 ? (
-                <div className="flex gap-2 overflow-x-auto pb-1">
-                  {referenceVisualItems.slice(0, 9).map((item) => (
-                    <div
-                      key={`${item.sourceEdgeId}-${item.referenceUrl}`}
-                      className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black"
-                    >
-                      {item.kind === "image" ? (
-                        <CanvasNodeImage
-                          src={item.displayUrl ?? item.referenceUrl}
-                          fallbackSrc={item.referenceUrl}
-                          alt={item.label}
-                          className="h-full w-full object-cover"
-                          disableViewer
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-bg-dark">
-                          {item.previewImageUrl ? (
-                            <CanvasNodeImage
-                              src={item.previewImageUrl}
-                              fallbackSrc={item.previewImageUrl}
-                              alt={item.label}
-                              className="h-full w-full object-cover opacity-70"
-                              disableViewer
-                            />
-                          ) : (
-                            <Video className="h-5 w-5 text-text-muted" />
-                          )}
-                        </div>
-                      )}
-                      <div className="absolute left-1 top-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white">
-                        {item.kind === "image" ? (
-                          <ImageIcon className="inline h-3 w-3" />
-                        ) : (
-                          <Video className="inline h-3 w-3" />
-                        )}
-                      </div>
-                      <div className="absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                        {item.tokenLabel}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : connectedAudioReferences.length === 0 ? (
-                <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-center text-xs text-text-muted">
-                  {t("node.vidu.noReferences")}
-                </div>
-              ) : null}
-              {connectedAudioReferences.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {connectedAudioReferences.slice(0, 1).map((item) => (
-                    <div
-                      key={`${item.sourceEdgeId}-${item.audioUrl}`}
-                      className="flex min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-muted"
-                      title={
-                        item.displayName ?? item.audioFileName ?? item.audioUrl
-                      }
-                    >
-                      <Music4 className="h-3.5 w-3.5 shrink-0 text-accent" />
-                      <span className="min-w-0 truncate">
-                        {item.displayName ??
-                          item.audioFileName ??
-                          t("node.vidu.voiceReferenceLabel")}
-                      </span>
-                      {item.durationSeconds ? (
-                        <span className="shrink-0 text-[10px] text-text-muted/80">
-                          {formatVideoTime(item.durationSeconds)}
-                        </span>
-                      ) : null}
-                    </div>
-                  ))}
                 </div>
               ) : null}
             </div>
@@ -1727,11 +1642,107 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
         )}
       </div>
 
-      {!isOverviewRender ? (
-        <div className="mt-2 space-y-1.5">
-          <div className="flex items-center gap-2">
-            <div className="ui-scrollbar min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
-              <div className="flex w-max min-w-full items-center gap-1.5 pr-1">
+      {selected && !isOverviewRender ? (
+        <div
+          className="nodrag nowheel nopan pointer-events-auto absolute left-1/2 top-[calc(100%+10px)] z-30 w-max max-w-[166.6667%] -translate-x-1/2 rounded-[var(--node-radius)] border border-[rgba(15,23,42,0.24)] bg-surface-dark/95 p-2 shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-[rgba(255,255,255,0.22)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]"
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onWheelCapture={(event) => event.stopPropagation()}
+        >
+          <div className="mb-2 rounded-[var(--node-radius)] border border-white/10 bg-bg-dark/50 p-2">
+            <div className="mb-2 flex items-center justify-between gap-2 text-xs text-text-muted">
+              <span>
+                {t("node.vidu.references", {
+                  images: connectedImages.length,
+                  videos: connectedVideos.length,
+                  audios: connectedAudioReferences.length,
+                })}
+              </span>
+              {lastSubmittedTime ? (
+                <span>
+                  {t("node.vidu.lastSubmitted", { time: lastSubmittedTime })}
+                </span>
+              ) : null}
+            </div>
+            {referenceVisualItems.length > 0 ? (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {referenceVisualItems.slice(0, 9).map((item) => (
+                  <div
+                    key={`${item.sourceEdgeId}-${item.referenceUrl}`}
+                    className="relative h-16 w-20 shrink-0 overflow-hidden rounded-md border border-white/10 bg-black"
+                  >
+                    {item.kind === "image" ? (
+                      <CanvasNodeImage
+                        src={item.displayUrl ?? item.referenceUrl}
+                        fallbackSrc={item.referenceUrl}
+                        alt={item.label}
+                        className="h-full w-full object-cover"
+                        disableViewer
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center bg-bg-dark">
+                        {item.previewImageUrl ? (
+                          <CanvasNodeImage
+                            src={item.previewImageUrl}
+                            fallbackSrc={item.previewImageUrl}
+                            alt={item.label}
+                            className="h-full w-full object-cover opacity-70"
+                            disableViewer
+                          />
+                        ) : (
+                          <Video className="h-5 w-5 text-text-muted" />
+                        )}
+                      </div>
+                    )}
+                    <div className="absolute left-1 top-1 rounded bg-black/65 px-1.5 py-0.5 text-[10px] text-white">
+                      {item.kind === "image" ? (
+                        <ImageIcon className="inline h-3 w-3" />
+                      ) : (
+                        <Video className="inline h-3 w-3" />
+                      )}
+                    </div>
+                    <div className="absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                      {item.tokenLabel}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : connectedAudioReferences.length === 0 ? (
+              <div className="rounded-md border border-dashed border-white/10 px-3 py-4 text-center text-xs text-text-muted">
+                {t("node.vidu.noReferences")}
+              </div>
+            ) : null}
+            {connectedAudioReferences.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {connectedAudioReferences.slice(0, 1).map((item) => (
+                  <div
+                    key={`${item.sourceEdgeId}-${item.audioUrl}`}
+                    className="flex min-w-0 items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1.5 text-[11px] text-text-muted"
+                    title={
+                      item.displayName ?? item.audioFileName ?? item.audioUrl
+                    }
+                  >
+                    <Music4 className="h-3.5 w-3.5 shrink-0 text-accent" />
+                    <span className="min-w-0 truncate">
+                      {item.displayName ??
+                        item.audioFileName ??
+                        t("node.vidu.voiceReferenceLabel")}
+                    </span>
+                    {item.durationSeconds ? (
+                      <span className="shrink-0 text-[10px] text-text-muted/80">
+                        {formatVideoTime(item.durationSeconds)}
+                      </span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-start gap-2">
+              <div className="ui-scrollbar nodrag nowheel nopan max-w-full shrink-0 cursor-default overflow-x-auto overflow-y-hidden">
+                <div className="flex w-max items-center gap-1.5 pr-1">
                 <FixedControlChip
                   label={t("node.vidu.modelLabel")}
                   value={selectedModelId}
@@ -1879,8 +1890,8 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
                     strokeWidth={2.3}
                   />
                 </UiChipButton>
+                </div>
               </div>
-            </div>
 
             <UiButton
               type="button"
@@ -1907,10 +1918,11 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
           >
             {combinedError ?? statusInfoText}
           </div>
+          </div>
         </div>
       ) : null}
 
-      {isShotParamsPanelOpen && !isOverviewRender ? (
+      {isShotParamsPanelOpen && selected && !isOverviewRender ? (
         <ShotParamsPanel
           onClose={closeShotParamsPanel}
           onInsert={(option) => insertPromptText(option.value)}
@@ -1932,6 +1944,8 @@ export const ViduNode = memo(({ id, data, selected, width }: ViduNodeProps) => {
       <NodeResizeHandle
         minWidth={VIDU_VIDEO_NODE_MIN_WIDTH}
         minHeight={VIDU_VIDEO_NODE_MIN_HEIGHT}
+        maxWidth={VIDU_VIDEO_NODE_MAX_WIDTH}
+        maxHeight={VIDU_VIDEO_NODE_MAX_HEIGHT}
       />
     </div>
   );
