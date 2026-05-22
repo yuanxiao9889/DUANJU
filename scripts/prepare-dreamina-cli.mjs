@@ -88,19 +88,37 @@ async function downloadFile(url, outputPath) {
     return;
   }
 
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/octet-stream",
-      "User-Agent": "Storyboard-Copilot-Build",
-    },
-    redirect: "follow",
-  });
+  let lastError = null;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      fs.rmSync(outputPath, { force: true });
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/octet-stream",
+          "User-Agent": "Storyboard-Copilot-Build",
+        },
+        redirect: "follow",
+      });
 
-  if (!response.ok || !response.body) {
-    fail(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+      if (!response.ok || !response.body) {
+        throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+      }
+
+      await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outputPath));
+      return;
+    } catch (error) {
+      lastError = error;
+      const delayMs = attempt * 2000;
+      console.warn(
+        `Download attempt ${attempt} failed for ${url}: ${error?.message ?? error}`,
+      );
+      if (attempt < 4) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
-  await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(outputPath));
+  fail(`Failed to download ${url} after retries: ${lastError?.message ?? lastError}`);
 }
 
 function resolveDreaminaArtifactInfo(installerScript, platform) {

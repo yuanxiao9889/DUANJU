@@ -215,17 +215,34 @@ async function extractZipArchive(archivePath, outputDir) {
 }
 
 async function downloadStream(url, outputPath) {
-  const response = await fetch(url, {
-    headers: {
-      Accept: "application/octet-stream",
-      "User-Agent": "Storyboard-Copilot-Build",
-    },
-    redirect: "follow",
-  });
-  if (!response.ok || !response.body) {
-    throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+  let lastError = null;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      await rm(outputPath, { force: true });
+      const response = await fetch(url, {
+        headers: {
+          Accept: "application/octet-stream",
+          "User-Agent": "Storyboard-Copilot-Build",
+        },
+        redirect: "follow",
+      });
+      if (!response.ok || !response.body) {
+        throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+      }
+      await pipeline(Readable.fromWeb(response.body), createWriteStream(outputPath));
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn(
+        `[prepare-app-ffmpeg] download attempt ${attempt} failed for ${url}: ${error?.message ?? error}`,
+      );
+      if (attempt < 4) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 2000));
+      }
+    }
   }
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(outputPath));
+
+  throw new Error(`Failed to download ${url} after retries: ${lastError?.message ?? lastError}`);
 }
 
 async function npmView(packageName, field) {
