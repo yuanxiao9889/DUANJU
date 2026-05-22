@@ -224,6 +224,25 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   await mkdir(destinationDir, { recursive: true });
 
+  if (process.platform !== "win32") {
+    await writeFile(
+      manifestPath,
+      JSON.stringify(
+        {
+          copied: false,
+          source: null,
+          mode: "skipped-non-windows",
+          preparedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    console.log("[prepare-app-ffmpeg] skipping bundled Windows ffmpeg preparation on non-Windows host.");
+    return;
+  }
+
   let resolvedPair = await resolveBinaryPair(options);
   if (!resolvedPair && !options.skipDownload) {
     try {
