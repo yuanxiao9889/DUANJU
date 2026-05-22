@@ -1,6 +1,9 @@
-import { copyFile, lstat, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { createWriteStream } from "node:fs";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 const workspaceRoot = process.cwd();
 const destinationDir = path.join(workspaceRoot, "src-tauri", "resources", "ffmpeg");
@@ -10,6 +13,37 @@ const ffmpegArchivePath = path.join(downloadDir, "ffmpeg-master-latest-win64-gpl
 const ffmpegExtractRoot = path.join(downloadDir, "ffmpeg-master-latest-win64-gpl");
 const ffmpegDownloadUrl =
   "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
+
+function executableName(name) {
+  return process.platform === "win32" ? `${name}.exe` : name;
+}
+
+const ffmpegBinaryName = executableName("ffmpeg");
+const ffprobeBinaryName = executableName("ffprobe");
+
+function resolveNpmStaticBinaryPackages() {
+  if (process.platform !== "darwin") {
+    return null;
+  }
+
+  if (process.arch === "arm64") {
+    return {
+      platform: "darwin-arm64",
+      ffmpegPackage: "@ffmpeg-installer/darwin-arm64",
+      ffprobePackage: "@ffprobe-installer/darwin-arm64",
+    };
+  }
+
+  if (process.arch === "x64") {
+    return {
+      platform: "darwin-x64",
+      ffmpegPackage: "@ffmpeg-installer/darwin-x64",
+      ffprobePackage: "@ffprobe-installer/darwin-x64",
+    };
+  }
+
+  return null;
+}
 
 function getBundledSourceCandidates() {
   return [
@@ -59,6 +93,34 @@ async function exists(targetPath) {
 }
 
 async function runWhere(name) {
+  if (process.platform !== "win32") {
+    return await new Promise((resolve) => {
+      const child = spawn("sh", ["-lc", `command -v ${name}`], {
+        cwd: workspaceRoot,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+
+      let stdout = "";
+      child.stdout.on("data", (chunk) => {
+        stdout += String(chunk);
+      });
+
+      child.on("error", () => resolve(null));
+      child.on("exit", (code) => {
+        if (code !== 0) {
+          resolve(null);
+          return;
+        }
+
+        const firstLine = stdout
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find(Boolean);
+        resolve(firstLine ?? null);
+      });
+    });
+  }
+
   return await new Promise((resolve) => {
     const child = spawn("where.exe", [name], {
       cwd: workspaceRoot,
@@ -152,6 +214,97 @@ async function extractZipArchive(archivePath, outputDir) {
   ]);
 }
 
+async function downloadStream(url, outputPath) {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/octet-stream",
+      "User-Agent": "Storyboard-Copilot-Build",
+    },
+    redirect: "follow",
+  });
+  if (!response.ok || !response.body) {
+    throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`);
+  }
+  await pipeline(Readable.fromWeb(response.body), createWriteStream(outputPath));
+}
+
+async function npmView(packageName, field) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn("npm", ["view", packageName, field, "--json"], {
+      cwd: workspaceRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`npm view ${packageName} ${field} failed: ${stderr.trim()}`));
+        return;
+      }
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        resolve(stdout.trim());
+      }
+    });
+  });
+}
+
+async function extractTarball(archivePath, outputDir) {
+  await rm(outputDir, { recursive: true, force: true });
+  await mkdir(outputDir, { recursive: true });
+  await runProcess("tar", ["-xzf", archivePath, "-C", outputDir]);
+}
+
+async function prepareNpmStaticBinary(packageName, binaryName) {
+  const metadata = await npmView(packageName, "dist");
+  const tarballUrl = metadata?.tarball;
+  if (!tarballUrl) {
+    throw new Error(`Could not resolve npm tarball for ${packageName}`);
+  }
+
+  const safeName = packageName.replace(/^@/, "").replace(/[\/]/g, "-");
+  const archivePath = path.join(downloadDir, `${safeName}.tgz`);
+  const extractRoot = path.join(downloadDir, safeName);
+  await mkdir(downloadDir, { recursive: true });
+  if (!(await exists(archivePath))) {
+    console.log(`[prepare-app-ffmpeg] downloading ${packageName} from ${tarballUrl}`);
+    await downloadStream(tarballUrl, archivePath);
+  } else {
+    console.log(`[prepare-app-ffmpeg] reusing cached ${packageName} archive ${archivePath}`);
+  }
+  await extractTarball(archivePath, extractRoot);
+  const binaryPath = path.join(extractRoot, "package", binaryName);
+  if (!(await exists(binaryPath))) {
+    throw new Error(`${packageName} did not contain ${binaryName}`);
+  }
+  return binaryPath;
+}
+
+async function resolveNpmStaticBinaryPair() {
+  const packages = resolveNpmStaticBinaryPackages();
+  if (!packages) {
+    return null;
+  }
+
+  const ffmpegPath = await prepareNpmStaticBinary(packages.ffmpegPackage, ffmpegBinaryName);
+  const ffprobePath = await prepareNpmStaticBinary(packages.ffprobePackage, ffprobeBinaryName);
+  return {
+    mode: `copy-from-npm-static-${packages.platform}`,
+    source: `${packages.ffmpegPackage}, ${packages.ffprobePackage}`,
+    ffmpegPath,
+    ffprobePath,
+  };
+}
+
 async function downloadBundledFfmpeg() {
   if (process.platform !== "win32") {
     return false;
@@ -181,8 +334,8 @@ async function copyIfExists(sourcePath, targetPath) {
 
 async function resolveBinaryPair(options) {
   if (options.ffmpegSourceDir) {
-    const ffmpegPath = path.join(options.ffmpegSourceDir, "ffmpeg.exe");
-    const ffprobePath = path.join(options.ffmpegSourceDir, "ffprobe.exe");
+    const ffmpegPath = path.join(options.ffmpegSourceDir, ffmpegBinaryName);
+    const ffprobePath = path.join(options.ffmpegSourceDir, ffprobeBinaryName);
     if ((await exists(ffmpegPath)) && (await exists(ffprobePath))) {
       return {
         mode: "copy",
@@ -194,8 +347,8 @@ async function resolveBinaryPair(options) {
   }
 
   for (const candidateDir of getBundledSourceCandidates()) {
-    const ffmpegPath = path.join(candidateDir, "ffmpeg.exe");
-    const ffprobePath = path.join(candidateDir, "ffprobe.exe");
+    const ffmpegPath = path.join(candidateDir, ffmpegBinaryName);
+    const ffprobePath = path.join(candidateDir, ffprobeBinaryName);
     if ((await exists(ffmpegPath)) && (await exists(ffprobePath))) {
       return {
         mode: "copy-from-workspace-downloads",
@@ -206,8 +359,13 @@ async function resolveBinaryPair(options) {
     }
   }
 
-  const ffmpegPath = await runWhere("ffmpeg.exe");
-  const ffprobePath = await runWhere("ffprobe.exe");
+  const npmStaticPair = await resolveNpmStaticBinaryPair();
+  if (npmStaticPair) {
+    return npmStaticPair;
+  }
+
+  const ffmpegPath = await runWhere(ffmpegBinaryName);
+  const ffprobePath = await runWhere(ffprobeBinaryName);
   if (ffmpegPath && ffprobePath) {
     return {
       mode: "copy-from-path",
@@ -223,25 +381,6 @@ async function resolveBinaryPair(options) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   await mkdir(destinationDir, { recursive: true });
-
-  if (process.platform !== "win32") {
-    await writeFile(
-      manifestPath,
-      JSON.stringify(
-        {
-          copied: false,
-          source: null,
-          mode: "skipped-non-windows",
-          preparedAt: new Date().toISOString(),
-        },
-        null,
-        2,
-      ),
-      "utf-8",
-    );
-    console.log("[prepare-app-ffmpeg] skipping bundled Windows ffmpeg preparation on non-Windows host.");
-    return;
-  }
 
   let resolvedPair = await resolveBinaryPair(options);
   if (!resolvedPair && !options.skipDownload) {
@@ -260,8 +399,13 @@ async function main() {
 
   let copied = false;
   if (resolvedPair) {
-    copied = await copyIfExists(resolvedPair.ffmpegPath, path.join(destinationDir, "ffmpeg.exe"));
-    copied = (await copyIfExists(resolvedPair.ffprobePath, path.join(destinationDir, "ffprobe.exe"))) && copied;
+    const ffmpegTargetPath = path.join(destinationDir, ffmpegBinaryName);
+    const ffprobeTargetPath = path.join(destinationDir, ffprobeBinaryName);
+    copied = await copyIfExists(resolvedPair.ffmpegPath, ffmpegTargetPath);
+    copied = (await copyIfExists(resolvedPair.ffprobePath, ffprobeTargetPath)) && copied;
+    if (copied && process.platform !== "win32") {
+      await Promise.all([chmod(ffmpegTargetPath, 0o755), chmod(ffprobeTargetPath, 0o755)]);
+    }
   }
 
   await writeFile(

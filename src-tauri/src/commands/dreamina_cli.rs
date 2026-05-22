@@ -35,7 +35,12 @@ const DREAMINA_LOGIN_POLL_INTERVAL_MS: u64 = 1_000;
 const DREAMINA_QR_READY_TIMEOUT_MS: u64 = 30 * 1000;
 const DREAMINA_LOGIN_CALLBACK_PORT: u16 = 60713;
 const DREAMINA_BUNDLED_DIR_NAME: &str = "dreamina-cli";
+#[cfg(target_os = "windows")]
 const DREAMINA_BUNDLED_BIN_NAME: &str = "dreamina.exe";
+#[cfg(target_os = "macos")]
+const DREAMINA_BUNDLED_BIN_NAME: &str = "dreamina";
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const DREAMINA_BUNDLED_BIN_NAME: &str = "dreamina";
 const DREAMINA_VERSION_RECORD_FILE_NAME: &str = "version.json";
 const DREAMINA_LOGIN_LOG_FILE_NAME: &str = "dreamina-login.log";
 const DREAMINA_LOGIN_QR_FILE_NAME: &str = "dreamina-login-qr.png";
@@ -922,9 +927,22 @@ fn git_root_from_bash_path(path: &Path) -> Option<PathBuf> {
 }
 
 fn bundled_dreamina_cli_bin_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
-    bundled_resource_search_roots(app)
+    let mut candidates = Vec::new();
+    for root in bundled_resource_search_roots(app) {
+        let bin_dir = root.join(DREAMINA_BUNDLED_DIR_NAME).join("bin");
+        push_unique_path(&mut candidates, bin_dir.clone());
+
+        #[cfg(target_os = "macos")]
+        {
+            #[cfg(target_arch = "aarch64")]
+            push_unique_path(&mut candidates, bin_dir.join("darwin-arm64"));
+            #[cfg(target_arch = "x86_64")]
+            push_unique_path(&mut candidates, bin_dir.join("darwin-amd64"));
+        }
+    }
+
+    candidates
         .into_iter()
-        .map(|root| root.join(DREAMINA_BUNDLED_DIR_NAME).join("bin"))
         .find(|candidate| candidate.is_dir() && candidate.join(DREAMINA_BUNDLED_BIN_NAME).is_file())
 }
 
@@ -950,6 +968,22 @@ fn bundled_git_runtime<R: Runtime>(app: &AppHandle<R>) -> Option<GitBashRuntime>
 }
 
 fn system_git_runtime() -> Option<GitBashRuntime> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let bash_path = PathBuf::from("/bin/bash");
+        if bash_path.is_file() {
+            return Some(GitBashRuntime {
+                source: DreaminaGitSource::System,
+                root: None,
+                bash_path,
+                dreamina_bin_dir: None,
+            });
+        }
+        return None;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
     let mut candidates = Vec::new();
     if let Ok(program_files) = env::var("ProgramFiles") {
         candidates.push(PathBuf::from(&program_files).join("Git/bin/bash.exe"));
@@ -973,6 +1007,7 @@ fn system_git_runtime() -> Option<GitBashRuntime> {
     }
 
     None
+    }
 }
 
 fn resolve_git_bash_runtime<R: Runtime>(app: &AppHandle<R>) -> Result<GitBashRuntime, String> {
@@ -984,6 +1019,10 @@ fn resolve_git_bash_runtime<R: Runtime>(app: &AppHandle<R>) -> Result<GitBashRun
             runtime
         })
         .ok_or_else(|| {
+            #[cfg(not(target_os = "windows"))]
+            {
+                return "Shell runtime was not found. Bundle a Dreamina CLI binary or make sure /bin/bash is available on this machine.".to_string();
+            }
             "Git Bash runtime was not found. Bundle a portable Git runtime under `src-tauri/resources/portable-git/` or install Git for Windows on this machine.".to_string()
         })
 }
@@ -1150,12 +1189,15 @@ fn dreamina_path_prefix(runtime: &GitBashRuntime, command_env: &DreaminaProcessE
     if let Some(bin_dir) = runtime.dreamina_bin_dir.as_ref() {
         push_path_prefix(&mut parts, bin_dir);
     }
+    #[cfg(target_os = "windows")]
     push_windows_chrome_prefixes(&mut parts);
     if let Some(root) = runtime.root.as_ref() {
         push_path_prefix(&mut parts, &root.join("bin"));
         push_path_prefix(&mut parts, &root.join("usr").join("bin"));
         push_path_prefix(&mut parts, &root.join("mingw64").join("bin"));
     }
+    #[cfg(target_os = "windows")]
+    {
     if let Ok(windir) = env::var("WINDIR") {
         push_path_prefix(&mut parts, &PathBuf::from(&windir).join("System32"));
         push_path_prefix(
@@ -1170,6 +1212,7 @@ fn dreamina_path_prefix(runtime: &GitBashRuntime, command_env: &DreaminaProcessE
         parts.push("/c/Windows/System32".to_string());
         parts.push("/c/Windows/System32/WindowsPowerShell/v1.0".to_string());
         parts.push("/c/Windows".to_string());
+    }
     }
     parts.join(":")
 }
@@ -1314,11 +1357,12 @@ fn install_dreamina_script(runtime: &GitBashRuntime, command_env: &DreaminaProce
 
 fn update_dreamina_script(runtime: &GitBashRuntime, command_env: &DreaminaProcessEnv) -> String {
     let manifest = bundled_dreamina_manifest(runtime);
+    let installed_binary = DREAMINA_BUNDLED_BIN_NAME;
     format!(
         "{prefix}; installer_script=$(mktemp); curl -fsSL {url} -o \"$installer_script\"; bash \"$installer_script\"; status=$?; rm -f \"$installer_script\"; if [ \"$status\" -ne 0 ]; then exit \"$status\"; fi; test -f \"$HOME/bin/{binary}\" && test -f \"$HOME/.dreamina_cli/{version_file}\"",
         prefix = dreamina_command_prefix(runtime, command_env),
         url = bash_quote(dreamina_installer_url(manifest.as_ref())),
-        binary = DREAMINA_BUNDLED_BIN_NAME,
+        binary = installed_binary,
         version_file = DREAMINA_VERSION_RECORD_FILE_NAME,
     )
 }

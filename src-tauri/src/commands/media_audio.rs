@@ -12,6 +12,16 @@ use super::storage::{self, MediaPersistContext};
 const BUNDLED_FFMPEG_DIR_NAME: &str = "ffmpeg";
 const FFMPEG_RUNTIME_DIR_NAME: &str = "ffmpeg-runtime";
 
+#[cfg(target_os = "windows")]
+fn ffmpeg_binary_name(name: &str) -> String {
+    format!("{name}.exe")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn ffmpeg_binary_name(name: &str) -> String {
+    name.to_string()
+}
+
 fn dev_ffmpeg_search_roots() -> Vec<PathBuf> {
     let Ok(workspace) = workspace_root() else {
         return Vec::new();
@@ -439,8 +449,8 @@ pub async fn extract_audio_from_video(
     .await?;
     let source_path = resolve_readable_local_video_path(&app, &persisted_video_path)?;
 
-    let ffmpeg_path = ensure_runtime_binary(&app, "ffmpeg.exe")?;
-    let ffprobe_path = ensure_runtime_binary(&app, "ffprobe.exe")?;
+    let ffmpeg_path = ensure_runtime_binary(&app, &ffmpeg_binary_name("ffmpeg"))?;
+    let ffprobe_path = ensure_runtime_binary(&app, &ffmpeg_binary_name("ffprobe"))?;
     let (has_audio, duration) = run_ffprobe(&ffprobe_path, &source_path)?;
     if !has_audio {
         return Err("The selected video does not contain an audio track.".to_string());
