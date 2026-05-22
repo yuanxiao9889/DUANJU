@@ -2,6 +2,7 @@ import {
   Children,
   forwardRef,
   isValidElement,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -330,6 +331,51 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
     parsedOptions.find((option) => !option.disabled) ??
     null;
 
+  const updateMenuPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) {
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const anchorRect = menuAnchorRef?.current?.getBoundingClientRect() ?? rect;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const estimatedMenuHeight = Math.min(Math.max(parsedItems.length * 38 + 12, 60), 240);
+    const longestOptionTextLength = parsedItems.reduce((maxLength, item) => {
+      const itemTextLength = extractTextContent(item.label).trim().length;
+      return Math.max(maxLength, itemTextLength);
+    }, 0);
+    const estimatedMenuWidth = Math.max(
+      anchorRect.width,
+      Math.min(320, Math.max(96, longestOptionTextLength * 8.5 + 44))
+    );
+    const menuGap = 6;
+    const openAbove =
+      anchorRect.bottom + menuGap + estimatedMenuHeight > viewportHeight
+      && anchorRect.top > estimatedMenuHeight;
+    const nextLeft = Math.min(
+      Math.max(8, anchorRect.left),
+      Math.max(8, viewportWidth - estimatedMenuWidth - 8)
+    );
+    const nextTop = openAbove
+      ? Math.max(8, anchorRect.top - estimatedMenuHeight - menuGap)
+      : anchorRect.bottom + menuGap;
+    const nextStyle = {
+      left: Math.round(nextLeft),
+      top: Math.round(nextTop),
+      width: Math.round(estimatedMenuWidth),
+    };
+
+    setMenuStyle((current) =>
+      current.left === nextStyle.left
+      && current.top === nextStyle.top
+      && current.width === nextStyle.width
+        ? current
+        : nextStyle
+    );
+  }, [menuAnchorRef, parsedItems]);
+
   useEffect(() => {
     if (!isControlled) {
       setUncontrolledValue(initialValue);
@@ -341,50 +387,25 @@ export function UiSelect({ className = '', children, ...props }: UiSelectProps) 
       return;
     }
 
-    const updatePosition = () => {
-      const trigger = triggerRef.current;
-      if (!trigger) {
-        return;
-      }
-
-      const rect = trigger.getBoundingClientRect();
-      const anchorRect = menuAnchorRef?.current?.getBoundingClientRect() ?? rect;
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const estimatedMenuHeight = Math.min(Math.max(parsedItems.length * 38 + 12, 60), 240);
-      const longestOptionTextLength = parsedItems.reduce((maxLength, item) => {
-        const itemTextLength = extractTextContent(item.label).trim().length;
-        return Math.max(maxLength, itemTextLength);
-      }, 0);
-      const estimatedMenuWidth = Math.max(
-        anchorRect.width,
-        Math.min(320, Math.max(96, longestOptionTextLength * 8.5 + 44))
-      );
-      const menuGap = 6;
-      const openAbove =
-        anchorRect.bottom + menuGap + estimatedMenuHeight > viewportHeight
-        && anchorRect.top > estimatedMenuHeight;
-      const nextLeft = Math.min(
-        Math.max(8, anchorRect.left),
-        Math.max(8, viewportWidth - estimatedMenuWidth - 8)
-      );
-      setMenuStyle({
-        left: nextLeft,
-        top: openAbove
-          ? Math.max(8, anchorRect.top - estimatedMenuHeight - menuGap)
-          : anchorRect.bottom + menuGap,
-        width: estimatedMenuWidth,
-      });
+    let frameId: number | null = null;
+    const updatePosition = () => updateMenuPosition();
+    const updatePositionOnFrame = () => {
+      updateMenuPosition();
+      frameId = window.requestAnimationFrame(updatePositionOnFrame);
     };
 
     updatePosition();
+    frameId = window.requestAnimationFrame(updatePositionOnFrame);
     window.addEventListener('resize', updatePosition);
     window.addEventListener('scroll', updatePosition, true);
     return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [isOpen, menuAnchorRef, parsedItems]);
+  }, [isOpen, updateMenuPosition]);
 
   useEffect(() => {
     const handleAnotherSelectOpen = (event: Event) => {

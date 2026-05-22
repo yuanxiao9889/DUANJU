@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { Position } from '@xyflow/react';
 import { Film } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -34,6 +34,9 @@ const NODE_SELECTED_CLASS =
 const NODE_IDLE_CLASS =
   'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]';
 const HANDLE_CLASS = '!rounded-full !border-2 !border-surface-dark !bg-accent';
+const TABLE_MOUNT_DELAY_MS = 120;
+const LARGE_SCRIPT_TABLE_MOUNT_DELAY_MS = 360;
+const LARGE_SCRIPT_TABLE_ROW_THRESHOLD = 24;
 
 function resolveNodeDimension(value: number | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value) && value > 1) {
@@ -46,6 +49,7 @@ export const ScriptStoryboardTableNode = memo(
   ({ id, data, selected, width, height }: ScriptStoryboardTableNodeProps) => {
     const { t } = useTranslation();
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const [isTableReady, setIsTableReady] = useState(false);
     const resolvedWidth = resolveNodeDimension(
       width,
       SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_WIDTH
@@ -55,6 +59,26 @@ export const ScriptStoryboardTableNode = memo(
       SCRIPT_STORYBOARD_TABLE_NODE_DEFAULT_HEIGHT
     );
     const resolvedTitle = resolveNodeDisplayName(CANVAS_NODE_TYPES.scriptStoryboardTable, data);
+
+    useEffect(() => {
+      setIsTableReady(false);
+      let timerId: number | null = null;
+      const frameId = requestAnimationFrame(() => {
+        const delayMs = data.rows.length >= LARGE_SCRIPT_TABLE_ROW_THRESHOLD
+          ? LARGE_SCRIPT_TABLE_MOUNT_DELAY_MS
+          : TABLE_MOUNT_DELAY_MS;
+        timerId = window.setTimeout(() => {
+          setIsTableReady(true);
+        }, delayMs);
+      });
+
+      return () => {
+        cancelAnimationFrame(frameId);
+        if (timerId !== null) {
+          window.clearTimeout(timerId);
+        }
+      };
+    }, [data.rows.length, id]);
 
     return (
       <div
@@ -95,12 +119,18 @@ export const ScriptStoryboardTableNode = memo(
           </div>
 
           <div className="mt-3 min-h-0 flex-1">
-            <SmartDirectorStoryboardTable
-              nodeId={id}
-              data={data}
-              summary={data.summary}
-              className="h-full"
-            />
+            {isTableReady ? (
+              <SmartDirectorStoryboardTable
+                nodeId={id}
+                data={data}
+                summary={data.summary}
+                className="h-full"
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center rounded-2xl border border-border-dark bg-bg-dark/25 text-xs text-text-muted">
+                {t('common.loading')}
+              </div>
+            )}
           </div>
         </div>
 

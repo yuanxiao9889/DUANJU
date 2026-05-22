@@ -249,6 +249,37 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
 }
 
 export function extractAudioReference(node: CanvasNode): ExtractedAudioReference | null {
+  if (isAssetMaterialNode(node)) {
+    const selectedIds = new Set(node.data.selectedAssetIds);
+    if (selectedIds.size === 0) {
+      return null;
+    }
+
+    const libraries = useAssetStore.getState().libraries;
+    const selectedItem = libraries
+      .flatMap((library) => library.items)
+      .find((item) => (
+        selectedIds.has(item.id)
+        && item.category === 'voice'
+        && item.mediaType === 'audio'
+        && item.sourcePath.trim().length > 0
+      ));
+    if (!selectedItem) {
+      return null;
+    }
+
+    return {
+      audioUrl: selectedItem.sourcePath.trim(),
+      displayName: selectedItem.name,
+      audioFileName: selectedItem.name,
+      mimeType: selectedItem.mimeType,
+      durationSeconds:
+        typeof selectedItem.durationMs === 'number' && Number.isFinite(selectedItem.durationMs)
+          ? selectedItem.durationMs / 1000
+          : null,
+    };
+  }
+
   if (!isAudioNode(node)) {
     return null;
   }

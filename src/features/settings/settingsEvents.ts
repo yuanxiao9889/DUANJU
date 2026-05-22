@@ -1,6 +1,7 @@
 export type SettingsCategory =
   | 'providers'
   | 'appearance'
+  | 'canvasPerformance'
   | 'general'
   | 'releaseNotes'
   | 'experimental'

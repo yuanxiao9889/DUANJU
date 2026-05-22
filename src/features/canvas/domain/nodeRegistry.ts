@@ -1034,7 +1034,6 @@ const assetMaterialNodeDefinition: CanvasNodeDefinition<AssetMaterialNodeData> =
   type: CANVAS_NODE_TYPES.assetMaterial,
   menuLabelKey: 'node.menu.assetMaterial',
   menuIcon: 'link',
-  menuGroup: 'storyboard',
   visibleInMenu: true,
   menuProjectTypes: ['storyboard'],
   capabilities: {

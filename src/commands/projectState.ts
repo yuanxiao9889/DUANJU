@@ -36,6 +36,11 @@ export interface ProjectRecord {
   scriptWelcomeSkipped: boolean;
 }
 
+export interface ProjectHistoryRecord {
+  projectId: string;
+  historyJson: string;
+}
+
 export interface OrganizeProjectMediaResult {
   projectId: string;
   rewritten: boolean;
@@ -48,6 +53,14 @@ export async function listProjectSummaries(): Promise<ProjectSummaryRecord[]> {
 
 export async function getProjectRecord(projectId: string): Promise<ProjectRecord | null> {
   return await invoke<ProjectRecord | null>('get_project_record', { projectId });
+}
+
+export async function getProjectRecordWithoutHistory(projectId: string): Promise<ProjectRecord | null> {
+  return await invoke<ProjectRecord | null>('get_project_record_without_history', { projectId });
+}
+
+export async function getProjectHistoryRecord(projectId: string): Promise<ProjectHistoryRecord | null> {
+  return await invoke<ProjectHistoryRecord | null>('get_project_history_record', { projectId });
 }
 
 export async function upsertProjectRecord(record: ProjectRecord): Promise<void> {

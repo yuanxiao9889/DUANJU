@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react';
-import { ChevronDown, Database, Package, User, MapPin } from 'lucide-react';
+import { AudioLines, ChevronDown, Database, Package, User, MapPin } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiScrollArea, UiSelect } from '@/components/ui';
@@ -14,7 +14,11 @@ import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
 import { CanvasHandle } from '@/features/canvas/ui/CanvasHandle';
 import { NodeHeader, NODE_HEADER_FLOATING_POSITION_CLASS } from '@/features/canvas/ui/NodeHeader';
 import { NodeResizeHandle } from '@/features/canvas/ui/NodeResizeHandle';
-import type { AssetCategory, AssetItemRecord } from '@/features/assets/domain/types';
+import {
+  resolveAssetMediaType,
+  type AssetCategory,
+  type AssetItemRecord,
+} from '@/features/assets/domain/types';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -29,7 +33,7 @@ const MIN_WIDTH = 340;
 const MIN_HEIGHT = 360;
 const MAX_WIDTH = 760;
 const MAX_HEIGHT = 980;
-const VISIBLE_CATEGORIES: AssetCategory[] = ['character', 'scene', 'prop'];
+const VISIBLE_CATEGORIES: AssetCategory[] = ['character', 'scene', 'prop', 'voice'];
 
 type DisplayAssetItem = AssetItemRecord & {
   duplicateAssetIds: string[];
@@ -43,6 +47,8 @@ function getCategoryIcon(category: AssetCategory) {
       return MapPin;
     case 'prop':
       return Package;
+    case 'voice':
+      return AudioLines;
     default:
       return Database;
   }
@@ -113,7 +119,11 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
 
     data.selectedAssetIds.forEach((assetId) => {
       const item = itemById.get(assetId);
-      if (!item || item.mediaType !== 'image' || !VISIBLE_CATEGORIES.includes(item.category)) {
+      if (
+        !item
+        || !VISIBLE_CATEGORIES.includes(item.category)
+        || item.mediaType !== resolveAssetMediaType(item.category)
+      ) {
         return;
       }
 
@@ -149,7 +159,10 @@ export const AssetMaterialNode = memo(function AssetMaterialNode({
     const uniqueItemMap = new Map<string, DisplayAssetItem>();
 
     selectedLibrary?.items.forEach((item) => {
-      if (!VISIBLE_CATEGORIES.includes(item.category) || item.mediaType !== 'image') {
+      if (
+        !VISIBLE_CATEGORIES.includes(item.category)
+        || item.mediaType !== resolveAssetMediaType(item.category)
+      ) {
         return;
       }
 

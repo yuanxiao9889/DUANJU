@@ -52,6 +52,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   const [isRunningStoryboardImage, setIsRunningStoryboardImage] = useState(false);
   const [showMissingPreviousConfirm, setShowMissingPreviousConfirm] = useState(false);
   const [storyboardImageError, setStoryboardImageError] = useState<string | null>(null);
+  const [hasMountedProductionDetails, setHasMountedProductionDetails] = useState(false);
   const autoRelayoutAttemptedRef = useRef(false);
 
   const resolvedTitle = useMemo(
@@ -62,6 +63,8 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   const isAssetBatchGroup = data.visualStyle === 'assetBatchGroup';
   const isStoryboardProductionGroup = data.visualStyle === 'storyboardProductionGroup';
   const isProductionLikeGroup = isAssetBatchGroup || isStoryboardProductionGroup;
+  const shouldRenderStoryboardProductionDetails =
+    !isStoryboardProductionGroup || selected || hasMountedProductionDetails;
   const directChildNodes = useMemo(
     () => childNodes.filter((node) => (
       isStoryboardProductionGroup || node.type === CANVAS_NODE_TYPES.imageEdit
@@ -69,14 +72,19 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     [childNodes, isStoryboardProductionGroup]
   );
   const imageModels = useMemo(
-    () =>
+    () => (
+      isAssetBatchGroup
+        ? (
       listImageModels(
         storyboardCompatibleModelConfig,
         storyboardNewApiModelConfig,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
-      ),
+      ))
+        : []
+    ),
     [
+      isAssetBatchGroup,
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
@@ -84,15 +92,20 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     ]
   );
   const selectedModel = useMemo(
-    () => getImageModel(
-      data.globalModelId ?? DEFAULT_IMAGE_MODEL_ID,
-      storyboardCompatibleModelConfig,
-      storyboardNewApiModelConfig,
-      storyboardApi2OkModelConfig,
-      storyboardProviderCustomModels,
+    () => (
+      isAssetBatchGroup
+        ? getImageModel(
+            data.globalModelId ?? DEFAULT_IMAGE_MODEL_ID,
+            storyboardCompatibleModelConfig,
+            storyboardNewApiModelConfig,
+            storyboardApi2OkModelConfig,
+            storyboardProviderCustomModels,
+          )
+        : null
     ),
     [
       data.globalModelId,
+      isAssetBatchGroup,
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
@@ -100,24 +113,37 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     ]
   );
   const resolutionOptions = useMemo(
-    () => resolveImageModelResolutions(selectedModel, {}),
+    () => (selectedModel ? resolveImageModelResolutions(selectedModel, {}) : []),
     [selectedModel]
   );
   const selectedResolution = useMemo(
-    () => resolveImageModelResolution(selectedModel, data.globalSize ?? undefined, {}),
+    () => (
+      selectedModel
+        ? resolveImageModelResolution(selectedModel, data.globalSize ?? undefined, {})
+        : null
+    ),
     [data.globalSize, selectedModel]
   );
   const aspectRatioOptions = useMemo(
-    () => [
-      { value: AUTO_REQUEST_ASPECT_RATIO, label: t('modelParams.autoAspectRatio') },
-      ...selectedModel.aspectRatios,
-    ],
-    [selectedModel.aspectRatios, t]
+    () => (
+      selectedModel
+        ? [
+            { value: AUTO_REQUEST_ASPECT_RATIO, label: t('modelParams.autoAspectRatio') },
+            ...selectedModel.aspectRatios,
+          ]
+        : []
+    ),
+    [selectedModel, t]
   );
   const selectedAspectRatio = useMemo(
-    () =>
-      aspectRatioOptions.find((option) => option.value === (data.globalAspectRatio ?? AUTO_REQUEST_ASPECT_RATIO))
-      ?? aspectRatioOptions[0],
+    () => (
+      selectedModel
+        ? (
+          aspectRatioOptions.find((option) => option.value === (data.globalAspectRatio ?? AUTO_REQUEST_ASPECT_RATIO))
+          ?? aspectRatioOptions[0]
+        )
+        : null
+    ),
     [aspectRatioOptions, data.globalAspectRatio]
   );
   const queueState = data.queueState ?? {
@@ -167,6 +193,18 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     autoRelayoutAttemptedRef.current = true;
     layoutGroupNode(id);
   }, [directChildNodes, id, isProductionLikeGroup, layoutGroupNode]);
+
+  useEffect(() => {
+    if (!isStoryboardProductionGroup || selected || hasMountedProductionDetails) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setHasMountedProductionDetails(true);
+    }, 420);
+
+    return () => window.clearTimeout(timerId);
+  }, [hasMountedProductionDetails, isStoryboardProductionGroup, selected]);
 
   const handleBatchRun = async () => {
     setIsRunningBatch(true);
@@ -305,8 +343,8 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
               {shotLabels.length > 0 ? ` · ${t('node.storyboardProductionGroup.shots')}: ${shotLabels.join(' / ')}` : ''}
             </div>
           </div>
-          {shotSummaries.length > 0 ? (
-            <div
+            {shouldRenderStoryboardProductionDetails && shotSummaries.length > 0 ? (
+              <div
               className="nodrag nowheel mt-3 grid max-h-[204px] grid-cols-4 gap-3 overflow-y-auto pr-1"
               onPointerDown={(event) => event.stopPropagation()}
               onMouseDown={(event) => event.stopPropagation()}
@@ -338,8 +376,8 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
                 </div>
               ))}
             </div>
-          ) : (
-            <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-4 text-xs text-text-muted">
+            ) : (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-white/[0.035] px-3 py-4 text-xs text-text-muted">
               {shotLabels.length > 0 ? shotLabels.join(' / ') : t('node.storyboardProductionGroup.shots')}
             </div>
           )}
@@ -480,6 +518,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
             <span>{t('node.assetBatchGroup.globalOverride')}</span>
           </label>
 
+          {isAssetBatchGroup && selectedModel && selectedResolution && selectedAspectRatio ? (
           <div className="ui-scrollbar min-w-0 overflow-x-auto overflow-y-hidden">
             <div className="flex w-max min-w-full items-center gap-2">
               <ModelParamsControls
@@ -546,6 +585,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
               ) : null}
             </div>
           </div>
+          ) : null}
 
           <div className="rounded-2xl border border-white/8 bg-black/20 px-4 py-3 text-xs text-text-muted">
             {isStoryboardProductionGroup ? (

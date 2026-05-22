@@ -825,17 +825,19 @@
       "library": "Asset library",
       "noLibrary": "No asset library",
       "empty": "Select or create an asset library first.",
-      "emptyCategory": "No image assets in this category yet.",
+      "emptyCategory": "No assets in this category yet.",
       "uncategorized": "Uncategorized",
       "category": {
         "character": "Characters",
         "scene": "Scenes",
-        "prop": "Props"
+        "prop": "Props",
+        "voice": "Voices"
       },
       "categoryShort": {
         "character": "Role",
         "scene": "Scene",
-        "prop": "Prop"
+        "prop": "Prop",
+        "voice": "Voice"
       }
     },
     "imageCompare": {
@@ -3486,6 +3488,7 @@
     "edgeRoutingSmartOrthogonal": "Smart Avoidance (Orthogonal)",
     "canvasPerformance": "Canvas Performance",
     "canvasPerformanceDesc": "Tune overview rendering and viewport preloading for large projects. Defaults favor stability.",
+    "canvasPerformancePageDesc": "Tune large-project rendering, thumbnails, and viewport preloading in one place.",
     "canvasOverviewZoomThreshold": "Overview Zoom Threshold",
     "canvasOverviewZoomThresholdDesc": "Switch to lightweight overview rendering below this zoom level.",
     "canvasOverviewZoomThresholdOption": "{{percent}}%",

@@ -12,7 +12,9 @@ import {
 } from './canvasStore';
 import {
   deleteProjectRecord,
+  getProjectHistoryRecord,
   getProjectRecord,
+  getProjectRecordWithoutHistory,
   listProjectSummaries,
   renameProjectRecord,
   updateProjectViewportRecord,
@@ -55,6 +57,7 @@ const MEDIA_REFERENCE_KEYS = new Set([
   'referenceUrl',
 ]);
 let openProjectRequestSeq = 0;
+let projectHistoryLoadSeq = 0;
 const UPSERT_DEBOUNCE_MS = 260;
 const VIEWPORT_UPSERT_DEBOUNCE_MS = 280;
 const VIEWPORT_EPSILON = 0.001;
@@ -66,6 +69,7 @@ const MAX_HISTORY_RESTORE_JSON_CHARS = 1_500_000;
 const DELETE_RETRY_DELAY_MS = 80;
 const MAX_DELETE_RETRIES = 10;
 const FLUSH_WAIT_INTERVAL_MS = 16;
+const PROJECT_HISTORY_BACKGROUND_LOAD_DELAY_MS = 140;
 
 const queuedProjectUpserts = new Map<string, Project>();
 const projectUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -965,6 +969,105 @@ function updateProjectSummary(
   return next;
 }
 
+function parseHistoryFromRecord(
+  projectId: string,
+  historyJson: string,
+  imagePool?: string[]
+): CanvasHistoryState {
+  const parsedHistoryPayload = safeParseJson<{
+    past?: CanvasHistoryState['past'];
+    future?: CanvasHistoryState['future'];
+    imagePool?: string[];
+  }>(historyJson, {});
+  const history = {
+    past: parsedHistoryPayload.past ?? [],
+    future: parsedHistoryPayload.future ?? [],
+  };
+  const historyImagePool =
+    normalizePersistedImagePool(parsedHistoryPayload.imagePool)
+    ?? extractImagePoolFromHistoryJson(historyJson);
+  const resolvedImagePool = resolvePersistedImagePool(
+    projectId,
+    [],
+    history,
+    imagePool,
+    historyImagePool
+  );
+
+  return decodeProject({
+    id: projectId,
+    name: '',
+    projectType: 'storyboard',
+    assetLibraryId: null,
+    clipLibraryId: null,
+    clipLastFolderId: null,
+    linkedScriptProjectId: null,
+    linkedAdProjectId: null,
+    createdAt: 0,
+    updatedAt: 0,
+    nodeCount: 0,
+    nodes: [],
+    edges: [],
+    viewport: DEFAULT_VIEWPORT,
+    history,
+    colorLabels: createDefaultCanvasColorLabelMap(),
+    scriptWelcomeSkipped: false,
+    imagePool: resolvedImagePool,
+  }).history;
+}
+
+function scheduleBackgroundHistoryLoad(
+  projectId: string,
+  requestSeq: number
+): void {
+  const historySeq = ++projectHistoryLoadSeq;
+
+  setTimeout(() => {
+    void (async () => {
+      try {
+        const record = await getProjectHistoryRecord(projectId);
+        if (
+          !record
+          || record.projectId !== projectId
+          || requestSeq !== openProjectRequestSeq
+          || historySeq !== projectHistoryLoadSeq
+        ) {
+          return;
+        }
+
+        const currentProject = useProjectStore.getState().currentProject;
+        const restoredHistory = parseHistoryFromRecord(
+          projectId,
+          record.historyJson,
+          (currentProject as PersistedProject | null)?.imagePool
+        );
+        if (restoredHistory.past.length === 0 && restoredHistory.future.length === 0) {
+          return;
+        }
+
+        useProjectStore.setState((state) => {
+          if (state.currentProjectId !== projectId || !state.currentProject) {
+            return state;
+          }
+
+          return {
+            currentProject: {
+              ...state.currentProject,
+              history: restoredHistory,
+            },
+          };
+        });
+
+        if (useProjectStore.getState().currentProjectId === projectId) {
+          useCanvasStore.getState().setCanvasHistory(restoredHistory);
+        }
+      } catch (error) {
+        console.error('Failed to load project history in background', error);
+      }
+    })();
+  }, PROJECT_HISTORY_BACKGROUND_LOAD_DELAY_MS);
+}
+
 interface ProjectState {
   projects: ProjectSummary[];
   currentProjectId: string | null;
@@ -1431,12 +1534,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   openProject: (id) => {
     const reqSeq = ++openProjectRequestSeq;
+    projectHistoryLoadSeq += 1;
     useCanvasStore.getState().closeImageViewer();
     set({ isOpeningProject: true });
 
     void (async () => {
       try {
-        const record = await getProjectRecord(id);
+        const record = await getProjectRecordWithoutHistory(id);
         if (reqSeq !== openProjectRequestSeq) {
           return;
         }
@@ -1453,6 +1557,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projects: updateProjectSummary(state.projects, projectToSummary(project)),
         }));
         setActiveMediaProjectId(id);
+        scheduleBackgroundHistoryLoad(id, reqSeq);
       } catch (error) {
         if (reqSeq !== openProjectRequestSeq) {
           return;
@@ -1465,6 +1570,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   closeProject: () => {
     openProjectRequestSeq += 1;
+    projectHistoryLoadSeq += 1;
     useCanvasStore.getState().closeImageViewer();
     const { currentProjectId, currentProject } = get();
     let persistedSummary: ProjectSummary | null = null;

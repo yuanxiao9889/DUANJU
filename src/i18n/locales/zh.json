@@ -2271,17 +2271,19 @@
       "library": "选择素材资产库",
       "noLibrary": "暂无资产库",
       "empty": "请先选择或创建素材资产库",
-      "emptyCategory": "这个分类里还没有图片素材",
+      "emptyCategory": "这个分类里还没有素材",
       "uncategorized": "未分类",
       "category": {
         "character": "角色",
         "scene": "场景",
-        "prop": "道具"
+        "prop": "道具",
+        "voice": "音色"
       },
       "categoryShort": {
         "character": "角色",
         "scene": "场景",
-        "prop": "物品"
+        "prop": "物品",
+        "voice": "音色"
       }
     },
     "smartDirectorStoryboard": {
@@ -3229,6 +3231,7 @@
     "edgeRoutingSmartOrthogonal": "智能避让（直角）",
     "canvasPerformance": "画布性能",
     "canvasPerformanceDesc": "调整大项目中的概览显示和视口预加载策略，默认值更稳。",
+    "canvasPerformancePageDesc": "集中调整大项目渲染、缩略图与视口预加载策略。",
     "canvasOverviewZoomThreshold": "概览模式缩放阈值",
     "canvasOverviewZoomThresholdDesc": "缩放低于该比例时切换为轻量概览渲染。",
     "canvasOverviewZoomThresholdOption": "{{percent}}%",

@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Check, ChevronDown, Eye, Film, Link2, Loader2, Minus, Play, Plus, Trash2 } from 'lucide-react';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -70,6 +70,9 @@ const HEADER_CELL_CLASS =
   'border-b border-border-dark px-2 py-2 whitespace-nowrap text-[11px] uppercase tracking-[0.08em] text-text-muted';
 const BODY_CELL_CLASS = 'border-b border-border-dark/70 px-1.5 py-1.5 align-top';
 const ACTION_COLUMN_WIDTH = 62;
+const INITIAL_RENDER_ROW_COUNT = 32;
+const ROW_RENDER_CHUNK_SIZE = 32;
+const ROW_RENDER_CHUNK_DELAY_MS = 48;
 
 function formatDuration(value: number): string {
   return `${Number.isInteger(value) ? value : value.toFixed(1)}s`;
@@ -161,6 +164,9 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
   const [isExpandingProduction, setIsExpandingProduction] = useState(false);
   const [isRunningAutoProduction, setIsRunningAutoProduction] = useState(false);
   const [productionExpandError, setProductionExpandError] = useState<string | null>(null);
+  const [renderedRowCount, setRenderedRowCount] = useState(() =>
+    Math.min(INITIAL_RENDER_ROW_COUNT, data.rows.length)
+  );
 
   const rowHeight = data.rowHeight ?? SCRIPT_STORYBOARD_TABLE_DEFAULT_ROW_HEIGHT;
   const visibleColumnKeys =
@@ -234,6 +240,44 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
     );
     return nextColumns.length > 0 ? nextColumns : [SCRIPT_STORYBOARD_TABLE_COLUMNS[0]];
   }, [visibleColumnKeys]);
+  const renderedRows = useMemo(
+    () => data.rows.slice(0, renderedRowCount),
+    [data.rows, renderedRowCount]
+  );
+  const hasDeferredRows = renderedRowCount < data.rows.length;
+
+  useEffect(() => {
+    setRenderedRowCount(Math.min(INITIAL_RENDER_ROW_COUNT, data.rows.length));
+  }, [nodeId]);
+
+  useEffect(() => {
+    setRenderedRowCount((current) => {
+      if (data.rows.length <= INITIAL_RENDER_ROW_COUNT) {
+        return data.rows.length;
+      }
+
+      return Math.min(
+        data.rows.length,
+        Math.max(current, INITIAL_RENDER_ROW_COUNT)
+      );
+    });
+  }, [data.rows.length]);
+
+  useEffect(() => {
+    if (renderedRowCount >= data.rows.length) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setRenderedRowCount((current) =>
+        Math.min(data.rows.length, current + ROW_RENDER_CHUNK_SIZE)
+      );
+    }, ROW_RENDER_CHUNK_DELAY_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [data.rows.length, renderedRowCount]);
 
   const tableStyle = useMemo<TableStyle>(() => ({
     '--storyboard-row-min-height': `${rowHeight}px`,
@@ -670,101 +714,102 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
           </thead>
           <tbody>
             {data.rows.length > 0 ? (
-              data.rows.map((row, index) => (
-                <tr key={row.id} className="align-top text-xs text-text-dark">
-                  {visibleColumns.map((column) => {
-                    const isActiveEditingCell =
-                      activeEditingCell?.rowId === row.id && activeEditingCell?.columnKey === column.key;
-                    const isEditable = Boolean(column.editable) && isRowEditable(row);
-                    const cellValue = readCellValue(row, column.key);
+              <>
+                {renderedRows.map((row, index) => (
+                  <tr key={row.id} className="align-top text-xs text-text-dark">
+                    {visibleColumns.map((column) => {
+                      const isActiveEditingCell =
+                        activeEditingCell?.rowId === row.id && activeEditingCell?.columnKey === column.key;
+                      const isEditable = Boolean(column.editable) && isRowEditable(row);
+                      const cellValue = readCellValue(row, column.key);
 
-                    return (
-                      <td key={column.key} className={BODY_CELL_CLASS}>
-                        {isActiveEditingCell ? (
-                          <textarea
-                            autoFocus
-                            value={editingValue}
-                            onChange={(event) => setEditingValue(event.target.value)}
-                            onBlur={commitCellEdit}
-                            onPointerDown={stopInteractionPropagation}
-                            onMouseDown={stopInteractionPropagation}
-                            onClick={stopInteractionPropagation}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Escape') {
-                                event.preventDefault();
-                                clearEditingCell();
-                              }
-                              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                                event.preventDefault();
-                                commitCellEdit();
-                              }
-                            }}
-                            className="nodrag nowheel w-full resize-none rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60 [overflow-wrap:anywhere]"
-                            style={{ height: 'var(--storyboard-cell-content-height)' }}
-                          />
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                            }}
-                            onDoubleClick={(event) => {
-                              event.stopPropagation();
-                              if (isEditable) {
-                                startEditingCell(row, column.key);
-                              }
-                            }}
-                            className={`nodrag flex w-full min-w-0 rounded-lg border px-2 py-1.5 text-left transition-colors ${
-                              isEditable
-                                ? 'border-transparent bg-transparent text-text-dark hover:border-[rgba(15,23,42,0.24)] hover:bg-bg-dark/70 dark:hover:border-white/20'
-                                : 'cursor-default border-transparent bg-transparent text-text-dark/90'
-                            }`}
-                            style={{ minHeight: 'var(--storyboard-row-min-height)' }}
-                          >
-                            <div
-                              className="nowheel min-w-0 flex-1 overflow-y-auto pr-1"
-                              style={{ maxHeight: 'var(--storyboard-cell-content-height)' }}
+                      return (
+                        <td key={column.key} className={BODY_CELL_CLASS}>
+                          {isActiveEditingCell ? (
+                            <textarea
+                              autoFocus
+                              value={editingValue}
+                              onChange={(event) => setEditingValue(event.target.value)}
+                              onBlur={commitCellEdit}
+                              onPointerDown={stopInteractionPropagation}
+                              onMouseDown={stopInteractionPropagation}
+                              onClick={stopInteractionPropagation}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Escape') {
+                                  event.preventDefault();
+                                  clearEditingCell();
+                                }
+                                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                                  event.preventDefault();
+                                  commitCellEdit();
+                                }
+                              }}
+                              className="nodrag nowheel w-full resize-none rounded-lg border border-border-dark bg-bg-dark px-2 py-1.5 text-text-dark outline-none focus:border-text-muted/60 [overflow-wrap:anywhere]"
+                              style={{ height: 'var(--storyboard-cell-content-height)' }}
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                              }}
+                              onDoubleClick={(event) => {
+                                event.stopPropagation();
+                                if (isEditable) {
+                                  startEditingCell(row, column.key);
+                                }
+                              }}
+                              className={`nodrag flex w-full min-w-0 rounded-lg border px-2 py-1.5 text-left transition-colors ${
+                                isEditable
+                                  ? 'border-transparent bg-transparent text-text-dark hover:border-[rgba(15,23,42,0.24)] hover:bg-bg-dark/70 dark:hover:border-white/20'
+                                  : 'cursor-default border-transparent bg-transparent text-text-dark/90'
+                              }`}
+                              style={{ minHeight: 'var(--storyboard-row-min-height)' }}
                             >
-                              {column.key === 'shotNumber' ? (
-                                <div className="font-semibold">{cellValue || '-'}</div>
-                              ) : column.key === 'duration' ? (
-                                <div>{formatDuration(row.durationSeconds)}</div>
-                              ) : column.key === 'assets' ? (
-                                row.assetRefs.length > 0 ? (
-                                  <div className="flex flex-wrap gap-1">
-                                    {row.assetRefs.map((asset) => (
-                                      <span
-                                        key={`${row.id}-${asset}`}
-                                        className="max-w-full truncate rounded-full border border-border-dark bg-bg-dark/65 px-1.5 py-0.5 text-[11px] text-text-muted"
-                                      >
-                                        {asset}
-                                      </span>
-                                    ))}
-                                  </div>
+                              <div
+                                className="nowheel min-w-0 flex-1 overflow-y-auto pr-1"
+                                style={{ maxHeight: 'var(--storyboard-cell-content-height)' }}
+                              >
+                                {column.key === 'shotNumber' ? (
+                                  <div className="font-semibold">{cellValue || '-'}</div>
+                                ) : column.key === 'duration' ? (
+                                  <div>{formatDuration(row.durationSeconds)}</div>
+                                ) : column.key === 'assets' ? (
+                                  row.assetRefs.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1">
+                                      {row.assetRefs.map((asset) => (
+                                        <span
+                                          key={`${row.id}-${asset}`}
+                                          className="max-w-full truncate rounded-full border border-border-dark bg-bg-dark/65 px-1.5 py-0.5 text-[11px] text-text-muted"
+                                        >
+                                          {asset}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-text-muted/65">-</span>
+                                  )
                                 ) : (
-                                  <span className="text-text-muted/65">-</span>
-                                )
-                              ) : (
-                                <div className="whitespace-pre-wrap break-words leading-5 [overflow-wrap:anywhere]">
-                                  {cellValue || <span className="text-text-muted/65">{t('scriptStoryboardTable.emptyCell')}</span>}
-                                </div>
-                              )}
-                              {column.key === 'shotNumber' && row.rowError ? (
-                                <div className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-rose-200">
-                                  {row.rowError}
-                                </div>
-                              ) : null}
-                            </div>
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })}
-                  <td className={BODY_CELL_CLASS}>
-                    <div
-                      className="nowheel grid grid-cols-2 gap-1 overflow-y-auto pr-1"
-                      style={{ maxHeight: 'var(--storyboard-cell-content-height)' }}
-                    >
+                                  <div className="whitespace-pre-wrap break-words leading-5 [overflow-wrap:anywhere]">
+                                    {cellValue || <span className="text-text-muted/65">{t('scriptStoryboardTable.emptyCell')}</span>}
+                                  </div>
+                                )}
+                                {column.key === 'shotNumber' && row.rowError ? (
+                                  <div className="mt-2 whitespace-pre-wrap text-[11px] leading-5 text-rose-200">
+                                    {row.rowError}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td className={BODY_CELL_CLASS}>
+                      <div
+                        className="nowheel grid grid-cols-2 gap-1 overflow-y-auto pr-1"
+                        style={{ maxHeight: 'var(--storyboard-cell-content-height)' }}
+                      >
                       <button
                         type="button"
                         onClick={(event) => {
@@ -832,10 +877,21 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {hasDeferredRows ? (
+                  <tr>
+                    <td
+                      colSpan={visibleColumns.length + 1}
+                      className="px-3 py-5 text-center text-xs text-text-muted"
+                    >
+                      {t('common.loading')}
+                    </td>
+                  </tr>
+                ) : null}
+              </>
             ) : (
               <tr>
                 <td

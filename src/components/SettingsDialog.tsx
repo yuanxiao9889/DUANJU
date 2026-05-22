@@ -2015,6 +2015,20 @@ export function SettingsDialog({
               </button>
 
               <button
+                onClick={() => setActiveCategory('canvasPerformance')}
+                className={`
+                w-full flex items-center gap-3 px-4 py-2.5 text-left
+                transition-colors
+                ${activeCategory === 'canvasPerformance'
+                    ? 'bg-accent/10 text-text-dark border-l-2 border-accent'
+                    : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
+                  }
+              `}
+              >
+                <span className="text-sm">{t('settings.canvasPerformance')}</span>
+              </button>
+
+              <button
                 onClick={() => setActiveCategory('experimental')}
                 className={`
                 w-full flex items-center gap-3 px-4 py-2.5 text-left
@@ -3166,12 +3180,65 @@ export function SettingsDialog({
 
                   <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
                     <h3 className="text-sm font-medium text-text-dark">
+                      {t('settings.accentColor')}
+                    </h3>
+                    <p className="mt-1 text-xs text-text-muted">
+                      {t('settings.accentColorDesc')}
+                    </p>
+                    <div className="mt-3 flex items-center gap-2">
+                      <input
+                        type="color"
+                        value={localAccentColor}
+                        onChange={(event) => setLocalAccentColor(event.target.value)}
+                        className="h-9 w-12 rounded border border-border-dark bg-surface-dark p-1"
+                      />
+                      <input
+                        value={localAccentColor}
+                        onChange={(event) => setLocalAccentColor(event.target.value)}
+                        placeholder="#3B82F6"
+                        className="h-9 flex-1 rounded border border-border-dark bg-surface-dark px-3 text-sm text-text-dark outline-none placeholder:text-text-muted"
+                      />
+                      <button
+                        type="button"
+                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
+                        onClick={() => setLocalAccentColor('#3B82F6')}
+                      >
+                        {t('settings.resetAccentColor')}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end border-t border-border-dark px-6 py-4">
+                  <button
+                    onClick={handleSave}
+                    className="rounded bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+                  >
+                    {t('common.save')}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeCategory === 'canvasPerformance' && (
+              <>
+                <div className="px-6 py-5 border-b border-border-dark">
+                  <h2 className="text-lg font-semibold text-text-dark">
+                    {t('settings.canvasPerformance')}
+                  </h2>
+                  <p className="text-sm text-text-muted mt-1">
+                    {t('settings.canvasPerformancePageDesc')}
+                  </p>
+                </div>
+
+                <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <h3 className="text-sm font-medium text-text-dark">
                       {t('settings.canvasPerformance')}
                     </h3>
                     <p className="mt-1 text-xs text-text-muted">
                       {t('settings.canvasPerformanceDesc')}
                     </p>
-
                     <div className="mt-4 grid gap-3 md:grid-cols-2">
                       <label className="block">
                         <span className="text-xs font-medium text-text-dark">
@@ -3272,36 +3339,6 @@ export function SettingsDialog({
                           ))}
                         </UiSelect>
                       </label>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
-                    <h3 className="text-sm font-medium text-text-dark">
-                      {t('settings.accentColor')}
-                    </h3>
-                    <p className="mt-1 text-xs text-text-muted">
-                      {t('settings.accentColorDesc')}
-                    </p>
-                    <div className="mt-3 flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={localAccentColor}
-                        onChange={(event) => setLocalAccentColor(event.target.value)}
-                        className="h-9 w-12 rounded border border-border-dark bg-surface-dark p-1"
-                      />
-                      <input
-                        value={localAccentColor}
-                        onChange={(event) => setLocalAccentColor(event.target.value)}
-                        placeholder="#3B82F6"
-                        className="h-9 flex-1 rounded border border-border-dark bg-surface-dark px-3 text-sm text-text-dark outline-none placeholder:text-text-muted"
-                      />
-                      <button
-                        type="button"
-                        className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark"
-                        onClick={() => setLocalAccentColor('#3B82F6')}
-                      >
-                        {t('settings.resetAccentColor')}
-                      </button>
                     </div>
                   </div>
                 </div>

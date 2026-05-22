@@ -2904,8 +2904,26 @@ export function Canvas() {
       return;
     }
 
+    const currentProject = getCurrentProject();
+    if (
+      currentProject
+      && currentProject.id === currentProjectId
+      && areCanvasNodesEqualForPersistence(currentProject.nodes, nodes)
+      && areCanvasEdgesEqualForPersistence(currentProject.edges, edges)
+    ) {
+      return;
+    }
+
     scheduleCanvasPersist();
-  }, [nodes, edges, history, dragHistorySnapshot, scheduleCanvasPersist]);
+  }, [
+    currentProjectId,
+    dragHistorySnapshot,
+    edges,
+    getCurrentProject,
+    history,
+    nodes,
+    scheduleCanvasPersist,
+  ]);
 
   useEffect(() => {
     if (isRestoringCanvasRef.current) {

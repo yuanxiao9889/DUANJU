@@ -73,6 +73,13 @@ pub struct ProjectRecord {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectHistoryRecord {
+    pub project_id: String,
+    pub history_json: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OrganizeProjectMediaResult {
     pub project_id: String,
     pub rewritten: bool,
@@ -1352,6 +1359,87 @@ where
     Ok(Some((next_nodes_json, next_history_json)))
 }
 
+fn rewrite_project_nodes_media_paths<F>(
+    nodes_json: &str,
+    rewrite: &F,
+) -> Result<Option<String>, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let mut parsed_nodes = serde_json::from_str::<Value>(nodes_json).map_err(|e| {
+        format!(
+            "Failed to parse project nodes json for media rewrite: {}",
+            e
+        )
+    })?;
+
+    let mut changed = false;
+
+    if let Some(image_pool) = parsed_nodes
+        .get_mut("imagePool")
+        .and_then(Value::as_array_mut)
+    {
+        changed |= rewrite_json_string_array(image_pool, rewrite);
+    }
+
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed_nodes) {
+        changed |= rewrite_nodes_media_paths(nodes, rewrite);
+    }
+
+    if !changed {
+        return Ok(None);
+    }
+
+    serde_json::to_string(&parsed_nodes)
+        .map(Some)
+        .map_err(|e| format!("Failed to serialize rewritten project nodes json: {}", e))
+}
+
+fn rewrite_project_history_media_paths<F>(
+    history_json: &str,
+    rewrite: &F,
+) -> Result<Option<String>, String>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let mut parsed_history = serde_json::from_str::<Value>(history_json).map_err(|e| {
+        format!(
+            "Failed to parse project history json for media rewrite: {}",
+            e
+        )
+    })?;
+
+    let mut changed = false;
+
+    if let Some(image_pool) = parsed_history
+        .get_mut("imagePool")
+        .and_then(Value::as_array_mut)
+    {
+        changed |= rewrite_json_string_array(image_pool, rewrite);
+    }
+
+    for timeline_key in ["past", "future"] {
+        let Some(timeline) = parsed_history
+            .get_mut(timeline_key)
+            .and_then(Value::as_array_mut)
+        else {
+            continue;
+        };
+
+        for snapshot in timeline {
+            changed |= rewrite_history_snapshot_media_paths(snapshot, rewrite);
+        }
+    }
+
+    if !changed {
+        return Ok(None);
+    }
+
+    serde_json::to_string(&parsed_history)
+        .map(Some)
+        .map_err(|e| format!("Failed to serialize rewritten project history json: {}", e))
+}
+
 fn encode_project_payload_storage_refs(
     app: &AppHandle,
     nodes_json: &str,
@@ -1383,6 +1471,32 @@ fn decode_project_record_storage_refs(
     {
         record.nodes_json = next_nodes_json;
         record.history_json = next_history_json;
+    }
+    Ok(())
+}
+
+fn decode_project_record_nodes_storage_refs(
+    app: &AppHandle,
+    record: &mut ProjectRecord,
+) -> Result<(), String> {
+    if let Some(next_nodes_json) = rewrite_project_nodes_media_paths(&record.nodes_json, &|value| {
+        let next = storage::decode_storage_media_ref(app, value);
+        (next != value).then_some(next)
+    })? {
+        record.nodes_json = next_nodes_json;
+    }
+    Ok(())
+}
+
+fn decode_project_history_storage_refs(
+    app: &AppHandle,
+    history_json: &mut String,
+) -> Result<(), String> {
+    if let Some(next_history_json) = rewrite_project_history_media_paths(history_json, &|value| {
+        let next = storage::decode_storage_media_ref(app, value);
+        (next != value).then_some(next)
+    })? {
+        *history_json = next_history_json;
     }
     Ok(())
 }
@@ -2856,6 +2970,99 @@ pub fn get_project_record(
         }
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
         Err(error) => Err(format!("Failed to load project: {}", error)),
+    }
+}
+
+#[tauri::command]
+pub fn get_project_record_without_history(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Option<ProjectRecord>, String> {
+    let mut conn = open_db(&app)?;
+    let result = {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT
+                    id,
+                    name,
+                    COALESCE(project_type, 'storyboard') as project_type,
+                    asset_library_id,
+                    clip_library_id,
+                    clip_last_folder_id,
+                    linked_script_project_id,
+                    linked_ad_project_id,
+                    created_at,
+                    updated_at,
+                    node_count,
+                    nodes_json,
+                    edges_json,
+                    viewport_json,
+                    color_labels_json,
+                    script_welcome_skipped
+                FROM projects
+                WHERE id = ?1
+                LIMIT 1
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare get project query: {}", e))?;
+
+        stmt.query_row(params![project_id], |row| {
+            Ok(ProjectRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                project_type: row.get(2)?,
+                asset_library_id: row.get(3)?,
+                clip_library_id: row.get(4)?,
+                clip_last_folder_id: row.get(5)?,
+                linked_script_project_id: row.get(6)?,
+                linked_ad_project_id: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                node_count: row.get(10)?,
+                nodes_json: row.get(11)?,
+                edges_json: row.get(12)?,
+                viewport_json: row.get(13)?,
+                history_json: r#"{"past":[],"future":[]}"#.to_string(),
+                color_labels_json: row.get(14)?,
+                script_welcome_skipped: row.get(15)?,
+            })
+        })
+    };
+
+    match result {
+        Ok(mut record) => {
+            repair_project_record_storage_aliases_if_needed(&mut conn, &app, &mut record)?;
+            decode_project_record_nodes_storage_refs(&app, &mut record)?;
+            Ok(Some(record))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("Failed to load project: {}", error)),
+    }
+}
+
+#[tauri::command]
+pub fn get_project_history_record(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Option<ProjectHistoryRecord>, String> {
+    let conn = open_db(&app)?;
+    let result: Result<String, rusqlite::Error> = conn.query_row(
+        "SELECT history_json FROM projects WHERE id = ?1 LIMIT 1",
+        params![project_id],
+        |row| row.get(0),
+    );
+
+    match result {
+        Ok(mut history_json) => {
+            decode_project_history_storage_refs(&app, &mut history_json)?;
+            Ok(Some(ProjectHistoryRecord {
+                project_id,
+                history_json,
+            }))
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("Failed to load project history: {}", error)),
     }
 }
 

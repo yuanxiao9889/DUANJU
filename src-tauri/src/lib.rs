@@ -414,6 +414,8 @@ pub fn run() {
             clip_library::get_clip_delete_impact,
             project_state::list_project_summaries,
             project_state::get_project_record,
+            project_state::get_project_record_without_history,
+            project_state::get_project_history_record,
             project_state::upsert_project_record,
             project_state::update_project_viewport_record,
             project_state::rename_project_record,

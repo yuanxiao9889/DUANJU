@@ -10,7 +10,6 @@ import {
   nodeHasTargetHandle,
 } from '@/features/canvas/domain/nodeRegistry';
 import { CanvasOverviewNode } from './CanvasOverviewNode';
-import { GroupNode } from './GroupNode';
 import { LegacyNode } from './LegacyNode';
 
 type CanvasNodeComponent = ComponentType<any>;
@@ -160,11 +159,12 @@ const ScriptStoryNoteNode = createLazyNode(() => import('./ScriptStoryNoteNode')
 const ScriptPlotPointNode = createLazyNode(() => import('./ScriptPlotPointNode').then((module) => ({ default: module.ScriptPlotPointNode as CanvasNodeComponent })));
 const ScriptPlotLineNode = createLazyNode(() => import('./ScriptPlotLineNode').then((module) => ({ default: module.ScriptPlotLineNode as CanvasNodeComponent })));
 const CommerceStageNode = createLazyNode(() => import('./CommerceStageNode').then((module) => ({ default: module.CommerceStageNode as CanvasNodeComponent })));
+const GroupNode = createLazyNode(() => import('./GroupNode').then((module) => ({ default: module.GroupNode as CanvasNodeComponent })));
 
 export const nodeTypes: NodeTypes = {
   exportImageNode: ImageNode,
   imageCompareNode: ImageCompareNode,
-  groupNode: GroupNode as CanvasNodeComponent,
+  groupNode: GroupNode,
   audioNode: AudioNode,
   imageNode: ImageEditNode,
   multiAngleImageNode: MultiAngleImageNode,
@@ -233,4 +233,4 @@ export const overviewNodeTypes: NodeTypes = Object.fromEntries(
   Object.values(CANVAS_NODE_TYPES).map((type) => [type, CanvasOverviewNode])
 );
 
-export { CanvasOverviewNode, GroupNode, LegacyNode };
+export { CanvasOverviewNode, LegacyNode };

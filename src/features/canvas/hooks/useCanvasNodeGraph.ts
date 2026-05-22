@@ -61,6 +61,7 @@ const EMPTY_CONNECTED_TEXT_INPUT: CanvasConnectedTextInput = {
 
 const nodeByIdCache = new WeakMap<CanvasNode[], Map<string, CanvasNode>>();
 const incomingEdgesByTargetCache = new WeakMap<CanvasEdge[], Map<string, CanvasEdge[]>>();
+const childNodesByParentIdCache = new WeakMap<CanvasNode[], Map<string, CanvasNode[]>>();
 
 function getNodeByIdMap(nodes: CanvasNode[]): Map<string, CanvasNode> {
   const cached = nodeByIdCache.get(nodes);
@@ -90,6 +91,30 @@ function getIncomingEdgesByTarget(edges: CanvasEdge[]): Map<string, CanvasEdge[]
   }
 
   incomingEdgesByTargetCache.set(edges, map);
+  return map;
+}
+
+function getChildNodesByParentIdMap(nodes: CanvasNode[]): Map<string, CanvasNode[]> {
+  const cached = childNodesByParentIdCache.get(nodes);
+  if (cached) {
+    return cached;
+  }
+
+  const map = new Map<string, CanvasNode[]>();
+  for (const node of nodes) {
+    if (!node.parentId) {
+      continue;
+    }
+
+    const existing = map.get(node.parentId);
+    if (existing) {
+      existing.push(node);
+      continue;
+    }
+    map.set(node.parentId, [node]);
+  }
+
+  childNodesByParentIdCache.set(nodes, map);
   return map;
 }
 
@@ -637,7 +662,7 @@ function createChildNodesSelector(parentId: string) {
   let previousResult: CanvasNode[] | null = null;
 
   return (state: CanvasGraphSnapshot): CanvasNode[] => {
-    const nextNodes = state.nodes.filter((node) => node.parentId === parentId);
+    const nextNodes = getChildNodesByParentIdMap(state.nodes).get(parentId) ?? EMPTY_NODES;
     if (!haveRelevantResolvedNodesChanged(previousResult, nextNodes)) {
       return previousResult ?? EMPTY_NODES;
     }
