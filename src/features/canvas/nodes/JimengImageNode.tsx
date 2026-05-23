@@ -417,6 +417,7 @@ export const JimengImageNode = memo(
           label: t("node.jimengImage.referenceImageLabel", {
             index: index + 1,
           }),
+          viewerMetadata: item.viewerMetadata ?? null,
         })),
       [connectedReferenceImages, t],
     );
@@ -1221,7 +1222,7 @@ export const JimengImageNode = memo(
         }
 
         if (
-          event.key === "@" &&
+          (event.key === "@" || event.key === "\uFF20") &&
           incomingImages.length > 0 &&
           modelSupportsReferenceImages
         ) {
@@ -1408,6 +1409,7 @@ export const JimengImageNode = memo(
                       alt={item.label}
                       viewerSourceUrl={item.displayUrl}
                       viewerImageList={incomingImageDisplayList}
+                      viewerMetadata={item.viewerMetadata}
                       className="h-10 w-10 shrink-0 rounded object-cover"
                       draggable={false}
                     />
@@ -1509,6 +1511,11 @@ export const JimengImageNode = memo(
                         alt={promptReferencePreview.alt}
                         viewerSourceUrl={promptReferencePreview.imageUrl}
                         viewerImageList={incomingImageDisplayList}
+                        viewerMetadata={
+                          incomingImageItems.find(
+                            (item) => item.imageUrl === promptReferencePreview.imageUrl,
+                          )?.viewerMetadata ?? null
+                        }
                         className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
                         draggable={false}
                       />
@@ -1555,6 +1562,7 @@ export const JimengImageNode = memo(
                           alt={item.label}
                           viewerSourceUrl={item.displayUrl}
                           viewerImageList={incomingImageDisplayList}
+                          viewerMetadata={item.viewerMetadata}
                           className="h-8 w-8 rounded object-cover"
                           draggable={false}
                         />
@@ -1593,6 +1601,7 @@ export const JimengImageNode = memo(
                       label={item.label}
                       tokenLabel={item.tokenLabel}
                       viewerImageList={incomingImageDisplayList}
+                      viewerMetadata={item.viewerMetadata}
                       isActive={
                         highlightedReferenceSourceNodeId === item.sourceNodeId
                       }

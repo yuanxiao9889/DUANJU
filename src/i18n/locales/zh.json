@@ -701,7 +701,8 @@
       "apiKeyRequired": "请在设置中填写 API Key",
       "resultTitle": "结果图片",
       "promptPlaceholder": "描述任何你想要生成或编辑的内容",
-      "referenceImageLabel": "图片 {{index}}"
+      "referenceImageLabel": "图片 {{index}}",
+      "referenceEmpty": "连接上游图片后，输入 @ 可在提示词里插入参考图。"
     },
     "multiAngleImage": {
       "apiKeyRequired": "请在设置中填写 API Key",
@@ -2436,6 +2437,13 @@
     "newProjectTitle": "新建项目",
     "open": "打开项目",
     "save": "保存项目",
+    "exitSaving": {
+      "title": "正在保存后退出",
+      "description": "正在保存项目并停止画布后台任务，完全清理后会自动返回项目页。",
+      "progressLabel": "退出画布前正在保存项目",
+      "errorTitle": "保存失败",
+      "errorMessage": "最新项目状态没有保存成功，所以暂时没有退出画布。请稍后重试。"
+    },
     "name": "项目名称",
     "namePlaceholder": "请输入项目名称",
     "rename": "重命名",
@@ -3238,6 +3246,14 @@
     "canvasOverviewThumbnailSize": "概览缩略图尺寸",
     "canvasOverviewThumbnailSizeDesc": "尺寸越大越清晰，但会占用更多磁盘、显存和解码时间。",
     "canvasOverviewThumbnailSizeOption": "{{size}} px",
+    "canvasThumbnailRefreshNow": "立即刷新",
+    "canvasThumbnailRefreshConfirmTitle": "刷新缩略图？",
+    "canvasThumbnailRefreshConfirmDesc": "重新生成缩略图可能需要较长时间，期间会持续占用磁盘和计算资源，请谨慎操作。",
+    "canvasThumbnailRefreshConfirmSize": "目标尺寸：{{size}} px",
+    "canvasThumbnailRefreshConfirmAction": "开始刷新",
+    "canvasThumbnailRefreshProgress": "正在刷新 {{done}} / {{total}}，失败 {{failed}}",
+    "canvasThumbnailRefreshCompleted": "刷新完成",
+    "canvasThumbnailRefreshEmpty": "当前项目没有可刷新的缩略图",
     "canvasThumbnailMediaCountThreshold": "大项目缩略图阈值",
     "canvasThumbnailMediaCountThresholdDesc": "图片数量超过该值后，节点优先使用缩略图以减少渲染压力。",
     "canvasThumbnailMediaCountThresholdOption": "{{count}} 张图片",

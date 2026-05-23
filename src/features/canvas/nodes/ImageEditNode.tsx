@@ -31,6 +31,7 @@ import {
   type ExportImageNodeData,
   type ImageEditNodeData,
   type ImageSize,
+  type ImageViewerMetadata,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import {
@@ -153,6 +154,7 @@ import {
 } from "@/features/canvas/application/nodeGeometry";
 import { CanvasNodeImage } from "@/features/canvas/ui/CanvasNodeImage";
 import { NodeStatusBadge } from "@/features/canvas/ui/NodeStatusBadge";
+import { ReferenceVisualChip } from "@/features/canvas/ui/ReferenceVisualChip";
 import { PROMPT_REFERENCE_TOKEN_HIGHLIGHT_CLASS } from "@/features/canvas/ui/promptReferenceTokenStyles";
 import {
   useIsOverviewCanvasRender,
@@ -193,6 +195,8 @@ interface PromptReferencePreviewState {
 
 
 interface IncomingReferenceImageItem {
+  sourceEdgeId: string;
+  sourceNodeId: string;
   referenceUrl: string;
   requestImageUrl: string;
   previewImageUrl: string;
@@ -201,6 +205,7 @@ interface IncomingReferenceImageItem {
   label: string;
   assetId: string | null;
   displayName: string | null;
+  viewerMetadata: ImageViewerMetadata | null;
 }
 
 interface PromptReferenceTokenCandidate {
@@ -477,10 +482,17 @@ export const ImageEditNode = memo(
     const [, setIsPromptTextSelectionActive] = useState(false);
 
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
+    const highlightedReferenceSourceNodeId = useCanvasStore(
+      (state) => state.highlightedReferenceSourceNodeId,
+    );
+    const setHighlightedReferenceSourceNode = useCanvasStore(
+      (state) => state.setHighlightedReferenceSourceNode,
+    );
     const updateNodeData = useCanvasStore((state) => state.updateNodeData);
     const addNode = useCanvasStore((state) => state.addNode);
     const findNodePosition = useCanvasStore((state) => state.findNodePosition);
     const addEdge = useCanvasStore((state) => state.addEdge);
+    const deleteEdge = useCanvasStore((state) => state.deleteEdge);
     const storyboardApiKeys = useSettingsStore(
       (state) => state.storyboardApiKeys,
     );
@@ -880,6 +892,8 @@ export const ImageEditNode = memo(
             const previewImageUrl =
               item.previewImageUrl?.trim() || referenceUrl;
             return {
+              sourceEdgeId: item.sourceEdgeId,
+              sourceNodeId: item.sourceNodeId,
               referenceUrl,
               requestImageUrl: referenceUrl,
               previewImageUrl,
@@ -892,6 +906,7 @@ export const ImageEditNode = memo(
                 }),
               assetId: item.assetId ?? null,
               displayName: item.displayName ?? null,
+              viewerMetadata: item.viewerMetadata ?? null,
             };
           })
           .filter((item): item is IncomingReferenceImageItem => item !== null),
@@ -923,6 +938,15 @@ export const ImageEditNode = memo(
     const incomingImageViewerList = useMemo(
       () => incomingImageItems.map((item) => item.referenceUrl),
       [incomingImageItems],
+    );
+    const assetMaterialSourceById = useMemo(
+      () =>
+        new Map(
+          incomingSourceNodes
+            .filter((item) => item.node.type === CANVAS_NODE_TYPES.assetMaterial)
+            .map((item) => [item.node.id, item.node] as const),
+        ),
+      [incomingSourceNodes],
     );
     const optimizedPromptMaxLength = useMemo(
       () =>
@@ -2208,6 +2232,45 @@ export const ImageEditNode = memo(
       },
       [schedulePromptSelectionRestore],
     );
+    const handleReferenceSourceHighlight = useCallback(
+      (sourceNodeId: string) => {
+        setHighlightedReferenceSourceNode(
+          highlightedReferenceSourceNodeId === sourceNodeId
+            ? null
+            : sourceNodeId,
+        );
+      },
+      [highlightedReferenceSourceNodeId, setHighlightedReferenceSourceNode],
+    );
+    const handleRemoveReferenceImage = useCallback(
+      (item: IncomingReferenceImageItem) => {
+        setShowImagePicker(false);
+        pickerSelectionRef.current = null;
+        setPromptReferencePreview(null);
+
+        const sourceAssetMaterialNode =
+          item.assetId ? assetMaterialSourceById.get(item.sourceNodeId) : null;
+        if (sourceAssetMaterialNode) {
+          const selectedAssetIds = Array.isArray(
+            sourceAssetMaterialNode.data.selectedAssetIds,
+          )
+            ? sourceAssetMaterialNode.data.selectedAssetIds.filter(
+                (assetId): assetId is string => typeof assetId === "string",
+              )
+            : [];
+          const nextSelectedAssetIds = selectedAssetIds.filter(
+            (assetId) => assetId !== item.assetId,
+          );
+          updateNodeData(sourceAssetMaterialNode.id, {
+            selectedAssetIds: nextSelectedAssetIds,
+          });
+          return;
+        }
+
+        deleteEdge(item.sourceEdgeId);
+      },
+      [assetMaterialSourceById, deleteEdge, updateNodeData],
+    );
 
     return (
       <div
@@ -2254,6 +2317,7 @@ export const ImageEditNode = memo(
                       alt={item.label}
                       viewerSourceUrl={item.referenceUrl}
                       viewerImageList={incomingImageViewerList}
+                      viewerMetadata={item.viewerMetadata}
                       className="h-10 w-10 shrink-0 rounded object-cover"
                       draggable={false}
                     />
@@ -2359,6 +2423,11 @@ export const ImageEditNode = memo(
                       alt={promptReferencePreview.alt}
                       viewerSourceUrl={promptReferencePreview.imageUrl}
                       viewerImageList={incomingImageViewerList}
+                      viewerMetadata={
+                        incomingImageItems.find(
+                          (item) => item.referenceUrl === promptReferencePreview.imageUrl,
+                        )?.viewerMetadata ?? null
+                      }
                       className="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
                       draggable={false}
                     />
@@ -2403,6 +2472,7 @@ export const ImageEditNode = memo(
                           alt={item.label}
                           viewerSourceUrl={item.referenceUrl}
                           viewerImageList={incomingImageViewerList}
+                          viewerMetadata={item.viewerMetadata}
                           className="h-8 w-8 rounded object-cover"
                           draggable={false}
                         />
@@ -2430,6 +2500,40 @@ export const ImageEditNode = memo(
             onMouseDown={(event) => event.stopPropagation()}
             onWheelCapture={(event) => event.stopPropagation()}
           >
+            <div className="mb-2 flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+              {incomingImageItems.length > 0 ? (
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  {incomingImageItems.map((item, index) => (
+                    <ReferenceVisualChip
+                      key={`${item.referenceUrl}-${index}`}
+                      kind="image"
+                      displayUrl={item.displayUrl}
+                      label={item.label}
+                      tokenLabel={item.tokenLabel}
+                      viewerSourceUrl={item.referenceUrl}
+                      viewerImageList={incomingImageViewerList}
+                      viewerMetadata={item.viewerMetadata}
+                      isActive={
+                        highlightedReferenceSourceNodeId === item.sourceNodeId
+                      }
+                      removeLabel={t("common.delete")}
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        if (event.button !== 0) {
+                          return;
+                        }
+                        handleReferenceSourceHighlight(item.sourceNodeId);
+                      }}
+                      onRemove={() => handleRemoveReferenceImage(item)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex min-h-[28px] w-full items-center text-[11px] text-text-muted">
+                  {t("node.imageEdit.referenceEmpty")}
+                </div>
+              )}
+            </div>
             <div className="flex shrink-0 items-center gap-2">
               <div className="ui-scrollbar nodrag nowheel nopan min-w-0 flex-1 cursor-default overflow-x-auto overflow-y-hidden">
                 <div className="flex w-max min-w-full items-center gap-1">

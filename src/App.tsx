@@ -12,10 +12,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { useTranslation } from "react-i18next";
-import {
-  AppBootScreen,
-  AppContentLoader,
-} from "./components/AppBootScreen";
+import { AppBootScreen, AppContentLoader } from "./components/AppBootScreen";
 import { CloseWithActiveGenerationDialog } from "./components/CloseWithActiveGenerationDialog";
 import { TitleBar } from "./components/TitleBar";
 import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
@@ -28,6 +25,7 @@ import {
   collectProjectViewportImagePreloadEntries,
   preloadProjectImages,
 } from "./features/canvas/application/projectImagePreloader";
+import { stopCanvasThumbnailBackfill } from "./features/canvas/application/canvasThumbnailBackfill";
 import { CanvasProjectLoadingScreen } from "./features/canvas/ui/CanvasProjectLoadingScreen";
 import {
   checkForUpdate,
@@ -94,7 +92,7 @@ import { isTauriRuntime } from "./lib/tauriRuntime";
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
 const MIN_CANVAS_ENTRY_LOADING_MS = 420;
-const MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS = 18_000;
+const MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS = 260;
 const DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH = 1280;
 const DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT = 720;
 const MAIN_WINDOW_CLOSE_REQUEST_EVENT = "app:request-main-close";
@@ -115,7 +113,10 @@ function isWindowsUpdaterRuntime(): boolean {
   return isWindowsRuntime();
 }
 
-function resolveCanvasEntryPreloadViewportSize(): { width: number; height: number } {
+function resolveCanvasEntryPreloadViewportSize(): {
+  width: number;
+  height: number;
+} {
   if (typeof window === "undefined") {
     return {
       width: DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH,
@@ -124,9 +125,26 @@ function resolveCanvasEntryPreloadViewportSize(): { width: number; height: numbe
   }
 
   return {
-    width: Math.max(1, window.innerWidth || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH),
-    height: Math.max(1, window.innerHeight - 40 || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT),
+    width: Math.max(
+      1,
+      window.innerWidth || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH,
+    ),
+    height: Math.max(
+      1,
+      window.innerHeight - 40 || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT,
+    ),
   };
+}
+
+function logCanvasEntryTrace(
+  label: string,
+  payload: Record<string, unknown>,
+): void {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  console.debug(`[canvas-entry-trace] ${label}`, payload);
 }
 
 const CanvasScreen = lazy(() => {
@@ -153,9 +171,11 @@ const AdProjectWorkspace = lazy(() =>
   })),
 );
 const CommerceAdProjectWorkspace = lazy(() =>
-  import("./features/commerce-ad/CommerceAdProjectWorkspace").then((module) => ({
-    default: module.CommerceAdProjectWorkspace,
-  })),
+  import("./features/commerce-ad/CommerceAdProjectWorkspace").then(
+    (module) => ({
+      default: module.CommerceAdProjectWorkspace,
+    }),
+  ),
 );
 const ProjectManager = lazy(() =>
   import("./features/project/ProjectManager").then((module) => ({
@@ -277,6 +297,50 @@ interface CanvasEntryLoadingState {
   failedCount: number;
 }
 
+function CanvasExitSavingOverlay() {
+  const { t } = useTranslation();
+
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-bg-dark/80 px-6 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-lg border border-border-dark bg-surface-dark p-5 shadow-2xl">
+        <div className="mb-4">
+          <p className="text-sm font-medium text-text-dark">
+            {t("project.exitSaving.title")}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-text-muted">
+            {t("project.exitSaving.description")}
+          </p>
+        </div>
+        <div
+          className="h-1.5 overflow-hidden rounded-full bg-bg-dark"
+          role="progressbar"
+          aria-label={t("project.exitSaving.progressLabel")}
+        >
+          <div className="h-full w-1/2 animate-[canvas-exit-save_1.15s_ease-in-out_infinite] rounded-full bg-accent" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function waitForNextPaint(): Promise<void> {
+  if (typeof window === "undefined") {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    window.requestAnimationFrame(() => {
+      resolve();
+    });
+  });
+}
+
+async function waitForPaints(count: number): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await waitForNextPaint();
+  }
+}
+
 function MainApp() {
   useApplyGlobalAppearance();
   const { t } = useTranslation();
@@ -310,7 +374,8 @@ function MainApp() {
   const [showExtensions, setShowExtensions] = useState(false);
   const [showApiPlatformNotice, setShowApiPlatformNotice] = useState(false);
   const [settingsDialogLoaded, setSettingsDialogLoaded] = useState(false);
-  const [apiPlatformNoticeDialogLoaded, setApiPlatformNoticeDialogLoaded] = useState(false);
+  const [apiPlatformNoticeDialogLoaded, setApiPlatformNoticeDialogLoaded] =
+    useState(false);
   const [extensionsDialogLoaded, setExtensionsDialogLoaded] = useState(false);
   const [updateDialogLoaded, setUpdateDialogLoaded] = useState(false);
   const [dreaminaDialogLoaded, setDreaminaDialogLoaded] = useState(false);
@@ -318,8 +383,9 @@ function MainApp() {
     useState<SettingsCategory>("general");
   const [settingsInitialProviderTab, setSettingsInitialProviderTab] =
     useState<ProviderTab>("script");
-  const [settingsInitialProviderId, setSettingsInitialProviderId] =
-    useState<string | undefined>(undefined);
+  const [settingsInitialProviderId, setSettingsInitialProviderId] = useState<
+    string | undefined
+  >(undefined);
   const [showUpdateDialog, setShowUpdateDialog] = useState(false);
   const [latestVersion, setLatestVersion] = useState<string>("");
   const [currentVersion, setCurrentVersion] = useState<string>("");
@@ -343,6 +409,7 @@ function MainApp() {
   const [closeDialogActionState, setCloseDialogActionState] = useState<
     "idle" | "minimize" | "close"
   >("idle");
+  const [isCanvasExitSaving, setIsCanvasExitSaving] = useState(false);
 
   const isHydrated = useProjectStore((state) => state.isHydrated);
   const isOpeningProject = useProjectStore((state) => state.isOpeningProject);
@@ -373,6 +440,9 @@ function MainApp() {
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const flushCurrentProjectToDisk = useProjectStore(
     (state) => state.flushCurrentProjectToDisk,
+  );
+  const waitForCurrentProjectPersistenceIdle = useProjectStore(
+    (state) => state.waitForCurrentProjectPersistenceIdle,
   );
   const openJimengVideoQueueProject = useJimengVideoQueueStore(
     (state) => state.openProject,
@@ -504,13 +574,21 @@ function MainApp() {
       loadedCount: 0,
       failedCount: 0,
     });
+    logCanvasEntryTrace("entry-preload:start", {
+      projectId: currentProjectId,
+      imageCount: imageUrls.length,
+      marginScreens: canvasViewportPreloadMarginScreens,
+    });
+
+    let isEntryPreloadDisposed = false;
+    let entryPreloadTimeoutId: number | undefined;
+    const entryPreloadAbortController = new AbortController();
 
     void (async () => {
-      let entryPreloadTimeoutId: number | undefined;
-      const entryPreloadAbortController = new AbortController();
       try {
         await Promise.race([
           preloadProjectImages(imageUrls, {
+            concurrency: 2,
             signal: entryPreloadAbortController.signal,
             onProgress: ({ totalCount, loadedCount, failedCount }) => {
               if (canvasEntryPreloadRunRef.current !== runId) {
@@ -529,31 +607,50 @@ function MainApp() {
           new Promise<void>((resolve) => {
             entryPreloadTimeoutId = window.setTimeout(() => {
               console.warn(
-                `Canvas entry image preload timed out after ${MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS}ms; continuing into project.`
+                `Canvas entry image preload timed out after ${MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS}ms; continuing into project.`,
               );
               entryPreloadAbortController.abort();
               resolve();
             }, MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS);
           }),
         ]);
+      } catch (error) {
+        if (!entryPreloadAbortController.signal.aborted) {
+          console.debug("Skipped canvas entry image preload batch", error);
+        }
       } finally {
         entryPreloadAbortController.abort();
         if (typeof entryPreloadTimeoutId === "number") {
           window.clearTimeout(entryPreloadTimeoutId);
         }
+        if (isEntryPreloadDisposed) {
+          return;
+        }
 
         const elapsedMs = performance.now() - startedAt;
-        const remainingMs = Math.max(0, MIN_CANVAS_ENTRY_LOADING_MS - elapsedMs);
+        const remainingMs = Math.max(
+          0,
+          MIN_CANVAS_ENTRY_LOADING_MS - elapsedMs,
+        );
         if (remainingMs > 0) {
           await new Promise<void>((resolve) => {
             window.setTimeout(resolve, remainingMs);
           });
         }
 
+        if (isEntryPreloadDisposed) {
+          return;
+        }
+
         if (canvasEntryPreloadRunRef.current !== runId) {
           return;
         }
 
+        logCanvasEntryTrace("entry-preload:done", {
+          projectId: currentProjectId,
+          imageCount: imageUrls.length,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
         canvasEntryPreloadRunRef.current += 1;
         setCanvasEntryLoadingState({
           projectId: null,
@@ -564,7 +661,33 @@ function MainApp() {
         });
       }
     })();
-  }, [canvasViewportPreloadMarginScreens, currentProjectId, currentProjectType]);
+
+    return () => {
+      isEntryPreloadDisposed = true;
+      entryPreloadAbortController.abort();
+      if (typeof entryPreloadTimeoutId === "number") {
+        window.clearTimeout(entryPreloadTimeoutId);
+      }
+      if (canvasEntryPreloadRunRef.current === runId) {
+        canvasEntryPreloadRunRef.current += 1;
+      }
+      setCanvasEntryLoadingState((currentState) =>
+        currentState.projectId === currentProjectId
+          ? {
+              projectId: null,
+              phase: "project",
+              totalCount: 0,
+              loadedCount: 0,
+              failedCount: 0,
+            }
+          : currentState,
+      );
+    };
+  }, [
+    canvasViewportPreloadMarginScreens,
+    currentProjectId,
+    currentProjectType,
+  ]);
 
   const isCanvasEntryLoading =
     currentProjectType !== "ad" &&
@@ -588,32 +711,34 @@ function MainApp() {
     ],
   );
 
-  const clipLibraryPanelProjectContext = useMemo<ClipLibraryPanelProjectContext>(
-    () => ({
-      projectId: currentProjectId,
-      projectName: currentProjectName,
-      projectType: currentProjectType,
-      clipLibraryId: currentProjectClipLibraryId,
-      clipLastFolderId: currentProjectClipLastFolderId,
-    }),
-    [
-      currentProjectClipLastFolderId,
-      currentProjectClipLibraryId,
-      currentProjectId,
-      currentProjectName,
-      currentProjectType,
-    ],
-  );
+  const clipLibraryPanelProjectContext =
+    useMemo<ClipLibraryPanelProjectContext>(
+      () => ({
+        projectId: currentProjectId,
+        projectName: currentProjectName,
+        projectType: currentProjectType,
+        clipLibraryId: currentProjectClipLibraryId,
+        clipLastFolderId: currentProjectClipLastFolderId,
+      }),
+      [
+        currentProjectClipLastFolderId,
+        currentProjectClipLibraryId,
+        currentProjectId,
+        currentProjectName,
+        currentProjectType,
+      ],
+    );
   useEffect(() => {
     if (!isTauriRuntime()) {
       return;
     }
 
-    void emitToAssetPanel(ASSET_PANEL_CONTEXT_EVENT, assetPanelProjectContext).catch(
-      (error) => {
-        console.warn("failed to sync asset panel context", error);
-      },
-    );
+    void emitToAssetPanel(
+      ASSET_PANEL_CONTEXT_EVENT,
+      assetPanelProjectContext,
+    ).catch((error) => {
+      console.warn("failed to sync asset panel context", error);
+    });
   }, [assetPanelProjectContext]);
 
   useEffect(() => {
@@ -648,7 +773,10 @@ function MainApp() {
             ASSET_PANEL_CONTEXT_EVENT,
             assetPanelProjectContext,
           ).catch((error) => {
-            console.warn("failed to deliver initial asset panel context", error);
+            console.warn(
+              "failed to deliver initial asset panel context",
+              error,
+            );
           });
         },
       );
@@ -658,12 +786,11 @@ function MainApp() {
       }
       unlistenAssetPanelReady = nextUnlistenAssetPanelReady;
 
-      const nextUnlistenAssetPanelLibraryChange = await appWindow.listen<string | null>(
-        ASSET_PANEL_SET_LIBRARY_EVENT,
-        (event) => {
-          setCurrentProjectAssetLibrary(event.payload?.trim() || null);
-        },
-      );
+      const nextUnlistenAssetPanelLibraryChange = await appWindow.listen<
+        string | null
+      >(ASSET_PANEL_SET_LIBRARY_EVENT, (event) => {
+        setCurrentProjectAssetLibrary(event.payload?.trim() || null);
+      });
       if (disposed) {
         nextUnlistenAssetPanelLibraryChange();
         return;
@@ -703,7 +830,10 @@ function MainApp() {
             CLIP_LIBRARY_PANEL_CONTEXT_EVENT,
             clipLibraryPanelProjectContext,
           ).catch((error) => {
-            console.warn("failed to deliver initial clip library panel context", error);
+            console.warn(
+              "failed to deliver initial clip library panel context",
+              error,
+            );
           });
 
           if (queuedNavigation.libraryId !== undefined) {
@@ -711,7 +841,10 @@ function MainApp() {
               CLIP_LIBRARY_PANEL_SET_LIBRARY_EVENT,
               queuedNavigation.libraryId,
             ).catch((error) => {
-              console.warn("failed to deliver queued clip library selection", error);
+              console.warn(
+                "failed to deliver queued clip library selection",
+                error,
+              );
             });
           }
 
@@ -720,7 +853,10 @@ function MainApp() {
               CLIP_LIBRARY_PANEL_FOCUS_TARGET_EVENT,
               queuedNavigation.focusTarget,
             ).catch((error) => {
-              console.warn("failed to deliver queued clip library focus target", error);
+              console.warn(
+                "failed to deliver queued clip library focus target",
+                error,
+              );
             });
           }
         },
@@ -786,13 +922,15 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
-    const unsubscribe = subscribeOpenSettingsDialog(({ category, providerTab, providerId }) => {
-      setSettingsInitialCategory(category ?? "general");
-      setSettingsInitialProviderTab(providerTab ?? "script");
-      setSettingsInitialProviderId(providerId);
-      setSettingsDialogLoaded(true);
-      setShowSettings(true);
-    });
+    const unsubscribe = subscribeOpenSettingsDialog(
+      ({ category, providerTab, providerId }) => {
+        setSettingsInitialCategory(category ?? "general");
+        setSettingsInitialProviderTab(providerTab ?? "script");
+        setSettingsInitialProviderId(providerId);
+        setSettingsDialogLoaded(true);
+        setShowSettings(true);
+      },
+    );
     return unsubscribe;
   }, []);
 
@@ -822,21 +960,18 @@ function MainApp() {
     }
   }, [showUpdateDialog]);
 
-  const openUpdateDialogForResult = useCallback(
-    (result: UpdateCheckResult) => {
-      setLatestVersion(result.latestVersion ?? "");
-      setCurrentVersion(result.currentVersion ?? "");
-      setUpdateReleaseNotes(result.releaseNotes ?? "");
-      setUpdatePublishedAt(result.publishedAt ?? "");
-      setUpdateDialogErrorCode(result.error ?? null);
-      setUpdateCanInstallInApp(isWindowsUpdaterRuntime() && !result.error);
-      setUpdateInstallState("idle");
-      setUpdateDownloadProgress(null);
-      setUpdateDialogLoaded(true);
-      setShowUpdateDialog(true);
-    },
-    [],
-  );
+  const openUpdateDialogForResult = useCallback((result: UpdateCheckResult) => {
+    setLatestVersion(result.latestVersion ?? "");
+    setCurrentVersion(result.currentVersion ?? "");
+    setUpdateReleaseNotes(result.releaseNotes ?? "");
+    setUpdatePublishedAt(result.publishedAt ?? "");
+    setUpdateDialogErrorCode(result.error ?? null);
+    setUpdateCanInstallInApp(isWindowsUpdaterRuntime() && !result.error);
+    setUpdateInstallState("idle");
+    setUpdateDownloadProgress(null);
+    setUpdateDialogLoaded(true);
+    setShowUpdateDialog(true);
+  }, []);
 
   useEffect(() => {
     if (dreaminaSetupDetail) {
@@ -988,6 +1123,42 @@ function MainApp() {
       currentProjectType !== "ad" &&
       hasActiveCanvasGeneration);
 
+  const handleProjectBackClick = useCallback(async () => {
+    if (!currentProjectId || isCanvasExitSaving) {
+      return;
+    }
+
+    setIsCanvasExitSaving(true);
+    try {
+      await waitForNextPaint();
+      await flushCurrentProjectToDisk();
+      await waitForCurrentProjectPersistenceIdle();
+      await stopCanvasThumbnailBackfill();
+      closeProject({ skipPersist: true });
+      await waitForPaints(2);
+      await waitForCurrentProjectPersistenceIdle();
+    } catch (error) {
+      console.error("failed to save project before leaving canvas", error);
+      setGlobalError({
+        title: t("project.exitSaving.errorTitle"),
+        message: t("project.exitSaving.errorMessage"),
+        details:
+          error instanceof Error
+            ? error.stack || error.message
+            : String(error),
+      });
+    } finally {
+      setIsCanvasExitSaving(false);
+    }
+  }, [
+    closeProject,
+    currentProjectId,
+    flushCurrentProjectToDisk,
+    isCanvasExitSaving,
+    t,
+    waitForCurrentProjectPersistenceIdle,
+  ]);
+
   const requestWindowClose = useCallback(async () => {
     if (isWindowCloseInProgressRef.current) {
       return;
@@ -1023,10 +1194,7 @@ function MainApp() {
 
     setCloseDialogActionState("idle");
     setShowAppCloseDialog(true);
-  }, [
-    closeDialogActionState,
-    showAppCloseDialog,
-  ]);
+  }, [closeDialogActionState, showAppCloseDialog]);
 
   const handleMinimizeToTray = useCallback(async () => {
     if (closeDialogActionState !== "idle") {
@@ -1202,12 +1370,15 @@ function MainApp() {
             clipLibraryId: libraryId,
             clipFolderId: clipLastFolderId,
           }
-        : null
+        : null,
     );
     await openClipLibraryPanelWindow(t("clipLibrary.windowTitle"));
 
     if (libraryId) {
-      await emitToClipLibraryPanel(CLIP_LIBRARY_PANEL_SET_LIBRARY_EVENT, libraryId);
+      await emitToClipLibraryPanel(
+        CLIP_LIBRARY_PANEL_SET_LIBRARY_EVENT,
+        libraryId,
+      );
       if (clipLastFolderId) {
         await emitToClipLibraryPanel(CLIP_LIBRARY_PANEL_FOCUS_TARGET_EVENT, {
           clipLibraryId: libraryId,
@@ -1234,7 +1405,8 @@ function MainApp() {
         }}
         onCloseRequest={handleMainWindowCloseIntent}
         showBackButton={!!currentProjectId}
-        onBackClick={closeProject}
+        onBackClick={handleProjectBackClick}
+        isBackDisabled={isCanvasExitSaving}
         projectName={currentProjectName}
         projectType={currentProjectType}
       />
@@ -1245,7 +1417,9 @@ function MainApp() {
             {!shouldRenderProjectWorkspace && shouldShowProjectLoader ? (
               <CanvasProjectLoadingScreen
                 projectName={currentProjectName}
-                phase={currentProjectId ? canvasEntryLoadingState.phase : "project"}
+                phase={
+                  currentProjectId ? canvasEntryLoadingState.phase : "project"
+                }
                 totalCount={canvasEntryLoadingState.totalCount}
                 loadedCount={canvasEntryLoadingState.loadedCount}
                 failedCount={canvasEntryLoadingState.failedCount}
@@ -1263,7 +1437,11 @@ function MainApp() {
                   <div className="absolute inset-0 z-20">
                     <CanvasProjectLoadingScreen
                       projectName={currentProjectName}
-                      phase={currentProjectId ? canvasEntryLoadingState.phase : "project"}
+                      phase={
+                        currentProjectId
+                          ? canvasEntryLoadingState.phase
+                          : "project"
+                      }
                       totalCount={canvasEntryLoadingState.totalCount}
                       loadedCount={canvasEntryLoadingState.loadedCount}
                       failedCount={canvasEntryLoadingState.failedCount}
@@ -1278,6 +1456,7 @@ function MainApp() {
         ) : (
           <AppBootScreen />
         )}
+        {isCanvasExitSaving ? <CanvasExitSavingOverlay /> : null}
       </main>
 
       {apiPlatformNoticeDialogLoaded ? (

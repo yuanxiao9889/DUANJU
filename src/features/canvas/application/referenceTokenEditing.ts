@@ -22,6 +22,7 @@ interface TokenRange extends TextRange {
 
 export const SHORT_REFERENCE_TOKEN_PREFIX = '@\u56fe';
 export const LONG_REFERENCE_TOKEN_PREFIX = '@\u56fe\u7247';
+const FULLWIDTH_AT_SIGN = '\uFF20';
 const REFERENCE_TOKEN_PREFIXES = [
   LONG_REFERENCE_TOKEN_PREFIX,
   SHORT_REFERENCE_TOKEN_PREFIX,
@@ -67,6 +68,11 @@ function resolveReferenceTokenPrefix(text: string, index: number): string | null
   for (const prefix of REFERENCE_TOKEN_PREFIXES) {
     if (text.startsWith(prefix, index)) {
       return prefix;
+    }
+
+    const fullwidthPrefix = `${FULLWIDTH_AT_SIGN}${prefix.slice(1)}`;
+    if (text.startsWith(fullwidthPrefix, index)) {
+      return fullwidthPrefix;
     }
   }
 
@@ -161,10 +167,15 @@ export function remapReferenceTokensByImageOrder(
       continue;
     }
 
+    const usesFullwidthAt = token.token.startsWith(FULLWIDTH_AT_SIGN);
     const tokenPrefix = token.token.startsWith(LONG_REFERENCE_TOKEN_PREFIX)
+      || token.token.startsWith(`${FULLWIDTH_AT_SIGN}${LONG_REFERENCE_TOKEN_PREFIX.slice(1)}`)
       ? LONG_REFERENCE_TOKEN_PREFIX
       : SHORT_REFERENCE_TOKEN_PREFIX;
-    const nextToken = buildReferenceTokenWithPrefix(tokenPrefix, nextImageIndex + 1);
+    const nextPrefix = usesFullwidthAt
+      ? `${FULLWIDTH_AT_SIGN}${tokenPrefix.slice(1)}`
+      : tokenPrefix;
+    const nextToken = buildReferenceTokenWithPrefix(nextPrefix, nextImageIndex + 1);
     if (nextToken === token.token) {
       continue;
     }
@@ -248,11 +259,23 @@ export function findNamedReferenceTokens(
   }
 
   const normalizedCandidates = candidates
-    .map((candidate) => ({
-      tokenLabel: candidate.tokenLabel.trim(),
-      value: candidate.value,
-    }))
-    .filter((candidate) => candidate.tokenLabel.startsWith('@') && candidate.tokenLabel.length > 1)
+    .flatMap((candidate) => {
+      const tokenLabel = candidate.tokenLabel.trim();
+      if (!tokenLabel.startsWith('@') || tokenLabel.length <= 1) {
+        return [];
+      }
+
+      return [
+        {
+          tokenLabel,
+          value: candidate.value,
+        },
+        {
+          tokenLabel: `${FULLWIDTH_AT_SIGN}${tokenLabel.slice(1)}`,
+          value: candidate.value,
+        },
+      ];
+    })
     .sort((left, right) => right.tokenLabel.length - left.tokenLabel.length);
   if (normalizedCandidates.length === 0) {
     return [];
@@ -260,7 +283,7 @@ export function findNamedReferenceTokens(
 
   const tokens: ReferenceTokenMatch[] = [];
   for (let index = 0; index < text.length; index += 1) {
-    if (text[index] !== '@') {
+    if (text[index] !== '@' && text[index] !== FULLWIDTH_AT_SIGN) {
       continue;
     }
 

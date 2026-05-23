@@ -489,6 +489,9 @@ export const Panorama360Node = memo(
         geometry.dispose();
         textureRef.current?.dispose();
         textureRef.current = null;
+        renderer.forceContextLoss();
+        renderer.domElement.width = 1;
+        renderer.domElement.height = 1;
         if (host.contains(renderer.domElement)) {
           host.removeChild(renderer.domElement);
         }

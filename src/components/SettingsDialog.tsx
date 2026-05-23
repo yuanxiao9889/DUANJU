@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight, FileWarning } from 'lucide-react';
+import { X, Eye, EyeOff, FolderOpen, Plus, Trash2, Maximize2, Minimize2, HardDrive, Circle, Keyboard, RotateCcw, ChevronDown, ChevronRight, FileWarning, RefreshCw, AlertTriangle } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { getVersion } from '@tauri-apps/api/app';
@@ -98,6 +98,12 @@ import {
   type MidjourneyProviderId,
 } from '@/features/midjourney/domain/providers';
 import { openDreaminaSetupDialog } from '@/features/jimeng/dreaminaSetupDialogEvents';
+import {
+  getCanvasThumbnailRefreshProgress,
+  startCanvasThumbnailRefresh,
+  subscribeCanvasThumbnailRefreshProgress,
+  type CanvasThumbnailRefreshProgress,
+} from '@/features/canvas/application/canvasThumbnailRefresh';
 
 type AppUpdateCheckResult = 'has-update' | 'up-to-date' | 'failed';
 
@@ -215,6 +221,14 @@ const ABOUT_FEEDBACK_QR_SRC = '/community-qq-835213642.jpg';
 const MASKED_API_KEY_INPUT_STYLE = {
   WebkitTextSecurity: 'disc',
 } as unknown as CSSProperties;
+const IDLE_CANVAS_THUMBNAIL_REFRESH_PROGRESS: CanvasThumbnailRefreshProgress = {
+  projectId: null,
+  thumbnailMaxDimension: null,
+  total: 0,
+  completed: 0,
+  failed: 0,
+  status: 'idle',
+};
 
 function resolveErrorLogDiagnosticId(record: ErrorLogItemRecord | undefined): string | null {
   if (!record) {
@@ -776,6 +790,9 @@ export function SettingsDialog({
   const [restoreBackupTarget, setRestoreBackupTarget] = useState<DatabaseBackupRecord | null>(null);
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
+  const [isThumbnailRefreshConfirmOpen, setIsThumbnailRefreshConfirmOpen] = useState(false);
+  const [thumbnailRefreshProgress, setThumbnailRefreshProgress] =
+    useState<CanvasThumbnailRefreshProgress>(() => getCanvasThumbnailRefreshProgress());
 
   const handleLocalAutoCheckAppUpdateOnLaunchChange = useCallback((enabled: boolean) => {
     setLocalAutoCheckAppUpdateOnLaunch(enabled);
@@ -998,6 +1015,14 @@ export function SettingsDialog({
     setActiveCategory(normalizeSettingsCategory(initialCategory));
     setLocalProviderTab(initialProviderTab);
   }, [initialCategory, initialProviderTab, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    return subscribeCanvasThumbnailRefreshProgress(setThumbnailRefreshProgress);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !initialProviderId) {
@@ -1626,7 +1651,7 @@ export function SettingsDialog({
     }
   }, [isCheckingAppUpdate, onCheckUpdate]);
 
-  const handleSave = useCallback(() => {
+  const applySettingsChanges = useCallback(() => {
     scriptProviders.forEach((provider) => {
       setScriptProviderApiKey(provider.id, localScriptApiKeys[provider.id] ?? '');
     });
@@ -1711,7 +1736,6 @@ export function SettingsDialog({
     setPsIntegrationEnabled(localPsIntegrationEnabled);
     setPsServerPort(localPsServerPort);
     setPsAutoStartServer(localPsAutoStartServer);
-    onClose();
   }, [
     localScriptApiKeys,
     localStoryboardApiKeys,
@@ -1795,9 +1819,78 @@ export function SettingsDialog({
     setPsIntegrationEnabled,
     setPsServerPort,
     setPsAutoStartServer,
-    onClose,
     localScriptProviderEnabled,
   ]);
+
+  const handleSave = useCallback(() => {
+    applySettingsChanges();
+    onClose();
+  }, [applySettingsChanges, onClose]);
+
+  const isThumbnailRefreshRunning = thumbnailRefreshProgress.status === 'running';
+  const hasThumbnailRefreshResult =
+    thumbnailRefreshProgress.status === 'completed' ||
+    thumbnailRefreshProgress.status === 'failed';
+  const thumbnailRefreshProgressText = useMemo(() => {
+    if (isThumbnailRefreshRunning) {
+      return t('settings.canvasThumbnailRefreshProgress', {
+        done: thumbnailRefreshProgress.completed,
+        total: thumbnailRefreshProgress.total,
+        failed: thumbnailRefreshProgress.failed,
+      });
+    }
+
+    if (thumbnailRefreshProgress.status === 'completed') {
+      return thumbnailRefreshProgress.total > 0
+        ? t('settings.canvasThumbnailRefreshCompleted')
+        : t('settings.canvasThumbnailRefreshEmpty');
+    }
+
+    if (thumbnailRefreshProgress.status === 'failed') {
+      return t('settings.canvasThumbnailRefreshProgress', {
+        done: thumbnailRefreshProgress.completed,
+        total: thumbnailRefreshProgress.total,
+        failed: thumbnailRefreshProgress.failed,
+      });
+    }
+
+    return '';
+  }, [
+    isThumbnailRefreshRunning,
+    t,
+    thumbnailRefreshProgress.completed,
+    thumbnailRefreshProgress.failed,
+    thumbnailRefreshProgress.status,
+    thumbnailRefreshProgress.total,
+  ]);
+
+  const handleRequestThumbnailRefresh = useCallback(() => {
+    setCanvasOverviewThumbnailMaxDimension(localCanvasOverviewThumbnailMaxDimension);
+    setIsThumbnailRefreshConfirmOpen(true);
+  }, [
+    localCanvasOverviewThumbnailMaxDimension,
+    setCanvasOverviewThumbnailMaxDimension,
+  ]);
+
+  const handleConfirmThumbnailRefresh = useCallback(() => {
+    const currentProject = useProjectStore.getState().currentProject;
+    if (!currentProject) {
+      setThumbnailRefreshProgress({
+        ...IDLE_CANVAS_THUMBNAIL_REFRESH_PROGRESS,
+        status: 'completed',
+      });
+      setIsThumbnailRefreshConfirmOpen(false);
+      return;
+    }
+
+    const thumbnailMaxDimension = localCanvasOverviewThumbnailMaxDimension;
+    setIsThumbnailRefreshConfirmOpen(false);
+    void startCanvasThumbnailRefresh({
+      projectId: currentProject.id,
+      thumbnailMaxDimension,
+      onProgress: setThumbnailRefreshProgress,
+    });
+  }, [localCanvasOverviewThumbnailMaxDimension]);
 
   const displayedGroupNodesShortcut = useMemo(
     () => formatShortcutForDisplay(localGroupNodesShortcut),
@@ -3273,21 +3366,37 @@ export function SettingsDialog({
                         <span className="mt-1 block text-[11px] leading-5 text-text-muted">
                           {t('settings.canvasOverviewThumbnailSizeDesc')}
                         </span>
-                        <UiSelect
-                          value={String(localCanvasOverviewThumbnailMaxDimension)}
-                          onChange={(event) =>
-                            setLocalCanvasOverviewThumbnailMaxDimension(
-                              Number(event.target.value) as CanvasOverviewThumbnailMaxDimension
-                            )
-                          }
-                          className="mt-2 h-9 text-sm"
-                        >
-                          {CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS.map((dimension) => (
-                            <option key={dimension} value={dimension}>
-                              {t('settings.canvasOverviewThumbnailSizeOption', { size: dimension })}
-                            </option>
-                          ))}
-                        </UiSelect>
+                        <div className="mt-2 flex gap-2">
+                          <UiSelect
+                            value={String(localCanvasOverviewThumbnailMaxDimension)}
+                            onChange={(event) =>
+                              setLocalCanvasOverviewThumbnailMaxDimension(
+                                Number(event.target.value) as CanvasOverviewThumbnailMaxDimension
+                              )
+                            }
+                            className="h-9 min-w-0 flex-1 text-sm"
+                          >
+                            {CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS.map((dimension) => (
+                              <option key={dimension} value={dimension}>
+                                {t('settings.canvasOverviewThumbnailSizeOption', { size: dimension })}
+                              </option>
+                            ))}
+                          </UiSelect>
+                          <button
+                            type="button"
+                            onClick={handleRequestThumbnailRefresh}
+                            disabled={isThumbnailRefreshRunning}
+                            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded border border-border-dark bg-surface-dark px-3 text-xs font-medium text-text-dark transition-colors hover:bg-bg-dark disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${isThumbnailRefreshRunning ? 'animate-spin' : ''}`} />
+                            {t('settings.canvasThumbnailRefreshNow')}
+                          </button>
+                        </div>
+                        {(isThumbnailRefreshRunning || hasThumbnailRefreshResult) && thumbnailRefreshProgressText ? (
+                          <span className="mt-1 block text-[11px] leading-5 text-text-muted">
+                            {thumbnailRefreshProgressText}
+                          </span>
+                        ) : null}
                       </label>
 
                       <label className="block">
@@ -4415,6 +4524,46 @@ export function SettingsDialog({
           <div className="rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-xs text-text-muted">
             <div className="text-text-dark">{restoreBackupTarget?.id ?? ''}</div>
             <div className="mt-1">{t('settings.restoreBackupSafetyNote')}</div>
+          </div>
+        </div>
+      </UiModal>
+      <UiModal
+        isOpen={isThumbnailRefreshConfirmOpen}
+        title={t('settings.canvasThumbnailRefreshConfirmTitle')}
+        onClose={() => setIsThumbnailRefreshConfirmOpen(false)}
+        widthClassName="w-[420px]"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setIsThumbnailRefreshConfirmOpen(false)}
+              className="inline-flex h-10 items-center justify-center rounded border border-border-dark bg-surface-dark px-3.5 text-sm font-medium text-text-dark transition-colors hover:bg-bg-dark"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmThumbnailRefresh}
+              className="inline-flex h-10 items-center justify-center rounded bg-amber-500 px-3.5 text-sm font-medium text-white transition-colors hover:bg-amber-400"
+            >
+              {t('settings.canvasThumbnailRefreshConfirmAction')}
+            </button>
+          </>
+        }
+      >
+        <div className="flex gap-3">
+          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-300">
+            <AlertTriangle className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 space-y-2">
+            <p className="text-sm leading-6 text-text-dark">
+              {t('settings.canvasThumbnailRefreshConfirmDesc')}
+            </p>
+            <p className="text-xs leading-5 text-text-muted">
+              {t('settings.canvasThumbnailRefreshConfirmSize', {
+                size: localCanvasOverviewThumbnailMaxDimension,
+              })}
+            </p>
           </div>
         </div>
       </UiModal>

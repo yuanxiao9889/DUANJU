@@ -392,6 +392,7 @@ function createConnectedReferenceImagesSelector(nodeId: string) {
           sourceNodeId: sourceNode.id,
           imageUrl: normalizedImageUrl,
           previewImageUrl: normalizedPreviewImageUrl || null,
+          viewerMetadata: item.viewerMetadata ?? null,
         });
       }
     });
@@ -449,6 +450,7 @@ function createConnectedReferenceVisualsSelector(nodeId: string) {
           assetId: item.assetId ?? null,
           displayName: item.displayName ?? null,
           tokenAlias: item.tokenAlias ?? null,
+          viewerMetadata: item.viewerMetadata ?? null,
         });
       }
     });

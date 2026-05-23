@@ -23,7 +23,8 @@ interface TitleBarProps {
   onSettingsClick: () => void;
   onCloseRequest?: () => Promise<void> | void;
   showBackButton?: boolean;
-  onBackClick?: () => void;
+  onBackClick?: () => Promise<void> | void;
+  isBackDisabled?: boolean;
   projectName?: string | null;
   projectType?: ProjectType | null;
 }
@@ -35,6 +36,7 @@ export function TitleBar({
   onCloseRequest,
   showBackButton,
   onBackClick,
+  isBackDisabled = false,
   projectName,
   projectType,
 }: TitleBarProps) {
@@ -256,12 +258,13 @@ export function TitleBar({
           <button
             type="button"
             data-no-drag="true"
+            disabled={isBackDisabled}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
               onBackClick();
             }}
-            className="mr-3 p-1 hover:bg-bg-dark rounded transition-colors"
+            className="mr-3 p-1 hover:bg-bg-dark rounded transition-colors disabled:cursor-wait disabled:opacity-50 disabled:hover:bg-transparent"
             title={t('titleBar.back')}
           >
             <ArrowLeft className="w-4 h-4 text-text-muted hover:text-text-dark" />

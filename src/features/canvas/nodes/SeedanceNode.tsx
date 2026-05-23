@@ -67,6 +67,7 @@ import {
   type SeedanceInputMode,
   type SeedanceModelId,
   type SeedanceNodeData,
+  type ImageViewerMetadata,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import {
@@ -147,6 +148,7 @@ interface ReferenceVisualItem {
   durationSeconds: number | null;
   assetId: string | null;
   displayName: string | null;
+  viewerMetadata: ImageViewerMetadata | null;
 }
 
 interface ReferenceAudioItem {
@@ -223,6 +225,7 @@ const SEEDANCE_VIDEO_NODE_MAX_HEIGHT = 1040;
 const SEEDANCE_NODE_MAIN_WIDTH_RATIO = 0.6;
 const PICKER_Y_OFFSET_PX = 20;
 const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(["@", "\uFF20"]);
+const FULLWIDTH_AT_SIGN = "\uFF20";
 const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
 const AUDIO_SHORT_REFERENCE_TOKEN_PREFIX = "@音";
 const AUDIO_LONG_REFERENCE_TOKEN_PREFIX = "@音频";
@@ -326,6 +329,11 @@ function resolveReferenceTokenPrefix(
   for (const prefix of prefixes) {
     if (text.startsWith(prefix, index)) {
       return prefix;
+    }
+
+    const fullwidthPrefix = `${FULLWIDTH_AT_SIGN}${prefix.slice(1)}`;
+    if (text.startsWith(fullwidthPrefix, index)) {
+      return fullwidthPrefix;
     }
   }
 
@@ -690,6 +698,7 @@ function ReferenceVisualCard({ item }: { item: ReferenceVisualItem }) {
               src={item.displayUrl}
               alt={item.label}
               viewerSourceUrl={item.displayUrl}
+              viewerMetadata={item.viewerMetadata}
               className="h-full w-full object-cover"
               draggable={false}
             />
@@ -929,6 +938,7 @@ export const SeedanceNode = memo(
             durationSeconds: item.durationSeconds ?? null,
             assetId: item.assetId ?? null,
             displayName: item.displayName ?? null,
+            viewerMetadata: item.viewerMetadata ?? null,
           };
         }),
       [connectedVisuals, t],
@@ -1112,11 +1122,11 @@ export const SeedanceNode = memo(
     );
 
     const headerStatus = useMemo(() => {
-      if (data.isSubmitting || data.isGenerating) {
+      if (data.isSubmitting) {
         return (
           <NodeStatusBadge
             icon={<Loader2 className="h-3 w-3" />}
-            label={data.isSubmitting ? t("node.seedance.submitting") : t("nodeStatus.generating")}
+            label={t("node.seedance.submitting")}
             tone="processing"
             animate
           />
@@ -1135,7 +1145,7 @@ export const SeedanceNode = memo(
       }
 
       return null;
-    }, [data.isGenerating, data.isSubmitting, data.lastError, promptOptimizationError, t]);
+    }, [data.isSubmitting, data.lastError, promptOptimizationError, t]);
 
     const modeHintKey = `node.seedance.modeHints.${selectedInputMode}`;
     const shotParamsTriggerTitle = t("shotParams.trigger");
@@ -1779,6 +1789,7 @@ export const SeedanceNode = memo(
       if (validationError) {
         updateSeedanceNodeData({
           isSubmitting: false,
+          isGenerating: false,
           lastError: validationError,
         });
         if (!apiKey) {
@@ -1798,6 +1809,7 @@ export const SeedanceNode = memo(
 
       updateSeedanceNodeData({
         isSubmitting: true,
+        isGenerating: false,
         lastError: null,
       });
 
@@ -1889,6 +1901,7 @@ export const SeedanceNode = memo(
             const submittedAt = Date.now();
             updateSeedanceNodeData({
               isSubmitting: false,
+              isGenerating: false,
               lastSubmittedAt: submittedAt,
               lastError: null,
             });
@@ -1933,6 +1946,7 @@ export const SeedanceNode = memo(
         );
         updateSeedanceNodeData({
           isSubmitting: false,
+          isGenerating: false,
           lastError: content.message,
         });
         if (createdResultNodeId) {
@@ -2040,7 +2054,7 @@ export const SeedanceNode = memo(
             ? t("node.seedance.lastSubmitted", { time: lastSubmittedTime })
             : t(modeHintKey))));
     const showBlockingOverlay = Boolean(
-      data.isSubmitting || data.isGenerating || isOptimizingPrompt,
+      data.isSubmitting || isOptimizingPrompt,
     );
     const handleReferenceSourceHighlight = useCallback(
       (sourceNodeId: string) => {
@@ -2119,6 +2133,7 @@ export const SeedanceNode = memo(
                             alt={item.label}
                             className="h-10 w-10 shrink-0 rounded object-cover"
                             viewerSourceUrl={item.displayUrl}
+                            viewerMetadata={item.viewerMetadata}
                             disableViewer
                             draggable={false}
                           />
@@ -2243,6 +2258,10 @@ export const SeedanceNode = memo(
                             tokenLabel: "",
                             assetId: null,
                             displayName: null,
+                            viewerMetadata:
+                              referenceVisualItems.find(
+                                (item) => item.referenceUrl === promptReferencePreview.imageUrl,
+                              )?.viewerMetadata ?? null,
                           }}
                         />
                       </div>
@@ -2294,6 +2313,11 @@ export const SeedanceNode = memo(
                               alt={item.label}
                               className="h-8 w-8 object-cover"
                               viewerSourceUrl={item.displayUrl}
+                              viewerMetadata={
+                                referenceVisualItems.find(
+                                  (visual) => visual.tokenLabel === item.tokenLabel,
+                                )?.viewerMetadata ?? null
+                              }
                               disableViewer
                               draggable={false}
                             />
@@ -2357,6 +2381,7 @@ export const SeedanceNode = memo(
                           highlightedReferenceSourceNodeId ===
                           item.sourceNodeId
                         }
+                        viewerMetadata={item.viewerMetadata}
                         onMouseDown={(event) => {
                           event.stopPropagation();
                           if (event.button !== 0) {

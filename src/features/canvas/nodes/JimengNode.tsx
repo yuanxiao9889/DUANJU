@@ -39,6 +39,7 @@ import {
   type JimengReferenceMode,
   type JimengVideoModelId,
   type JimengVideoResolution,
+  type ImageViewerMetadata,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
 import {
@@ -175,6 +176,7 @@ interface IncomingReferenceVisualItem {
   durationSeconds: number | null;
   assetId: string | null;
   displayName: string | null;
+  viewerMetadata: ImageViewerMetadata | null;
 }
 
 interface IncomingAudioItem {
@@ -213,6 +215,7 @@ function ReferenceVisualThumbnail({
   imageClassName,
   placeholderClassName,
   viewerImageList,
+  viewerMetadata,
   disableViewer = false,
   showVideoBadge = true,
 }: {
@@ -223,6 +226,7 @@ function ReferenceVisualThumbnail({
   imageClassName: string;
   placeholderClassName: string;
   viewerImageList?: string[];
+  viewerMetadata?: ImageViewerMetadata | null;
   disableViewer?: boolean;
   showVideoBadge?: boolean;
 }) {
@@ -234,6 +238,7 @@ function ReferenceVisualThumbnail({
           alt={label}
           viewerSourceUrl={displayUrl}
           viewerImageList={viewerImageList}
+          viewerMetadata={viewerMetadata}
           className={imageClassName}
           draggable={false}
           disableViewer={disableViewer}
@@ -305,6 +310,7 @@ const DEFAULT_ASPECT_RATIO = "16:9";
 const DEFAULT_DURATION: JimengDurationSeconds = 5;
 const DEFAULT_VIDEO_RESOLUTION: JimengVideoResolution = "720p";
 const PICKER_Y_OFFSET_PX = 20;
+const FULLWIDTH_AT_SIGN = "\uFF20";
 const MAX_REFERENCE_VIDEO_DURATION_SECONDS = 15;
 const MAX_REFERENCE_VIDEO_COUNT = 3;
 const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
@@ -472,6 +478,11 @@ function resolveReferenceTokenPrefix(
   for (const prefix of prefixes) {
     if (text.startsWith(prefix, index)) {
       return prefix;
+    }
+
+    const fullwidthPrefix = `${FULLWIDTH_AT_SIGN}${prefix.slice(1)}`;
+    if (text.startsWith(fullwidthPrefix, index)) {
+      return fullwidthPrefix;
     }
   }
 
@@ -1302,6 +1313,7 @@ export const JimengNode = memo(
               durationSeconds: connectedItem.durationSeconds ?? null,
               assetId: connectedItem.assetId ?? null,
               displayName: connectedItem.displayName ?? null,
+              viewerMetadata: connectedItem.viewerMetadata ?? null,
             };
           })
           .filter((item): item is IncomingReferenceVisualItem => item !== null),
@@ -2671,7 +2683,10 @@ export const JimengNode = memo(
           }
         }
 
-        if (event.key === "@" && referencePickerItems.length > 0) {
+        if (
+          (event.key === "@" || event.key === "\uFF20") &&
+          referencePickerItems.length > 0
+        ) {
           event.preventDefault();
           event.stopPropagation();
           const selection =
@@ -3150,6 +3165,7 @@ export const JimengNode = memo(
                       imageClassName="h-10 w-10 shrink-0 rounded object-cover"
                       placeholderClassName="flex h-10 w-10 shrink-0 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
                       viewerImageList={incomingVisualDisplayList}
+                      viewerMetadata={item.viewerMetadata}
                     />
                   ))}
                 </div>
@@ -3256,6 +3272,11 @@ export const JimengNode = memo(
                         imageClassName="block max-h-[132px] max-w-[144px] rounded-xl object-contain"
                         placeholderClassName="flex h-[132px] w-[144px] items-center justify-center rounded-xl border border-white/10 bg-black/70 text-text-dark"
                         viewerImageList={incomingVisualDisplayList}
+                        viewerMetadata={
+                          incomingVisualItems.find(
+                            (item) => item.referenceUrl === promptReferencePreview.imageUrl,
+                          )?.viewerMetadata ?? null
+                        }
                         showVideoBadge={false}
                       />
                       {promptReferencePreview.kind === "video" ? (
@@ -3321,6 +3342,11 @@ export const JimengNode = memo(
                               imageClassName="h-8 w-8 rounded object-cover"
                               placeholderClassName="flex h-8 w-8 items-center justify-center rounded border border-white/10 bg-white/[0.06] text-text-muted"
                               viewerImageList={incomingVisualDisplayList}
+                              viewerMetadata={
+                                incomingVisualItems.find(
+                                  (visual) => visual.tokenLabel === item.tokenLabel,
+                                )?.viewerMetadata ?? null
+                              }
                             />
                           </div>
                         ) : (
@@ -3370,6 +3396,7 @@ export const JimengNode = memo(
                               : null
                           }
                           viewerImageList={incomingVisualDisplayList}
+                          viewerMetadata={item.viewerMetadata}
                           isActive={
                             highlightedReferenceSourceNodeId ===
                             item.sourceNodeId

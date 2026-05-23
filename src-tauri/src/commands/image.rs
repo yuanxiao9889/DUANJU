@@ -2683,8 +2683,12 @@ pub async fn ensure_local_image_preview_path(
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_asset_localhost_path, resolve_local_image_source_path, write_bytes_atomically,
+        decode_asset_localhost_path, resolve_local_image_source_path, split_sizes_from_ratios,
+        write_bytes_atomically,
     };
+    use image::{GenericImageView, Rgba, RgbaImage};
+    use std::collections::HashSet;
+    use std::io::Cursor;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -2763,5 +2767,58 @@ mod tests {
         assert_eq!(persisted, b"fresh-image");
 
         let _ = std::fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn split_grid_crops_distinct_cells_in_row_major_order() {
+        let mut source = RgbaImage::new(4, 4);
+        let colors = [
+            Rgba([255, 0, 0, 255]),
+            Rgba([0, 255, 0, 255]),
+            Rgba([0, 0, 255, 255]),
+            Rgba([255, 255, 0, 255]),
+        ];
+
+        for y in 0..4 {
+            for x in 0..4 {
+                let color_index = if y < 2 {
+                    if x < 2 { 0 } else { 1 }
+                } else if x < 2 {
+                    2
+                } else {
+                    3
+                };
+                source.put_pixel(x, y, colors[color_index]);
+            }
+        }
+
+        let image = image::DynamicImage::ImageRgba8(source);
+        let column_widths = split_sizes_from_ratios(4, 2, &[50.0, 50.0]);
+        let row_heights = split_sizes_from_ratios(4, 2, &[50.0, 50.0]);
+        let x_offsets = [0, column_widths[0]];
+        let y_offsets = [0, row_heights[0]];
+        let mut encoded_digests = HashSet::new();
+        let mut top_left_pixels = Vec::new();
+
+        for row in 0..2 {
+            for col in 0..2 {
+                let cropped = image.crop_imm(
+                    x_offsets[col as usize],
+                    y_offsets[row as usize],
+                    column_widths[col as usize],
+                    row_heights[row as usize],
+                );
+                top_left_pixels.push(cropped.get_pixel(0, 0));
+
+                let mut buffer = Cursor::new(Vec::new());
+                cropped
+                    .write_to(&mut buffer, image::ImageFormat::Png)
+                    .expect("split cell should encode");
+                encoded_digests.insert(format!("{:x}", md5::compute(buffer.get_ref())));
+            }
+        }
+
+        assert_eq!(top_left_pixels, colors);
+        assert_eq!(encoded_digests.len(), 4);
     }
 }

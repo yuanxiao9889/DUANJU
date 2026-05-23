@@ -479,28 +479,64 @@ async function preloadSingleImage(url: string, signal?: AbortSignal): Promise<vo
   );
 
   throwIfPreloadAborted(signal);
-  await withPreloadTimeout(new Promise<void>((resolve, reject) => {
-    const image = new Image();
+  const image = new Image();
+  let isSettled = false;
+  let rejectPreload: ((reason?: unknown) => void) | null = null;
 
-    if (displaySource.startsWith('asset:')) {
-      image.crossOrigin = 'anonymous';
+  const cleanup = () => {
+    image.onload = null;
+    image.onerror = null;
+    image.removeAttribute('src');
+  };
+
+  const settle = (callback: () => void) => {
+    if (isSettled) {
+      return;
     }
 
-    image.onload = () => {
-      markImageLoadSucceeded(url);
-      if (typeof image.decode === 'function') {
-        image.decode().catch(() => undefined).finally(() => resolve());
-        return;
+    isSettled = true;
+    cleanup();
+    callback();
+  };
+
+  const abortHandler = () => {
+    settle(() => {
+      rejectPreload?.(new DOMException('Image preload aborted', 'AbortError'));
+    });
+  };
+
+  try {
+    await withPreloadTimeout(new Promise<void>((resolve, reject) => {
+      rejectPreload = reject;
+
+      if (displaySource.startsWith('asset:')) {
+        image.crossOrigin = 'anonymous';
       }
 
-      resolve();
-    };
-    image.onerror = () => {
-      markImageLoadFailed(url);
-      reject(new Error(`Failed to preload image: ${url}`));
-    };
-    image.src = displaySource;
-  }), url, 'loading image element', DEFAULT_SINGLE_IMAGE_PRELOAD_TIMEOUT_MS, signal);
+      image.onload = () => {
+        markImageLoadSucceeded(url);
+        if (typeof image.decode === 'function') {
+          image.decode().catch(() => undefined).finally(() => {
+            settle(resolve);
+          });
+          return;
+        }
+
+        settle(resolve);
+      };
+      image.onerror = () => {
+        markImageLoadFailed(url);
+        settle(() => {
+          reject(new Error(`Failed to preload image: ${url}`));
+        });
+      };
+      signal?.addEventListener('abort', abortHandler, { once: true });
+      image.src = displaySource;
+    }), url, 'loading image element', DEFAULT_SINGLE_IMAGE_PRELOAD_TIMEOUT_MS, signal);
+  } finally {
+    signal?.removeEventListener('abort', abortHandler);
+    cleanup();
+  }
 }
 
 async function preloadImageEntry(entry: ImagePreloadEntry, signal?: AbortSignal): Promise<void> {

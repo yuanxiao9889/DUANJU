@@ -174,6 +174,7 @@ interface ViduPromptTokenRange {
 
 const PICKER_Y_OFFSET_PX = 20;
 const REFERENCE_PICKER_TRIGGER_CHARACTERS = new Set(["@", "\uFF20"]);
+const FULLWIDTH_AT_SIGN = "\uFF20";
 const VIDEO_REFERENCE_TOKEN_PREFIX = "@视频";
 const VIDU_VISUAL_REFERENCE_TOKEN_PREFIXES = [
   "@图片",
@@ -210,6 +211,11 @@ function resolveReferenceTokenPrefix(
   for (const prefix of VIDU_VISUAL_REFERENCE_TOKEN_PREFIXES) {
     if (text.startsWith(prefix, index)) {
       return prefix;
+    }
+
+    const fullwidthPrefix = `${FULLWIDTH_AT_SIGN}${prefix.slice(1)}`;
+    if (text.startsWith(fullwidthPrefix, index)) {
+      return fullwidthPrefix;
     }
   }
   return null;

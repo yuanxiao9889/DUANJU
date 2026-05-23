@@ -829,7 +829,7 @@ export const GptBestVideoNode = memo(
           }
         }
 
-        if (event.key === '@' && referencePickerItems.length > 0) {
+        if ((event.key === '@' || event.key === '\uFF20') && referencePickerItems.length > 0) {
           event.preventDefault();
           event.stopPropagation();
           const selection =

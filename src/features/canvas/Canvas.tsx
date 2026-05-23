@@ -7,7 +7,7 @@ import {
   useMemo,
   useRef,
   type MouseEvent as ReactMouseEvent,
-} from 'react';
+} from "react";
 import {
   ReactFlow,
   Background,
@@ -22,31 +22,49 @@ import {
   type NodeChange,
   type OnConnectStartParams,
   type Viewport,
-} from '@xyflow/react';
-import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { join } from '@tauri-apps/api/path';
-import { open } from '@tauri-apps/plugin-dialog';
-import { useTranslation } from 'react-i18next';
-import { Upload, ImagePlus, Grid3x3, Map as MapIcon, Plus, Minus, AlignCenter, ListOrdered, Link2 } from 'lucide-react';
-import '@xyflow/react/dist/style.css';
+} from "@xyflow/react";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { join } from "@tauri-apps/api/path";
+import { open } from "@tauri-apps/plugin-dialog";
+import { useTranslation } from "react-i18next";
+import {
+  Upload,
+  ImagePlus,
+  Grid3x3,
+  Map as MapIcon,
+  Plus,
+  Minus,
+  AlignCenter,
+  ListOrdered,
+  Link2,
+} from "lucide-react";
+import "@xyflow/react/dist/style.css";
 
 import {
   ASSET_DRAG_MIME_TYPE,
   type CanvasAssetDragPayload,
   parseAssetDragPayload,
-} from '@/features/assets/domain/types';
-import { ASSET_PANEL_INSERT_EVENT } from '@/features/assets/application/assetPanelBridge';
+} from "@/features/assets/domain/types";
+import { ASSET_PANEL_INSERT_EVENT } from "@/features/assets/application/assetPanelBridge";
 import {
   subscribeAssetItemDeleted,
   subscribeAssetItemUpdated,
-} from '@/features/assets/application/assetEvents';
-import { useAssetStore } from '@/stores/assetStore';
-import { useCanvasStore } from '@/stores/canvasStore';
-import { useProjectStore } from '@/stores/projectStore';
-import { useScriptEditorStore } from '@/stores/scriptEditorStore';
-import { useSettingsStore } from '@/stores/settingsStore';
-import { canvasAiGateway, canvasEventBus, canvasNodeFactory } from '@/features/canvas/application/canvasServices';
+} from "@/features/assets/application/assetEvents";
+import { useAssetStore } from "@/stores/assetStore";
+import {
+  useCanvasStore,
+  type CanvasHistorySnapshot,
+  type CanvasHistoryState,
+} from "@/stores/canvasStore";
+import { useProjectStore } from "@/stores/projectStore";
+import { useScriptEditorStore } from "@/stores/scriptEditorStore";
+import { useSettingsStore } from "@/stores/settingsStore";
+import {
+  canvasAiGateway,
+  canvasEventBus,
+  canvasNodeFactory,
+} from "@/features/canvas/application/canvasServices";
 import {
   CANVAS_NODE_TYPES,
   type CanvasEdge,
@@ -67,57 +85,65 @@ import {
   normalizeSceneCards,
   resolveSingleImageConnectionSource,
   resolveSingleVideoConnectionSource,
-} from '@/features/canvas/domain/canvasNodes';
+} from "@/features/canvas/domain/canvasNodes";
 import {
   prepareNodeAudio,
   isSupportedAudioFile,
   prepareNodeAudioFromFile,
-} from '@/features/canvas/application/audioData';
+} from "@/features/canvas/application/audioData";
 import {
   resolveNodeDownloadSuggestedFileStem,
   sanitizeDownloadFileName,
   stripFileExtension,
-} from '@/features/canvas/application/downloadFileName';
+} from "@/features/canvas/application/downloadFileName";
 import {
   scheduleCanvasThumbnailBackfill,
-} from '@/features/canvas/application/canvasThumbnailBackfill';
+  stopCanvasThumbnailBackfill,
+} from "@/features/canvas/application/canvasThumbnailBackfill";
 import {
   collectCanvasNodeImagePreloadEntries,
   collectProjectViewportImagePreloadEntries,
   preloadProjectImages,
-} from '@/features/canvas/application/projectImagePreloader';
-import { parseAspectRatio, prepareNodeImage, prepareNodeImageFromFile } from '@/features/canvas/application/imageData';
-import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
+} from "@/features/canvas/application/projectImagePreloader";
+import {
+  parseAspectRatio,
+  prepareNodeImage,
+  prepareNodeImageFromFile,
+} from "@/features/canvas/application/imageData";
+import { createCurrentProjectMediaContext } from "@/features/canvas/application/mediaPersistenceContext";
 import {
   prepareNodeVideoFromFile,
   prepareNodeVideoFromSource,
-} from '@/features/canvas/application/videoData';
+} from "@/features/canvas/application/videoData";
 import {
   canNodeInheritAltDuplicatedReferenceInputs,
   nodeProvidesReferenceMaterial,
-} from '@/features/canvas/application/nodeReferenceExtraction';
+} from "@/features/canvas/application/nodeReferenceExtraction";
 import {
   buildGenerationErrorReport,
   CURRENT_RUNTIME_SESSION_ID,
-} from '@/features/canvas/application/generationErrorReport';
-import { resolveErrorContent, showErrorDialog } from '@/features/canvas/application/errorDialog';
-import { recordImageGenerationErrorLog } from '@/features/canvas/application/errorLog';
+} from "@/features/canvas/application/generationErrorReport";
+import {
+  resolveErrorContent,
+  showErrorDialog,
+} from "@/features/canvas/application/errorDialog";
+import { recordImageGenerationErrorLog } from "@/features/canvas/application/errorLog";
 import {
   getConnectMenuNodeTypes,
   nodeHasSourceHandle,
   nodeHasTargetHandle,
-} from '@/features/canvas/domain/nodeRegistry';
+} from "@/features/canvas/domain/nodeRegistry";
 import {
   createDefaultDirectorStageProject,
   type DirectorStageConnectedEnvironment,
-} from '@/features/director-stage/domain/types';
-import { createDirectorStageEntityFromModelAsset } from '@/features/director-stage/engine/projectManager';
+} from "@/features/director-stage/domain/types";
+import { createDirectorStageEntityFromModelAsset } from "@/features/director-stage/engine/projectManager";
 import {
   calculateChildNodePosition,
   calculateBranchNodePosition,
   DEFAULT_LAYOUT_CONFIG,
-} from '@/features/canvas/application/mindMapLayout';
-import { htmlToPlainText } from '@/features/canvas/application/sceneEpisodeGenerator';
+} from "@/features/canvas/application/mindMapLayout";
+import { htmlToPlainText } from "@/features/canvas/application/sceneEpisodeGenerator";
 import {
   getCanvasNodeRect,
   getCanvasNodeSize as getNodeSize,
@@ -125,87 +151,91 @@ import {
   rectContains,
   rectIntersects,
   resolveAbsoluteCanvasNodePosition as resolveAbsoluteNodePosition,
-} from '@/features/canvas/application/nodeGeometry';
-import { embedStoryboardImageMetadata, saveImageSourceToDirectory } from '@/commands/image';
-import { readSystemClipboardFilePaths } from '@/commands/system';
-import { resolveNodeDisplayName } from '@/features/canvas/domain/nodeDisplay';
-import { isCanvasNodeTypeEnabled } from '@/features/canvas/application/nodeCatalog';
-import { nodeTypes, overviewNodeTypes } from './nodes';
-import { edgeTypes, overviewEdgeTypes } from './edges';
-import { NodeSelectionMenu } from './NodeSelectionMenu';
-import { SceneCatalogMenu } from './SceneCatalogMenu';
-import { EpisodeCatalogMenu } from './EpisodeCatalogMenu';
-import { SelectedNodeOverlay } from './ui/SelectedNodeOverlay';
-import { eventMatchesShortcut } from '@/features/settings/keyboardShortcuts';
-import { AlignmentGuides } from './ui/AlignmentGuides';
+} from "@/features/canvas/application/nodeGeometry";
+import {
+  embedStoryboardImageMetadata,
+  saveImageSourceToDirectory,
+} from "@/commands/image";
+import { readSystemClipboardFilePaths } from "@/commands/system";
+import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
+import { isCanvasNodeTypeEnabled } from "@/features/canvas/application/nodeCatalog";
+import { nodeTypes, overviewNodeTypes } from "./nodes";
+import { edgeTypes, overviewEdgeTypes } from "./edges";
+import { NodeSelectionMenu } from "./NodeSelectionMenu";
+import { SceneCatalogMenu } from "./SceneCatalogMenu";
+import { EpisodeCatalogMenu } from "./EpisodeCatalogMenu";
+import { SelectedNodeOverlay } from "./ui/SelectedNodeOverlay";
+import { eventMatchesShortcut } from "@/features/settings/keyboardShortcuts";
+import { AlignmentGuides } from "./ui/AlignmentGuides";
 import {
   detectAlignmentsFromBounds,
   getAlignmentNodeBounds,
   type AlignmentGuide,
   type NodeBounds,
-} from './application/nodeAlignment';
-import { MergedConnectionAnchor } from './ui/MergedConnectionAnchor';
-import { BranchConnectionPreview } from './ui/BranchConnectionPreview';
-import { BatchOperationMenu } from './ui/BatchOperationMenu';
-import { calculateNodesBounds } from './application/nodeBounds';
-import { createPreviewConnectionPath } from './application/connectionPreviewPath';
-import { GroupSidebar } from './ui/GroupSidebar';
-import { SelectionGroupBar } from './ui/SelectionGroupBar';
-import { CanvasAssetDock } from './ui/CanvasAssetDock';
-import { StoryboardAssetExpandDialog } from './ui/StoryboardAssetExpandDialog';
-import { CanvasSelectionTransferDialog } from './ui/CanvasSelectionTransferDialog';
-import { SmartDirectorStoryboardExpandDialog } from './ui/SmartDirectorStoryboardExpandDialog';
-import { SmartDirectorStoryboardResultChoiceDialog } from './ui/SmartDirectorStoryboardResultChoiceDialog';
-import { BatchAddToAssetsDialog } from './ui/BatchAddToAssetsDialog';
-import { JimengVideoQueuePanel } from '@/features/jimeng/ui/JimengVideoQueuePanel';
-import { useJimengVideoQueueStore } from '@/stores/jimengVideoQueueStore';
-import { CanvasColorLegend } from './ui/CanvasColorLegend';
-import { CanvasZoomIndicator } from './ui/CanvasZoomIndicator';
+} from "./application/nodeAlignment";
+import { MergedConnectionAnchor } from "./ui/MergedConnectionAnchor";
+import { BranchConnectionPreview } from "./ui/BranchConnectionPreview";
+import { BatchOperationMenu } from "./ui/BatchOperationMenu";
+import { calculateNodesBounds } from "./application/nodeBounds";
+import { createPreviewConnectionPath } from "./application/connectionPreviewPath";
+import { GroupSidebar } from "./ui/GroupSidebar";
+import { SelectionGroupBar } from "./ui/SelectionGroupBar";
+import { CanvasAssetDock } from "./ui/CanvasAssetDock";
+import { StoryboardAssetExpandDialog } from "./ui/StoryboardAssetExpandDialog";
+import { CanvasSelectionTransferDialog } from "./ui/CanvasSelectionTransferDialog";
+import { SmartDirectorStoryboardExpandDialog } from "./ui/SmartDirectorStoryboardExpandDialog";
+import { SmartDirectorStoryboardResultChoiceDialog } from "./ui/SmartDirectorStoryboardResultChoiceDialog";
+import { BatchAddToAssetsDialog } from "./ui/BatchAddToAssetsDialog";
+import { JimengVideoQueuePanel } from "@/features/jimeng/ui/JimengVideoQueuePanel";
+import { useJimengVideoQueueStore } from "@/stores/jimengVideoQueueStore";
+import { CanvasColorLegend } from "./ui/CanvasColorLegend";
+import { CanvasZoomIndicator } from "./ui/CanvasZoomIndicator";
 import {
   CanvasEdgePerformanceContext,
   CanvasMediaPerformanceContext,
   type CanvasEdgeRenderMode,
   type CanvasMediaPerformanceState,
   type CanvasRenderMode,
-} from './CanvasPerformanceContext';
-import { withSemanticNodePresentation } from './ui/nodeSemanticStyles';
+} from "./CanvasPerformanceContext";
+import { withSemanticNodePresentation } from "./ui/nodeSemanticStyles";
 import {
   createDefaultCanvasColorLabelMap,
   type CanvasSemanticColor,
-} from './domain/semanticColors';
+} from "./domain/semanticColors";
 import {
   buildBatchAssetDraftsFromSelectedNodes,
   isBatchAssetAddableNode,
   type BatchAssetSourceResolution,
-} from './application/batchAddToAssets';
+} from "./application/batchAddToAssets";
 
 const ScriptBiblePanel = lazy(async () => {
-  const module = await import('./ui/ScriptBiblePanel');
+  const module = await import("./ui/ScriptBiblePanel");
   return { default: module.ScriptBiblePanel };
 });
 
 const ScriptWelcomeDialog = lazy(async () => {
-  const module = await import('./ui/ScriptWelcomeDialog');
+  const module = await import("./ui/ScriptWelcomeDialog");
   return { default: module.ScriptWelcomeDialog };
 });
 
 const SceneStudioPanel = lazy(async () => {
-  const module = await import('./ui/SceneStudioPanel');
+  const module = await import("./ui/SceneStudioPanel");
   return { default: module.SceneStudioPanel };
 });
 
 const NodeToolDialog = lazy(async () => {
-  const module = await import('./ui/NodeToolDialog');
+  const module = await import("./ui/NodeToolDialog");
   return { default: module.NodeToolDialog };
 });
 
 const ImageViewerModal = lazy(async () => {
-  const module = await import('./ui/ImageViewerModal');
+  const module = await import("./ui/ImageViewerModal");
   return { default: module.ImageViewerModal };
 });
 
 const DirectorStageWorkspace = lazy(async () => {
-  const module = await import('@/features/director-stage/ui/DirectorStageWorkspace');
+  const module =
+    await import("@/features/director-stage/ui/DirectorStageWorkspace");
   return { default: module.DirectorStageWorkspace };
 });
 
@@ -225,7 +255,7 @@ interface PreviewConnectionVisual {
   d: string;
   stroke: string;
   strokeWidth: number;
-  strokeLinecap: 'butt' | 'round' | 'square';
+  strokeLinecap: "butt" | "round" | "square";
   left: number;
   top: number;
   width: number;
@@ -237,7 +267,7 @@ interface ClipboardSnapshot {
   edges: CanvasEdge[];
 }
 
-type ClipboardSourceKind = 'image' | 'video' | 'audio';
+type ClipboardSourceKind = "image" | "video" | "audio";
 
 interface ClipboardFileSource {
   path: string;
@@ -245,7 +275,7 @@ interface ClipboardFileSource {
   fileName: string | null;
 }
 
-type CanvasDragOverlayKind = 'files' | 'asset' | null;
+type CanvasDragOverlayKind = "files" | "asset" | null;
 
 interface DuplicateOptions {
   explicitOffset?: { x: number; y: number };
@@ -260,7 +290,7 @@ interface DuplicateResult {
   idMap: globalThis.Map<string, string>;
 }
 
-type ImageCompareNoticeTone = 'success' | 'error';
+type ImageCompareNoticeTone = "success" | "error";
 
 interface ImageCompareNoticeState {
   message: string;
@@ -269,7 +299,7 @@ interface ImageCompareNoticeState {
 
 interface SmartDirectorStoryboardResultChoiceState {
   nodeId: string;
-  onResolve: (choice: 'reuse' | 'new' | null) => void;
+  onResolve: (choice: "reuse" | "new" | null) => void;
 }
 
 interface CanvasPoint {
@@ -303,17 +333,19 @@ interface AlignmentDragSession {
 interface MarqueeSelectionSession {
   startFlowPoint: CanvasPoint;
   initialSelectedNodeIds: string[];
+  isAdditive: boolean;
 }
 
 type ImageCompareValidationReason =
-  | 'invalidNode'
-  | 'missingImage'
-  | 'connected'
-  | 'grouped'
-  | 'ratioMismatch';
+  | "invalidNode"
+  | "missingImage"
+  | "connected"
+  | "grouped"
+  | "ratioMismatch";
 
 const ALT_DRAG_COPY_Z_INDEX = 2000;
-const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR = '.script-chapter-node__drag-handle';
+const SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR =
+  ".script-chapter-node__drag-handle";
 const NODE_ALIGNMENT_DRAG_START_THRESHOLD = 4;
 const GENERATION_JOB_POLL_INTERVAL_MS = 1400;
 const GENERATION_JOB_RECOVERY_THRESHOLD_MS = 2 * 60 * 1000;
@@ -324,7 +356,7 @@ const GENERATION_JOB_FORCE_REFRESH_MIN_MS = 75 * 1000;
 const GENERATION_JOB_FORCE_REFRESH_MAX_MS = 3 * 60 * 1000;
 const GENERATION_JOB_SUBMISSION_TIMEOUT_MS = 10 * 60 * 1000;
 const STALE_GENERATION_SUBMISSION_ERROR =
-  'generation job not found: submission interrupted before job id was saved';
+  "generation job not found: submission interrupted before job id was saved";
 const DRAG_OVERLAY_IDLE_CLEAR_MS = 420;
 const IMAGE_COMPARE_NOTICE_DURATION_MS = 2200;
 const VIEWPORT_IMAGE_PRELOAD_THROTTLE_MS = 250;
@@ -332,21 +364,21 @@ const VIEWPORT_IMAGE_PRELOAD_CONCURRENCY = 3;
 const EDGE_CUT_NOTICE_DURATION_MS = 1800;
 const EDGE_CUT_MIN_POINT_DISTANCE = 3;
 const EDGE_CUT_PATH_SAMPLE_STEP = 10;
-const EDGE_CUT_PATH_SELECTOR = '.react-flow__edge-path';
+const EDGE_CUT_PATH_SELECTOR = ".react-flow__edge-path";
 const IMAGE_COMPARE_ASPECT_RATIO_DELTA_THRESHOLD = 0.05;
 const CLIPBOARD_IMAGE_PATH_PATTERN = /\.(png|jpe?g|webp|gif|bmp|tiff?|avif)$/i;
 const CLIPBOARD_VIDEO_PATH_PATTERN = /\.(mp4|webm|ogv|mov|avi|mkv)$/i;
 const CLIPBOARD_AUDIO_PATH_PATTERN = /\.(mp3|wav|ogg|oga|m4a|aac|flac)$/i;
 const VIEWPORT_ZOOM_SYNC_EPSILON = 0.0005;
 const CANVAS_NODE_PERSISTENCE_IGNORED_KEYS = new Set([
-  'selected',
-  'dragging',
-  'measured',
-  'positionAbsolute',
-  'internals',
-  'handleBounds',
+  "selected",
+  "dragging",
+  "measured",
+  "positionAbsolute",
+  "internals",
+  "handleBounds",
 ]);
-const CANVAS_EDGE_PERSISTENCE_IGNORED_KEYS = new Set(['selected']);
+const CANVAS_EDGE_PERSISTENCE_IGNORED_KEYS = new Set(["selected"]);
 
 interface GenerationStoryboardMetadata {
   gridRows: number;
@@ -373,34 +405,93 @@ function isPendingExportGenerationNode(node: CanvasNode): boolean {
   }
 
   const data = node.data as Record<string, unknown>;
-  return data.isGenerating === true
-    && typeof data.generationJobId === 'string'
-    && data.generationJobId.trim().length > 0;
+  return (
+    data.isGenerating === true &&
+    typeof data.generationJobId === "string" &&
+    data.generationJobId.trim().length > 0
+  );
 }
 
 function buildNodeIdSignature(nodeIds: readonly string[]): string {
-  return nodeIds.join('\n');
+  return nodeIds.join("\n");
 }
 
 function parseNodeIdSignature(signature: string): string[] {
-  return signature ? signature.split('\n').filter(Boolean) : [];
+  return signature ? signature.split("\n").filter(Boolean) : [];
 }
 
-function areCanvasNodePersistenceRecordsEqual(left: CanvasNode, right: CanvasNode): boolean {
+function areCanvasPersistenceValuesEqual(
+  left: unknown,
+  right: unknown,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (left == null || right == null) {
+    return left == null && right == null;
+  }
+
+  if (typeof left !== typeof right) {
+    return false;
+  }
+
+  if (typeof left !== "object") {
+    return false;
+  }
+
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (
+      !Array.isArray(left) ||
+      !Array.isArray(right) ||
+      left.length !== right.length
+    ) {
+      return false;
+    }
+
+    for (let index = 0; index < left.length; index += 1) {
+      if (!areCanvasPersistenceValuesEqual(left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const keys = new Set([
+    ...Object.keys(leftRecord),
+    ...Object.keys(rightRecord),
+  ]);
+  for (const key of keys) {
+    if (!areCanvasPersistenceValuesEqual(leftRecord[key], rightRecord[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function areCanvasNodePersistenceRecordsEqual(
+  left: CanvasNode,
+  right: CanvasNode,
+): boolean {
   if (left === right) {
     return true;
   }
 
   const leftRecord = left as Record<string, unknown>;
   const rightRecord = right as Record<string, unknown>;
-  const keys = new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)]);
+  const keys = new Set([
+    ...Object.keys(leftRecord),
+    ...Object.keys(rightRecord),
+  ]);
 
   for (const key of keys) {
     if (CANVAS_NODE_PERSISTENCE_IGNORED_KEYS.has(key)) {
       continue;
     }
 
-    if (leftRecord[key] !== rightRecord[key]) {
+    if (!areCanvasPersistenceValuesEqual(leftRecord[key], rightRecord[key])) {
       return false;
     }
   }
@@ -408,7 +499,10 @@ function areCanvasNodePersistenceRecordsEqual(left: CanvasNode, right: CanvasNod
   return true;
 }
 
-function areCanvasNodesEqualForPersistence(left: CanvasNode[], right: CanvasNode[]): boolean {
+function areCanvasNodesEqualForPersistence(
+  left: CanvasNode[],
+  right: CanvasNode[],
+): boolean {
   if (left === right) {
     return true;
   }
@@ -426,21 +520,27 @@ function areCanvasNodesEqualForPersistence(left: CanvasNode[], right: CanvasNode
   return true;
 }
 
-function areCanvasEdgePersistenceRecordsEqual(left: CanvasEdge, right: CanvasEdge): boolean {
+function areCanvasEdgePersistenceRecordsEqual(
+  left: CanvasEdge,
+  right: CanvasEdge,
+): boolean {
   if (left === right) {
     return true;
   }
 
   const leftRecord = left as Record<string, unknown>;
   const rightRecord = right as Record<string, unknown>;
-  const keys = new Set([...Object.keys(leftRecord), ...Object.keys(rightRecord)]);
+  const keys = new Set([
+    ...Object.keys(leftRecord),
+    ...Object.keys(rightRecord),
+  ]);
 
   for (const key of keys) {
     if (CANVAS_EDGE_PERSISTENCE_IGNORED_KEYS.has(key)) {
       continue;
     }
 
-    if (leftRecord[key] !== rightRecord[key]) {
+    if (!areCanvasPersistenceValuesEqual(leftRecord[key], rightRecord[key])) {
       return false;
     }
   }
@@ -448,7 +548,10 @@ function areCanvasEdgePersistenceRecordsEqual(left: CanvasEdge, right: CanvasEdg
   return true;
 }
 
-function areCanvasEdgesEqualForPersistence(left: CanvasEdge[], right: CanvasEdge[]): boolean {
+function areCanvasEdgesEqualForPersistence(
+  left: CanvasEdge[],
+  right: CanvasEdge[],
+): boolean {
   if (left === right) {
     return true;
   }
@@ -466,11 +569,42 @@ function areCanvasEdgesEqualForPersistence(left: CanvasEdge[], right: CanvasEdge
   return true;
 }
 
-function areViewportsEqualForPersistence(left: Viewport, right: Viewport): boolean {
+function getHistorySnapshotSignature(snapshot: CanvasHistorySnapshot): string {
+  if ("kind" in snapshot && snapshot.kind === "nodePatch") {
+    return `patch:${snapshot.entries.length}:${snapshot.edges?.length ?? 0}`;
+  }
+
+  return `full:${snapshot.nodes.length}:${snapshot.edges.length}`;
+}
+
+function getCanvasHistoryLightSignature(history: CanvasHistoryState): string {
+  const past = history.past.map(getHistorySnapshotSignature).join(",");
+  const future = history.future.map(getHistorySnapshotSignature).join(",");
+  return `${history.past.length}[${past}]|${history.future.length}[${future}]`;
+}
+
+function areCanvasHistoriesEquivalentForAutoPersist(
+  left: CanvasHistoryState,
+  right: CanvasHistoryState,
+): boolean {
+  if (left === right) {
+    return true;
+  }
+
   return (
-    Math.abs(left.x - right.x) < 0.01
-    && Math.abs(left.y - right.y) < 0.01
-    && Math.abs(left.zoom - right.zoom) < VIEWPORT_ZOOM_SYNC_EPSILON
+    getCanvasHistoryLightSignature(left) ===
+    getCanvasHistoryLightSignature(right)
+  );
+}
+
+function areViewportsEqualForPersistence(
+  left: Viewport,
+  right: Viewport,
+): boolean {
+  return (
+    Math.abs(left.x - right.x) < 0.01 &&
+    Math.abs(left.y - right.y) < 0.01 &&
+    Math.abs(left.zoom - right.zoom) < VIEWPORT_ZOOM_SYNC_EPSILON
   );
 }
 
@@ -479,7 +613,7 @@ function buildPendingGenerationNodeIdSignature(nodes: CanvasNode[]): string {
     nodes
       .filter(isPendingExportGenerationNode)
       .map((node) => node.id)
-      .sort()
+      .sort(),
   );
 }
 
@@ -499,26 +633,37 @@ function buildScriptWelcomePresenceSignature(nodes: CanvasNode[]): string {
     }
   }
 
-  return `${hasChapters ? '1' : '0'}:${hasRoot ? '1' : '0'}`;
+  return `${hasChapters ? "1" : "0"}:${hasRoot ? "1" : "0"}`;
 }
 
 function normalizeCanvasMediaSource(value: unknown): string | null {
-  const normalized = typeof value === 'string' ? value.trim() : '';
-  return normalized.length > 0 && normalized !== 'white-placeholder' ? normalized : null;
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 && normalized !== "white-placeholder"
+    ? normalized
+    : null;
 }
 
 function countCanvasPreviewMediaFromValue(
   value: unknown,
-  visited: WeakSet<object>
+  visited: WeakSet<object>,
+  limit: number = Number.POSITIVE_INFINITY,
 ): number {
-  if (Array.isArray(value)) {
-    return value.reduce(
-      (count, item) => count + countCanvasPreviewMediaFromValue(item, visited),
-      0
-    );
+  if (limit <= 0) {
+    return 0;
   }
 
-  if (!value || typeof value !== 'object') {
+  if (Array.isArray(value)) {
+    let count = 0;
+    for (const item of value) {
+      count += countCanvasPreviewMediaFromValue(item, visited, limit - count);
+      if (count >= limit) {
+        break;
+      }
+    }
+    return count;
+  }
+
+  if (!value || typeof value !== "object") {
     return 0;
   }
 
@@ -530,18 +675,16 @@ function countCanvasPreviewMediaFromValue(
   const record = value as Record<string, unknown>;
   let count = 0;
   const hasImagePreview =
-    Boolean(normalizeCanvasMediaSource(record.thumbnailUrl))
-    || Boolean(normalizeCanvasMediaSource(record.previewImageUrl))
-    || Boolean(normalizeCanvasMediaSource(record.imageUrl))
-    || Boolean(normalizeCanvasMediaSource(record.posterSourceUrl))
-    || Boolean(normalizeCanvasMediaSource(record.sourceUrl));
+    Boolean(normalizeCanvasMediaSource(record.thumbnailUrl)) ||
+    Boolean(normalizeCanvasMediaSource(record.previewImageUrl)) ||
+    Boolean(normalizeCanvasMediaSource(record.imageUrl)) ||
+    Boolean(normalizeCanvasMediaSource(record.posterSourceUrl)) ||
+    Boolean(normalizeCanvasMediaSource(record.sourceUrl));
   const hasVideoCover =
-    Boolean(normalizeCanvasMediaSource(record.videoUrl))
-    && (
-      Boolean(normalizeCanvasMediaSource(record.thumbnailUrl))
-      || Boolean(normalizeCanvasMediaSource(record.previewImageUrl))
-      || Boolean(normalizeCanvasMediaSource(record.posterSourceUrl))
-    );
+    Boolean(normalizeCanvasMediaSource(record.videoUrl)) &&
+    (Boolean(normalizeCanvasMediaSource(record.thumbnailUrl)) ||
+      Boolean(normalizeCanvasMediaSource(record.previewImageUrl)) ||
+      Boolean(normalizeCanvasMediaSource(record.posterSourceUrl)));
 
   if (hasImagePreview || hasVideoCover) {
     count += 1;
@@ -549,135 +692,181 @@ function countCanvasPreviewMediaFromValue(
 
   for (const [key, nestedValue] of Object.entries(record)) {
     if (
-      key === 'thumbnailUrl'
-      || key === 'previewImageUrl'
-      || key === 'imageUrl'
-      || key === 'posterSourceUrl'
-      || key === 'sourceUrl'
-      || key === 'videoUrl'
-      || key === 'audioUrl'
+      key === "thumbnailUrl" ||
+      key === "previewImageUrl" ||
+      key === "imageUrl" ||
+      key === "posterSourceUrl" ||
+      key === "sourceUrl" ||
+      key === "videoUrl" ||
+      key === "audioUrl"
     ) {
       continue;
     }
 
-    count += countCanvasPreviewMediaFromValue(nestedValue, visited);
+    count += countCanvasPreviewMediaFromValue(
+      nestedValue,
+      visited,
+      limit - count,
+    );
+    if (count >= limit) {
+      break;
+    }
   }
 
   return count;
 }
 
-function countCanvasPreviewMedia(nodes: CanvasNode[]): number {
+function countCanvasPreviewMedia(nodes: CanvasNode[], limit?: number): number {
   const visited = new WeakSet<object>();
-  return nodes.reduce(
-    (count, node) => count + countCanvasPreviewMediaFromValue(node.data, visited),
-    0
-  );
+  const safeLimit = Math.max(1, limit ?? Number.POSITIVE_INFINITY);
+  let count = 0;
+
+  for (const node of nodes) {
+    count += countCanvasPreviewMediaFromValue(
+      node.data,
+      visited,
+      safeLimit - count,
+    );
+    if (count >= safeLimit) {
+      break;
+    }
+  }
+
+  return count;
 }
 
-function isStaleSubmittingExportGenerationNode(node: CanvasNode, now: number): boolean {
+function isStaleSubmittingExportGenerationNode(
+  node: CanvasNode,
+  now: number,
+): boolean {
   if (node.type !== CANVAS_NODE_TYPES.exportImage) {
     return false;
   }
 
   const data = node.data as Record<string, unknown>;
-  if (data.isGenerating !== true || data.generationPhase !== 'submitting') {
+  if (data.isGenerating !== true || data.generationPhase !== "submitting") {
     return false;
   }
 
-  const jobId = typeof data.generationJobId === 'string' ? data.generationJobId.trim() : '';
+  const jobId =
+    typeof data.generationJobId === "string" ? data.generationJobId.trim() : "";
   if (jobId) {
     return false;
   }
 
   const generationStartedAt =
-    typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
-  return generationStartedAt !== null
-    && now - generationStartedAt >= GENERATION_JOB_SUBMISSION_TIMEOUT_MS;
+    typeof data.generationStartedAt === "number"
+      ? data.generationStartedAt
+      : null;
+  return (
+    generationStartedAt !== null &&
+    now - generationStartedAt >= GENERATION_JOB_SUBMISSION_TIMEOUT_MS
+  );
 }
 
-function hasGenerationStoryboardMetadata(value: unknown): value is GenerationStoryboardMetadata {
-  if (!value || typeof value !== 'object') {
+function hasGenerationStoryboardMetadata(
+  value: unknown,
+): value is GenerationStoryboardMetadata {
+  if (!value || typeof value !== "object") {
     return false;
   }
 
   const candidate = value as Partial<GenerationStoryboardMetadata>;
-  return typeof candidate.gridRows === 'number'
-    && Number.isFinite(candidate.gridRows)
-    && typeof candidate.gridCols === 'number'
-    && Number.isFinite(candidate.gridCols)
-    && Array.isArray(candidate.frameNotes);
+  return (
+    typeof candidate.gridRows === "number" &&
+    Number.isFinite(candidate.gridRows) &&
+    typeof candidate.gridCols === "number" &&
+    Number.isFinite(candidate.gridCols) &&
+    Array.isArray(candidate.frameNotes)
+  );
 }
 
-function shouldPreferForceRefreshForPendingGeneration(data: Record<string, unknown>): boolean {
+function shouldPreferForceRefreshForPendingGeneration(
+  data: Record<string, unknown>,
+): boolean {
   const manualRequestAt =
-    typeof data.generationForceRefreshRequestedAt === 'number'
+    typeof data.generationForceRefreshRequestedAt === "number"
       ? data.generationForceRefreshRequestedAt
       : null;
-  if (manualRequestAt !== null && Number.isFinite(manualRequestAt) && manualRequestAt > 0) {
+  if (
+    manualRequestAt !== null &&
+    Number.isFinite(manualRequestAt) &&
+    manualRequestAt > 0
+  ) {
     return true;
   }
 
   const generationStartedAt =
-    typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
+    typeof data.generationStartedAt === "number"
+      ? data.generationStartedAt
+      : null;
   if (generationStartedAt === null) {
     return false;
   }
 
   const expectedDurationMs =
-    typeof data.generationDurationMs === 'number' && Number.isFinite(data.generationDurationMs)
+    typeof data.generationDurationMs === "number" &&
+    Number.isFinite(data.generationDurationMs)
       ? data.generationDurationMs
       : 60000;
   const forceRefreshThresholdMs = Math.min(
     GENERATION_JOB_FORCE_REFRESH_MAX_MS,
     Math.max(
       GENERATION_JOB_FORCE_REFRESH_MIN_MS,
-      Math.round(Math.max(30000, expectedDurationMs) * 1.35)
-    )
+      Math.round(Math.max(30000, expectedDurationMs) * 1.35),
+    ),
   );
 
   return Date.now() - generationStartedAt >= forceRefreshThresholdMs;
 }
 
 function padTimestampSegment(value: number): string {
-  return String(value).padStart(2, '0');
+  return String(value).padStart(2, "0");
 }
 
 function buildTimestampFolderName(date = new Date()): string {
   return `${date.getFullYear()}${padTimestampSegment(date.getMonth() + 1)}${padTimestampSegment(date.getDate())}-${padTimestampSegment(date.getHours())}${padTimestampSegment(date.getMinutes())}${padTimestampSegment(date.getSeconds())}`;
 }
 
-function normalizeDialogDirectoryPath(value: string | string[] | null): string | null {
-  if (typeof value === 'string' && value.trim().length > 0) {
+function normalizeDialogDirectoryPath(
+  value: string | string[] | null,
+): string | null {
+  if (typeof value === "string" && value.trim().length > 0) {
     return value;
   }
 
   if (Array.isArray(value)) {
     const [firstValue] = value;
-    return typeof firstValue === 'string' && firstValue.trim().length > 0 ? firstValue : null;
+    return typeof firstValue === "string" && firstValue.trim().length > 0
+      ? firstValue
+      : null;
   }
 
   return null;
 }
 
 function normalizePromptFileNameCandidate(value: unknown): string {
-  return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
 }
 
-function collectPromptFileNameCandidates(value: unknown, candidates: string[]): void {
-  if (!value || typeof value !== 'object') {
+function collectPromptFileNameCandidates(
+  value: unknown,
+  candidates: string[],
+): void {
+  if (!value || typeof value !== "object") {
     return;
   }
 
   const record = value as Record<string, unknown>;
   const candidateKeys = [
-    'prompt',
-    'finalPrompt',
-    'userPrompt',
-    'renderedPrompt',
-    'genPrompt',
-    'imagePrompt',
-    'visualPrompt',
-    'positivePrompt',
+    "prompt",
+    "finalPrompt",
+    "userPrompt",
+    "renderedPrompt",
+    "genPrompt",
+    "imagePrompt",
+    "visualPrompt",
+    "positivePrompt",
   ];
 
   for (const key of candidateKeys) {
@@ -688,16 +877,21 @@ function collectPromptFileNameCandidates(value: unknown, candidates: string[]): 
   }
 }
 
-function resolveSelectedDownloadPromptFileNameStem(node: CanvasNode): string | null {
+function resolveSelectedDownloadPromptFileNameStem(
+  node: CanvasNode,
+): string | null {
   const candidates: string[] = [];
   const data = node.data as Record<string, unknown>;
 
   collectPromptFileNameCandidates(data, candidates);
   collectPromptFileNameCandidates(data.generationSummary, candidates);
 
-  const resultImages = Array.isArray(data.resultImages) ? data.resultImages : [];
+  const resultImages = Array.isArray(data.resultImages)
+    ? data.resultImages
+    : [];
   const firstResultImage = resultImages.find(
-    (item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'
+    (item): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === "object",
   );
   collectPromptFileNameCandidates(firstResultImage, candidates);
 
@@ -706,13 +900,15 @@ function resolveSelectedDownloadPromptFileNameStem(node: CanvasNode): string | n
     return null;
   }
 
-  const safeStem = stripFileExtension(sanitizeDownloadFileName(prompt)).slice(0, 120).trim();
+  const safeStem = stripFileExtension(sanitizeDownloadFileName(prompt))
+    .slice(0, 120)
+    .trim();
   return safeStem || null;
 }
 
 function resolveSelectedDownloadSuggestedFileName(
   node: CanvasNode,
-  index: number
+  index: number,
 ): string {
   const promptStem = resolveSelectedDownloadPromptFileNameStem(node);
   if (promptStem) {
@@ -729,13 +925,15 @@ function resolveSelectedDownloadSuggestedFileName(
 
 function findContainingGroupId(
   node: CanvasNode,
-  allNodes: CanvasNode[]
+  allNodes: CanvasNode[],
 ): string | null {
   if (node.type === CANVAS_NODE_TYPES.group) {
     return null;
   }
 
-  const nodeMap = new globalThis.Map(allNodes.map((item) => [item.id, item] as const));
+  const nodeMap = new globalThis.Map(
+    allNodes.map((item) => [item.id, item] as const),
+  );
   const nodeAbsolutePosition = resolveAbsoluteNodePosition(node, nodeMap);
   const nodeSize = getNodeSize(node);
   const nodeCenter = {
@@ -744,9 +942,14 @@ function findContainingGroupId(
   };
 
   const candidateGroups = allNodes
-    .filter((item) => item.type === CANVAS_NODE_TYPES.group && item.id !== node.id)
+    .filter(
+      (item) => item.type === CANVAS_NODE_TYPES.group && item.id !== node.id,
+    )
     .map((groupNode) => {
-      const groupAbsolutePosition = resolveAbsoluteNodePosition(groupNode, nodeMap);
+      const groupAbsolutePosition = resolveAbsoluteNodePosition(
+        groupNode,
+        nodeMap,
+      );
       const groupSize = getNodeSize(groupNode);
       const containsCenter =
         nodeCenter.x >= groupAbsolutePosition.x &&
@@ -771,7 +974,9 @@ function hasAnyConnectedEdges(nodeId: string, edges: CanvasEdge[]): boolean {
   return edges.some((edge) => edge.source === nodeId || edge.target === nodeId);
 }
 
-function resolveImageCompareNumericAspectRatio(node: CanvasNode): number | null {
+function resolveImageCompareNumericAspectRatio(
+  node: CanvasNode,
+): number | null {
   const imageSource = resolveSingleImageConnectionSource(node);
   if (!imageSource) {
     return null;
@@ -784,48 +989,62 @@ function resolveImageCompareNumericAspectRatio(node: CanvasNode): number | null 
 function validateImageComparePair(
   sourceNode: CanvasNode,
   targetNode: CanvasNode,
-  edges: CanvasEdge[]
+  edges: CanvasEdge[],
 ): ImageCompareValidationReason | null {
-  if (!isImageCompareSourceNode(sourceNode) || !isImageCompareSourceNode(targetNode)) {
-    return 'invalidNode';
+  if (
+    !isImageCompareSourceNode(sourceNode) ||
+    !isImageCompareSourceNode(targetNode)
+  ) {
+    return "invalidNode";
   }
 
-  if (!resolveSingleImageConnectionSource(sourceNode) || !resolveSingleImageConnectionSource(targetNode)) {
-    return 'missingImage';
+  if (
+    !resolveSingleImageConnectionSource(sourceNode) ||
+    !resolveSingleImageConnectionSource(targetNode)
+  ) {
+    return "missingImage";
   }
 
-  if (hasAnyConnectedEdges(sourceNode.id, edges) || hasAnyConnectedEdges(targetNode.id, edges)) {
-    return 'connected';
+  if (
+    hasAnyConnectedEdges(sourceNode.id, edges) ||
+    hasAnyConnectedEdges(targetNode.id, edges)
+  ) {
+    return "connected";
   }
 
   if (sourceNode.parentId || targetNode.parentId) {
-    return 'grouped';
+    return "grouped";
   }
 
   const sourceAspectRatio = resolveImageCompareNumericAspectRatio(sourceNode);
   const targetAspectRatio = resolveImageCompareNumericAspectRatio(targetNode);
   if (sourceAspectRatio === null || targetAspectRatio === null) {
-    return 'missingImage';
+    return "missingImage";
   }
 
   const ratioBase = Math.max(sourceAspectRatio, targetAspectRatio);
   if (ratioBase <= 0) {
-    return 'missingImage';
+    return "missingImage";
   }
 
-  const ratioDelta = Math.abs(sourceAspectRatio - targetAspectRatio) / ratioBase;
-  return ratioDelta <= IMAGE_COMPARE_ASPECT_RATIO_DELTA_THRESHOLD ? null : 'ratioMismatch';
+  const ratioDelta =
+    Math.abs(sourceAspectRatio - targetAspectRatio) / ratioBase;
+  return ratioDelta <= IMAGE_COMPARE_ASPECT_RATIO_DELTA_THRESHOLD
+    ? null
+    : "ratioMismatch";
 }
 
 function findImageCompareDropTarget(
   sourceNode: CanvasNode,
-  allNodes: CanvasNode[]
+  allNodes: CanvasNode[],
 ): CanvasNode | null {
   if (!isImageCompareSourceNode(sourceNode)) {
     return null;
   }
 
-  const nodeMap = new globalThis.Map(allNodes.map((item) => [item.id, item] as const));
+  const nodeMap = new globalThis.Map(
+    allNodes.map((item) => [item.id, item] as const),
+  );
   const sourcePosition = resolveAbsoluteNodePosition(sourceNode, nodeMap);
   const sourceSize = getNodeSize(sourceNode);
   const sourceCenter = {
@@ -834,7 +1053,10 @@ function findImageCompareDropTarget(
   };
 
   const candidateTargets = allNodes
-    .filter((candidate) => candidate.id !== sourceNode.id && isImageCompareSourceNode(candidate))
+    .filter(
+      (candidate) =>
+        candidate.id !== sourceNode.id && isImageCompareSourceNode(candidate),
+    )
     .map((candidate) => {
       const candidatePosition = resolveAbsoluteNodePosition(candidate, nodeMap);
       const candidateSize = getNodeSize(candidate);
@@ -851,7 +1073,9 @@ function findImageCompareDropTarget(
           }
         : null;
     })
-    .filter((candidate): candidate is { node: CanvasNode; area: number } => Boolean(candidate))
+    .filter((candidate): candidate is { node: CanvasNode; area: number } =>
+      Boolean(candidate),
+    )
     .sort((left, right) => left.area - right.area);
 
   return candidateTargets[0]?.node ?? null;
@@ -861,7 +1085,7 @@ function hasRectCollision(
   candidateRect: { x: number; y: number; width: number; height: number },
   nodes: CanvasNode[],
   ignoreNodeIds: Set<string>,
-  nodeMap: Map<string, CanvasNode>
+  nodeMap: Map<string, CanvasNode>,
 ): boolean {
   const margin = 18;
   return nodes.some((node) => {
@@ -880,7 +1104,7 @@ function hasRectCollision(
 }
 
 function cloneNodeData<T>(value: T): T {
-  if (typeof structuredClone === 'function') {
+  if (typeof structuredClone === "function") {
     return structuredClone(value);
   }
   return JSON.parse(JSON.stringify(value)) as T;
@@ -892,7 +1116,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
     return false;
   }
   const tagName = element.tagName.toLowerCase();
-  return tagName === 'input' || tagName === 'textarea' || element.isContentEditable;
+  return (
+    tagName === "input" || tagName === "textarea" || element.isContentEditable
+  );
 }
 
 function getDistance(left: CanvasPoint, right: CanvasPoint): number {
@@ -901,7 +1127,7 @@ function getDistance(left: CanvasPoint, right: CanvasPoint): number {
 
 function getRelativePointerPoint(
   event: PointerEvent,
-  containerElement: HTMLElement
+  containerElement: HTMLElement,
 ): CanvasPoint {
   const rect = containerElement.getBoundingClientRect();
   return {
@@ -913,25 +1139,25 @@ function getRelativePointerPoint(
 function isPointOnSegment(
   point: CanvasPoint,
   start: CanvasPoint,
-  end: CanvasPoint
+  end: CanvasPoint,
 ): boolean {
   const epsilon = 0.5;
   return (
-    point.x <= Math.max(start.x, end.x) + epsilon
-    && point.x >= Math.min(start.x, end.x) - epsilon
-    && point.y <= Math.max(start.y, end.y) + epsilon
-    && point.y >= Math.min(start.y, end.y) - epsilon
+    point.x <= Math.max(start.x, end.x) + epsilon &&
+    point.x >= Math.min(start.x, end.x) - epsilon &&
+    point.y <= Math.max(start.y, end.y) + epsilon &&
+    point.y >= Math.min(start.y, end.y) - epsilon
   );
 }
 
 function getSegmentOrientation(
   first: CanvasPoint,
   second: CanvasPoint,
-  third: CanvasPoint
+  third: CanvasPoint,
 ): number {
   const value =
-    (second.y - first.y) * (third.x - second.x)
-    - (second.x - first.x) * (third.y - second.y);
+    (second.y - first.y) * (third.x - second.x) -
+    (second.x - first.x) * (third.y - second.y);
   return Math.abs(value) < 0.5 ? 0 : value > 0 ? 1 : 2;
 }
 
@@ -939,11 +1165,15 @@ function doLineSegmentsIntersect(
   firstStart: CanvasPoint,
   firstEnd: CanvasPoint,
   secondStart: CanvasPoint,
-  secondEnd: CanvasPoint
+  secondEnd: CanvasPoint,
 ): boolean {
   const orientationA = getSegmentOrientation(firstStart, firstEnd, secondStart);
   const orientationB = getSegmentOrientation(firstStart, firstEnd, secondEnd);
-  const orientationC = getSegmentOrientation(secondStart, secondEnd, firstStart);
+  const orientationC = getSegmentOrientation(
+    secondStart,
+    secondEnd,
+    firstStart,
+  );
   const orientationD = getSegmentOrientation(secondStart, secondEnd, firstEnd);
 
   if (orientationA !== orientationB && orientationC !== orientationD) {
@@ -951,32 +1181,42 @@ function doLineSegmentsIntersect(
   }
 
   return (
-    (orientationA === 0 && isPointOnSegment(secondStart, firstStart, firstEnd))
-    || (orientationB === 0 && isPointOnSegment(secondEnd, firstStart, firstEnd))
-    || (orientationC === 0 && isPointOnSegment(firstStart, secondStart, secondEnd))
-    || (orientationD === 0 && isPointOnSegment(firstEnd, secondStart, secondEnd))
+    (orientationA === 0 &&
+      isPointOnSegment(secondStart, firstStart, firstEnd)) ||
+    (orientationB === 0 && isPointOnSegment(secondEnd, firstStart, firstEnd)) ||
+    (orientationC === 0 &&
+      isPointOnSegment(firstStart, secondStart, secondEnd)) ||
+    (orientationD === 0 && isPointOnSegment(firstEnd, secondStart, secondEnd))
   );
 }
 
 function doPolylinesIntersect(
   firstPolyline: CanvasPoint[],
-  secondPolyline: CanvasPoint[]
+  secondPolyline: CanvasPoint[],
 ): boolean {
   if (firstPolyline.length < 2 || secondPolyline.length < 2) {
     return false;
   }
 
-  for (let firstIndex = 0; firstIndex < firstPolyline.length - 1; firstIndex += 1) {
+  for (
+    let firstIndex = 0;
+    firstIndex < firstPolyline.length - 1;
+    firstIndex += 1
+  ) {
     const firstStart = firstPolyline[firstIndex];
     const firstEnd = firstPolyline[firstIndex + 1];
 
-    for (let secondIndex = 0; secondIndex < secondPolyline.length - 1; secondIndex += 1) {
+    for (
+      let secondIndex = 0;
+      secondIndex < secondPolyline.length - 1;
+      secondIndex += 1
+    ) {
       if (
         doLineSegmentsIntersect(
           firstStart,
           firstEnd,
           secondPolyline[secondIndex],
-          secondPolyline[secondIndex + 1]
+          secondPolyline[secondIndex + 1],
         )
       ) {
         return true;
@@ -994,10 +1234,15 @@ function sampleSvgPath(pathElement: SVGPathElement): CanvasPoint[] {
       return [];
     }
 
-    const sampleCount = Math.max(1, Math.ceil(totalLength / EDGE_CUT_PATH_SAMPLE_STEP));
+    const sampleCount = Math.max(
+      1,
+      Math.ceil(totalLength / EDGE_CUT_PATH_SAMPLE_STEP),
+    );
     const points: CanvasPoint[] = [];
     for (let index = 0; index <= sampleCount; index += 1) {
-      const point = pathElement.getPointAtLength((totalLength * index) / sampleCount);
+      const point = pathElement.getPointAtLength(
+        (totalLength * index) / sampleCount,
+      );
       points.push({ x: point.x, y: point.y });
     }
     return points;
@@ -1007,18 +1252,18 @@ function sampleSvgPath(pathElement: SVGPathElement): CanvasPoint[] {
 }
 
 function getEdgeIdFromPath(pathElement: SVGPathElement): string | null {
-  const edgeElement = pathElement.closest('.react-flow__edge');
+  const edgeElement = pathElement.closest(".react-flow__edge");
   const rawId =
-    edgeElement?.getAttribute('data-id')
-    ?? pathElement.getAttribute('data-id')
-    ?? pathElement.id;
+    edgeElement?.getAttribute("data-id") ??
+    pathElement.getAttribute("data-id") ??
+    pathElement.id;
   const edgeId = rawId?.trim();
   return edgeId || null;
 }
 
 function collectIntersectingEdgeIds(
   containerElement: HTMLElement,
-  cutFlowPoints: CanvasPoint[]
+  cutFlowPoints: CanvasPoint[],
 ): Set<string> {
   const hitEdgeIds = new Set<string>();
   if (cutFlowPoints.length < 2) {
@@ -1026,7 +1271,7 @@ function collectIntersectingEdgeIds(
   }
 
   const edgePathElements = containerElement.querySelectorAll<SVGPathElement>(
-    EDGE_CUT_PATH_SELECTOR
+    EDGE_CUT_PATH_SELECTOR,
   );
   edgePathElements.forEach((pathElement) => {
     const edgeId = getEdgeIdFromPath(pathElement);
@@ -1045,7 +1290,7 @@ function collectIntersectingEdgeIds(
 
 function areAlignmentGuidesEqual(
   previousGuides: AlignmentGuide[],
-  nextGuides: AlignmentGuide[]
+  nextGuides: AlignmentGuide[],
 ): boolean {
   if (previousGuides === nextGuides) {
     return true;
@@ -1057,15 +1302,17 @@ function areAlignmentGuidesEqual(
 
   return previousGuides.every((guide, index) => {
     const nextGuide = nextGuides[index];
-    return guide.type === nextGuide.type
-      && guide.position === nextGuide.position
-      && guide.style === nextGuide.style;
+    return (
+      guide.type === nextGuide.type &&
+      guide.position === nextGuide.position &&
+      guide.style === nextGuide.style
+    );
   });
 }
 
 function resolveClipboardImageFile(event: ClipboardEvent): File | null {
   const directFile = Array.from(event.clipboardData?.files ?? []).find((file) =>
-    file.type.startsWith('image/')
+    file.type.startsWith("image/"),
   );
   if (directFile) {
     return directFile;
@@ -1077,7 +1324,7 @@ function resolveClipboardImageFile(event: ClipboardEvent): File | null {
   }
 
   for (const item of Array.from(clipboardItems)) {
-    if (!item.type.startsWith('image/')) {
+    if (!item.type.startsWith("image/")) {
       continue;
     }
 
@@ -1086,12 +1333,12 @@ function resolveClipboardImageFile(event: ClipboardEvent): File | null {
       continue;
     }
 
-    const existingName = typeof file.name === 'string' ? file.name.trim() : '';
+    const existingName = typeof file.name === "string" ? file.name.trim() : "";
     if (existingName) {
       return file;
     }
 
-    const subtype = item.type.split('/')[1]?.split('+')[0] || 'png';
+    const subtype = item.type.split("/")[1]?.split("+")[0] || "png";
     return new File([file], `pasted-image.${subtype}`, {
       type: file.type || item.type,
       lastModified: Date.now(),
@@ -1102,37 +1349,42 @@ function resolveClipboardImageFile(event: ClipboardEvent): File | null {
 }
 
 function resolveClipboardSourceFileName(sourcePath: string): string | null {
-  const trimmedPath = sourcePath.trim().replace(/[\\/]+$/, '');
+  const trimmedPath = sourcePath.trim().replace(/[\\/]+$/, "");
   if (!trimmedPath) {
     return null;
   }
 
   const normalizedPath = trimmedPath.split(/[?#]/, 1)[0] ?? trimmedPath;
   const segments = normalizedPath.split(/[\\/]/);
-  const fileName = segments[segments.length - 1]?.trim() ?? '';
+  const fileName = segments[segments.length - 1]?.trim() ?? "";
   return fileName || null;
 }
 
-function resolveClipboardFileKind(sourcePath: string): ClipboardSourceKind | null {
-  const normalizedPath = sourcePath.trim().split(/[?#]/, 1)[0] ?? sourcePath.trim();
+function resolveClipboardFileKind(
+  sourcePath: string,
+): ClipboardSourceKind | null {
+  const normalizedPath =
+    sourcePath.trim().split(/[?#]/, 1)[0] ?? sourcePath.trim();
   if (!normalizedPath) {
     return null;
   }
 
   if (CLIPBOARD_IMAGE_PATH_PATTERN.test(normalizedPath)) {
-    return 'image';
+    return "image";
   }
   if (CLIPBOARD_VIDEO_PATH_PATTERN.test(normalizedPath)) {
-    return 'video';
+    return "video";
   }
   if (CLIPBOARD_AUDIO_PATH_PATTERN.test(normalizedPath)) {
-    return 'audio';
+    return "audio";
   }
 
   return null;
 }
 
-function collectClipboardFileSources(sourcePaths: string[]): ClipboardFileSource[] {
+function collectClipboardFileSources(
+  sourcePaths: string[],
+): ClipboardFileSource[] {
   const seenPaths = new Set<string>();
   const items: ClipboardFileSource[] = [];
 
@@ -1160,14 +1412,18 @@ function collectClipboardFileSources(sourcePaths: string[]): ClipboardFileSource
 
 function isCanvasPasteTarget(
   target: EventTarget | null,
-  container: HTMLElement | null
+  container: HTMLElement | null,
 ): boolean {
   if (!container) {
     return false;
   }
 
   const element = target as HTMLElement | null;
-  if (!element || element === document.body || element === document.documentElement) {
+  if (
+    !element ||
+    element === document.body ||
+    element === document.documentElement
+  ) {
     return true;
   }
 
@@ -1176,23 +1432,21 @@ function isCanvasPasteTarget(
 
 function resolveAllowedNodeTypes(
   handleType: HandleType,
-  projectType: 'storyboard' | 'script' = 'storyboard',
+  projectType: "storyboard" | "script" = "storyboard",
   linkedScriptProjectId?: string | null,
   linkedAdProjectId?: string | null,
   sourceNodeId?: string | null,
-  nodes?: CanvasNode[]
+  nodes?: CanvasNode[],
 ): CanvasNodeType[] {
   const baseTypes = getConnectMenuNodeTypes(handleType, projectType, {
     linkedScriptProjectId,
     linkedAdProjectId,
-  }).filter(
-    (type) => isCanvasNodeTypeEnabled(type)
-  );
-  
+  }).filter((type) => isCanvasNodeTypeEnabled(type));
+
   if (!sourceNodeId || !nodes) {
     return baseTypes;
   }
-  
+
   const sourceNode = nodes.find((n) => n.id === sourceNodeId);
   if (!sourceNode) {
     return baseTypes;
@@ -1200,81 +1454,91 @@ function resolveAllowedNodeTypes(
 
   let allowedTypes = baseTypes;
 
-  if (handleType === 'source') {
-    const isSingleImageSource = Boolean(resolveSingleImageConnectionSource(sourceNode));
-    const isSingleVideoSource = Boolean(resolveSingleVideoConnectionSource(sourceNode));
+  if (handleType === "source") {
+    const isSingleImageSource = Boolean(
+      resolveSingleImageConnectionSource(sourceNode),
+    );
+    const isSingleVideoSource = Boolean(
+      resolveSingleVideoConnectionSource(sourceNode),
+    );
     const isAudioReferenceSource = sourceNode.type === CANVAS_NODE_TYPES.audio;
     const isVideoReferenceSource = isSingleVideoSource;
 
     if (isAudioReferenceSource) {
       return allowedTypes.filter(
         (type) =>
-          type === CANVAS_NODE_TYPES.jimeng
-          || type === CANVAS_NODE_TYPES.seedance
+          type === CANVAS_NODE_TYPES.jimeng ||
+          type === CANVAS_NODE_TYPES.seedance,
       );
     }
 
     if (isVideoReferenceSource) {
       return allowedTypes.filter(
         (type) =>
-          type === CANVAS_NODE_TYPES.jimeng
-          || type === CANVAS_NODE_TYPES.seedance
-          || type === CANVAS_NODE_TYPES.seedvr2VideoUpscale
+          type === CANVAS_NODE_TYPES.jimeng ||
+          type === CANVAS_NODE_TYPES.seedance ||
+          type === CANVAS_NODE_TYPES.seedvr2VideoUpscale,
       );
     }
 
     const shouldHideVoiceDesign =
-      isSingleImageSource
-      || isVideoReferenceSource
-      || sourceNode.type === CANVAS_NODE_TYPES.jimeng
-      || sourceNode.type === CANVAS_NODE_TYPES.seedance
-      || sourceNode.type === CANVAS_NODE_TYPES.jimengImage
-      || sourceNode.type === CANVAS_NODE_TYPES.jimengImageResult;
+      isSingleImageSource ||
+      isVideoReferenceSource ||
+      sourceNode.type === CANVAS_NODE_TYPES.jimeng ||
+      sourceNode.type === CANVAS_NODE_TYPES.seedance ||
+      sourceNode.type === CANVAS_NODE_TYPES.jimengImage ||
+      sourceNode.type === CANVAS_NODE_TYPES.jimengImageResult;
 
     if (!isSingleImageSource) {
       allowedTypes = allowedTypes.filter(
         (type) =>
-          type !== CANVAS_NODE_TYPES.jimengImage
-          && type !== CANVAS_NODE_TYPES.panorama360
-          && type !== CANVAS_NODE_TYPES.backgroundRemove
-          && type !== CANVAS_NODE_TYPES.seedvr2ImageUpscale
-          && type !== CANVAS_NODE_TYPES.imageCollage
+          type !== CANVAS_NODE_TYPES.jimengImage &&
+          type !== CANVAS_NODE_TYPES.panorama360 &&
+          type !== CANVAS_NODE_TYPES.backgroundRemove &&
+          type !== CANVAS_NODE_TYPES.seedvr2ImageUpscale &&
+          type !== CANVAS_NODE_TYPES.imageCollage,
       );
     }
 
     if (!isSingleVideoSource) {
       allowedTypes = allowedTypes.filter(
-        (type) => type !== CANVAS_NODE_TYPES.seedvr2VideoUpscale
+        (type) => type !== CANVAS_NODE_TYPES.seedvr2VideoUpscale,
       );
     }
 
     if (shouldHideVoiceDesign) {
       allowedTypes = allowedTypes.filter(
-        (type) => type !== CANVAS_NODE_TYPES.ttsVoiceDesign
+        (type) => type !== CANVAS_NODE_TYPES.ttsVoiceDesign,
       );
     }
   } else if (sourceNode.type === CANVAS_NODE_TYPES.panorama360) {
-    allowedTypes = allowedTypes.filter((type) => canNodeTypeServeAsPanoramaInputSource(type));
+    allowedTypes = allowedTypes.filter((type) =>
+      canNodeTypeServeAsPanoramaInputSource(type),
+    );
   }
-  
+
   const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
-  const isSourceChapterNode = sourceNode.type === CANVAS_NODE_TYPES.scriptChapter;
-  
+  const isSourceChapterNode =
+    sourceNode.type === CANVAS_NODE_TYPES.scriptChapter;
+
   if (isSourceChapterNode) {
     const sourceData = sourceNode.data as ScriptChapterNodeData;
     const sourceDepth = sourceData.depth || 1;
-    const isMainChapter = sourceData.branchType === 'main' && sourceDepth === 1;
-    
+    const isMainChapter = sourceData.branchType === "main" && sourceDepth === 1;
+
     if (isMainChapter) {
       return allowedTypes.filter(
-        (type) => type !== CANVAS_NODE_TYPES.scriptChapter || 
-        (type === CANVAS_NODE_TYPES.scriptChapter && handleType === 'source')
+        (type) =>
+          type !== CANVAS_NODE_TYPES.scriptChapter ||
+          (type === CANVAS_NODE_TYPES.scriptChapter && handleType === "source"),
       );
     }
-    
-    return allowedTypes.filter((type) => type !== CANVAS_NODE_TYPES.scriptChapter);
+
+    return allowedTypes.filter(
+      (type) => type !== CANVAS_NODE_TYPES.scriptChapter,
+    );
   }
-  
+
   if (isSourceRootNode) {
     return allowedTypes;
   }
@@ -1287,27 +1551,40 @@ function canNodeTypeBeManualConnectionSource(type: CanvasNodeType): boolean {
 }
 
 function canNodeTypeServeAsPanoramaInputSource(type: CanvasNodeType): boolean {
-  return type === CANVAS_NODE_TYPES.upload
-    || type === CANVAS_NODE_TYPES.imageEdit
-    || type === CANVAS_NODE_TYPES.exportImage
-    || type === CANVAS_NODE_TYPES.panorama360;
+  return (
+    type === CANVAS_NODE_TYPES.upload ||
+    type === CANVAS_NODE_TYPES.imageEdit ||
+    type === CANVAS_NODE_TYPES.exportImage ||
+    type === CANVAS_NODE_TYPES.panorama360
+  );
 }
 
-function canNodeServeAsPanoramaInputSource(node: CanvasNode | undefined): boolean {
+function canNodeServeAsPanoramaInputSource(
+  node: CanvasNode | undefined,
+): boolean {
   if (!node) {
     return false;
   }
 
-  return Boolean(resolveSingleImageConnectionSource(node))
-    || canNodeTypeServeAsPanoramaInputSource(node.type);
+  return (
+    Boolean(resolveSingleImageConnectionSource(node)) ||
+    canNodeTypeServeAsPanoramaInputSource(node.type)
+  );
 }
 
-function shouldInsertIntoLinearOutgoingFlow(node: CanvasNode | undefined): boolean {
-  return node?.type === CANVAS_NODE_TYPES.scriptRoot
-    || node?.type === CANVAS_NODE_TYPES.scriptChapter;
+function shouldInsertIntoLinearOutgoingFlow(
+  node: CanvasNode | undefined,
+): boolean {
+  return (
+    node?.type === CANVAS_NODE_TYPES.scriptRoot ||
+    node?.type === CANVAS_NODE_TYPES.scriptChapter
+  );
 }
 
-function canNodeBeManualConnectionSource(nodeId: string | null | undefined, nodes: CanvasNode[]): boolean {
+function canNodeBeManualConnectionSource(
+  nodeId: string | null | undefined,
+  nodes: CanvasNode[],
+): boolean {
   if (!nodeId) {
     return false;
   }
@@ -1315,14 +1592,17 @@ function canNodeBeManualConnectionSource(nodeId: string | null | undefined, node
   return node ? canNodeTypeBeManualConnectionSource(node.type) : false;
 }
 
-function getClientPosition(event: MouseEvent | TouchEvent): { x: number; y: number } | null {
-  if ('clientX' in event && 'clientY' in event) {
+function getClientPosition(
+  event: MouseEvent | TouchEvent,
+): { x: number; y: number } | null {
+  if ("clientX" in event && "clientY" in event) {
     return { x: event.clientX, y: event.clientY };
   }
 
-  const touch = 'changedTouches' in event
-    ? event.changedTouches[0] ?? event.touches[0]
-    : null;
+  const touch =
+    "changedTouches" in event
+      ? (event.changedTouches[0] ?? event.touches[0])
+      : null;
   if (!touch) {
     return null;
   }
@@ -1332,22 +1612,26 @@ function getClientPosition(event: MouseEvent | TouchEvent): { x: number; y: numb
 
 function resolveDropNodeElement(
   eventTarget: EventTarget | null,
-  clientPosition: { x: number; y: number }
+  clientPosition: { x: number; y: number },
 ): HTMLElement | null {
   const elementTarget = eventTarget instanceof Element ? eventTarget : null;
-  const nodeElementFromTarget = elementTarget?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
+  const nodeElementFromTarget = elementTarget?.closest?.(
+    ".react-flow__node[data-id]",
+  ) as HTMLElement | null;
   const nodeElementFromPoint = document
     .elementFromPoint(clientPosition.x, clientPosition.y)
-    ?.closest?.('.react-flow__node[data-id]') as HTMLElement | null;
+    ?.closest?.(".react-flow__node[data-id]") as HTMLElement | null;
 
   return nodeElementFromTarget ?? nodeElementFromPoint;
 }
 
 function resolveDropNodeId(
   eventTarget: EventTarget | null,
-  clientPosition: { x: number; y: number }
+  clientPosition: { x: number; y: number },
 ): string | null {
-  return resolveDropNodeElement(eventTarget, clientPosition)?.dataset?.id ?? null;
+  return (
+    resolveDropNodeElement(eventTarget, clientPosition)?.dataset?.id ?? null
+  );
 }
 
 function logCanvasPerf(label: string, payload: Record<string, unknown>) {
@@ -1356,6 +1640,14 @@ function logCanvasPerf(label: string, payload: Record<string, unknown>) {
   }
 
   console.debug(label, payload);
+}
+
+function logCanvasEntryTrace(label: string, payload: Record<string, unknown>) {
+  if (!import.meta.env.DEV) {
+    return;
+  }
+
+  console.debug(`[canvas-entry-trace] ${label}`, payload);
 }
 
 interface ConnectNodeBusinessRuleOptions {
@@ -1376,11 +1668,20 @@ export function Canvas() {
   const [showSceneCatalogMenu, setShowSceneCatalogMenu] = useState(false);
   const [showEpisodeCatalogMenu, setShowEpisodeCatalogMenu] = useState(false);
   const [showWelcomeDialog, setShowWelcomeDialog] = useState(false);
-  const [storyboardAssetExpandSourceNodeId, setStoryboardAssetExpandSourceNodeId] = useState<string | null>(null);
-  const [smartDirectorStoryboardExpandSourceNodeId, setSmartDirectorStoryboardExpandSourceNodeId] = useState<string | null>(null);
-  const [canvasTransferSourceNodeIds, setCanvasTransferSourceNodeIds] = useState<string[] | null>(null);
-  const [smartDirectorStoryboardResultChoice, setSmartDirectorStoryboardResultChoice] =
-    useState<SmartDirectorStoryboardResultChoiceState | null>(null);
+  const [
+    storyboardAssetExpandSourceNodeId,
+    setStoryboardAssetExpandSourceNodeId,
+  ] = useState<string | null>(null);
+  const [
+    smartDirectorStoryboardExpandSourceNodeId,
+    setSmartDirectorStoryboardExpandSourceNodeId,
+  ] = useState<string | null>(null);
+  const [canvasTransferSourceNodeIds, setCanvasTransferSourceNodeIds] =
+    useState<string[] | null>(null);
+  const [
+    smartDirectorStoryboardResultChoice,
+    setSmartDirectorStoryboardResultChoice,
+  ] = useState<SmartDirectorStoryboardResultChoiceState | null>(null);
   const [batchAddToAssetsResolution, setBatchAddToAssetsResolution] =
     useState<BatchAssetSourceResolution | null>(null);
   const [hasMountedToolDialog, setHasMountedToolDialog] = useState(false);
@@ -1388,74 +1689,120 @@ export function Canvas() {
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const [isViewportInteracting, setIsViewportInteracting] = useState(false);
-  const [isDraggingBranchConnection, setIsDraggingBranchConnection] = useState(false);
-  const [branchConnectionSource, setBranchConnectionSource] = useState<CanvasNode[]>([]);
-  const [branchConnectionPosition, setBranchConnectionPosition] = useState<{ x: number; y: number } | null>(null);
+  const [isDraggingBranchConnection, setIsDraggingBranchConnection] =
+    useState(false);
+  const [branchConnectionSource, setBranchConnectionSource] = useState<
+    CanvasNode[]
+  >([]);
+  const [branchConnectionPosition, setBranchConnectionPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
-  const [isExportingSelectedImages, setIsExportingSelectedImages] = useState(false);
-  const [isPreparingSelectedAssets, setIsPreparingSelectedAssets] = useState(false);
+  const [isExportingSelectedImages, setIsExportingSelectedImages] =
+    useState(false);
+  const [isPreparingSelectedAssets, setIsPreparingSelectedAssets] =
+    useState(false);
   const [batchMenuPosition, setBatchMenuPosition] = useState({ x: 0, y: 0 });
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [flowPosition, setFlowPosition] = useState({ x: 0, y: 0 });
-  const [menuAllowedTypes, setMenuAllowedTypes] = useState<CanvasNodeType[] | undefined>(
-    undefined
-  );
-  const [pendingConnectStart, setPendingConnectStart] = useState<PendingConnectStart | null>(
-    null
-  );
-  const [sceneCatalogChapterNodeId, setSceneCatalogChapterNodeId] = useState<string | null>(null);
-  const [episodeCatalogSceneNodeId, setEpisodeCatalogSceneNodeId] = useState<string | null>(null);
+  const [menuAllowedTypes, setMenuAllowedTypes] = useState<
+    CanvasNodeType[] | undefined
+  >(undefined);
+  const [pendingConnectStart, setPendingConnectStart] =
+    useState<PendingConnectStart | null>(null);
+  const [sceneCatalogChapterNodeId, setSceneCatalogChapterNodeId] = useState<
+    string | null
+  >(null);
+  const [episodeCatalogSceneNodeId, setEpisodeCatalogSceneNodeId] = useState<
+    string | null
+  >(null);
   const [previewConnectionVisual, setPreviewConnectionVisual] =
     useState<PreviewConnectionVisual | null>(null);
-  const [dragOverlayKind, setDragOverlayKind] = useState<CanvasDragOverlayKind>(null);
-  const [imageCompareNotice, setImageCompareNotice] = useState<ImageCompareNoticeState | null>(null);
-  const [edgeCutVisual, setEdgeCutVisual] = useState<EdgeCutGestureVisual | null>(null);
-  const [edgeCutNoticeCount, setEdgeCutNoticeCount] = useState<number | null>(null);
-  const [isCanvasSelectionKeyPressed, setIsCanvasSelectionKeyPressed] = useState(false);
-  const [canvasRenderMode, setCanvasRenderMode] = useState<CanvasRenderMode>('full');
-  const [canvasEdgeRenderMode, setCanvasEdgeRenderMode] = useState<CanvasEdgeRenderMode>('full');
+  const [dragOverlayKind, setDragOverlayKind] =
+    useState<CanvasDragOverlayKind>(null);
+  const [imageCompareNotice, setImageCompareNotice] =
+    useState<ImageCompareNoticeState | null>(null);
+  const [edgeCutVisual, setEdgeCutVisual] =
+    useState<EdgeCutGestureVisual | null>(null);
+  const [edgeCutNoticeCount, setEdgeCutNoticeCount] = useState<number | null>(
+    null,
+  );
+  const [isCanvasSelectionKeyPressed, setIsCanvasSelectionKeyPressed] =
+    useState(false);
+  const [canvasRenderMode, setCanvasRenderMode] =
+    useState<CanvasRenderMode>("full");
+  const [canvasEdgeRenderMode, setCanvasEdgeRenderMode] =
+    useState<CanvasEdgeRenderMode>("full");
 
   const isRestoringCanvasRef = useRef(true);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextCanvasAutoPersistRef = useRef(false);
-  const deferredHistoryRestoreTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const deferredHistoryRestoreTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const deferredHistoryRestoreFrameRef = useRef<number | null>(null);
   const copiedSnapshotRef = useRef<ClipboardSnapshot | null>(null);
   const pasteIterationRef = useRef(0);
   const pasteImageHandledRef = useRef(false);
   const pendingPasteHandledRef = useRef<Promise<boolean> | null>(null);
-  const dragOverlayClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const imageCompareNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const edgeCutNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragOverlayClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+  const imageCompareNoticeTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const edgeCutNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const alignmentFrameRef = useRef<number | null>(null);
   const restoredCanvasProjectIdRef = useRef<string | null>(null);
+  const reactFlowReadyCountRef = useRef(0);
   const pendingAlignmentNodeRef = useRef<CanvasNode | null>(null);
   const alignmentDragSessionRef = useRef<AlignmentDragSession | null>(null);
-  const nodeDragStartChromeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const viewportInteractionChromeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nodeDragStartChromeTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const viewportInteractionChromeTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const activeGenerationPollNodeIdsRef = useRef(new Set<string>());
   const activeGenerationRecoveryNodeIdsRef = useRef(new Set<string>());
   const generationNodeActivityAtRef = useRef(new Map<string, number>());
-  const duplicateNodesRef = useRef<((sourceNodeIds: string[]) => string | null) | null>(null);
+  const duplicateNodesRef = useRef<
+    ((sourceNodeIds: string[]) => string | null) | null
+  >(null);
   const connectionPointerRef = useRef<{ x: number; y: number } | null>(null);
   const connectionSpacePanActiveRef = useRef(false);
   const connectionSpacePanMovedRef = useRef(false);
   const edgeCutKeyPressedRef = useRef(false);
   const edgeCutGestureRef = useRef<EdgeCutGestureState | null>(null);
-  const marqueeSelectionSessionRef = useRef<MarqueeSelectionSession | null>(null);
-  const viewportImagePreloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const viewportImagePreloadIdleRef = useRef<ReturnType<typeof setTimeout> | number | null>(null);
+  const marqueeSelectionSessionRef = useRef<MarqueeSelectionSession | null>(
+    null,
+  );
+  const viewportImagePreloadTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const viewportImagePreloadIdleRef = useRef<
+    ReturnType<typeof setTimeout> | number | null
+  >(null);
   const viewportImagePreloadRunRef = useRef(0);
   const viewportImagePreloadAbortRef = useRef<AbortController | null>(null);
+  const copiedNodeImageWarmupIdleRef = useRef<
+    ReturnType<typeof setTimeout> | number | null
+  >(null);
+  const copiedNodeImageWarmupAbortRef = useRef<AbortController | null>(null);
   const viewportImagePreloadViewportRef = useRef<Viewport>(DEFAULT_VIEWPORT);
   const viewportImagePreloadNodesRef = useRef<CanvasNode[]>([]);
   const viewportImagePreloadSizeRef = useRef({ width: 0, height: 0 });
   const viewportImagePreloadProjectIdRef = useRef<string | null>(null);
-  const flowNodePresentationCacheRef = useRef(new Map<
-    string,
-    { isOverviewRender: boolean; node: CanvasNode; sourceNode: CanvasNode }
-  >());
+  const flowNodePresentationCacheRef = useRef(
+    new Map<
+      string,
+      { isOverviewRender: boolean; node: CanvasNode; sourceNode: CanvasNode }
+    >(),
+  );
   const altDragCopyRef = useRef<{
     sourceNodeIds: string[];
     startPositions: globalThis.Map<string, { x: number; y: number }>;
@@ -1477,9 +1824,13 @@ export function Canvas() {
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
   const history = useCanvasStore((state) => state.history);
-  const dragHistorySnapshot = useCanvasStore((state) => state.dragHistorySnapshot);
+  const dragHistorySnapshot = useCanvasStore(
+    (state) => state.dragHistorySnapshot,
+  );
   const canvasViewport = useCanvasStore((state) => state.currentViewport);
-  const canvasViewportSize = useCanvasStore((state) => state.canvasViewportSize);
+  const canvasViewportSize = useCanvasStore(
+    (state) => state.canvasViewportSize,
+  );
   const canvasZoom = canvasViewport.zoom;
   const applyNodesChange = useCanvasStore((state) => state.onNodesChange);
   const applyEdgesChange = useCanvasStore((state) => state.onEdgesChange);
@@ -1489,93 +1840,149 @@ export function Canvas() {
   const addPreparedNodes = useCanvasStore((state) => state.addPreparedNodes);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const applySemanticColorToSelected = useCanvasStore(
-    (state) => state.applySemanticColorToSelected
+    (state) => state.applySemanticColorToSelected,
   );
   const addNode = useCanvasStore((state) => state.addNode);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
-  const setSelectedNodeIds = useCanvasStore((state) => state.setSelectedNodeIds);
+  const setSelectedNodeIds = useCanvasStore(
+    (state) => state.setSelectedNodeIds,
+  );
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const assetLibraries = useAssetStore((state) => state.libraries);
   const areAssetLibrariesHydrated = useAssetStore((state) => state.isHydrated);
-  const activeChapterId = useScriptEditorStore((state) => state.activeChapterId);
-  const activeChapterSceneId = useScriptEditorStore((state) => state.activeChapterSceneId);
+  const activeChapterId = useScriptEditorStore(
+    (state) => state.activeChapterId,
+  );
+  const activeChapterSceneId = useScriptEditorStore(
+    (state) => state.activeChapterSceneId,
+  );
   const focusChapter = useScriptEditorStore((state) => state.focusChapter);
-  const activeSceneNodeId = useScriptEditorStore((state) => state.activeSceneNodeId);
-  const activeEpisodeId = useScriptEditorStore((state) => state.activeEpisodeId);
-  const activeScriptNodeId = useScriptEditorStore((state) => state.activeScriptNodeId);
+  const activeSceneNodeId = useScriptEditorStore(
+    (state) => state.activeSceneNodeId,
+  );
+  const activeEpisodeId = useScriptEditorStore(
+    (state) => state.activeEpisodeId,
+  );
+  const activeScriptNodeId = useScriptEditorStore(
+    (state) => state.activeScriptNodeId,
+  );
   const focusSceneNode = useScriptEditorStore((state) => state.focusSceneNode);
-  const focusShootingScript = useScriptEditorStore((state) => state.focusShootingScript);
+  const focusShootingScript = useScriptEditorStore(
+    (state) => state.focusShootingScript,
+  );
   const createScriptSceneNodeFromChapterScene = useCanvasStore(
-    (state) => state.createScriptSceneNodeFromChapterScene
+    (state) => state.createScriptSceneNodeFromChapterScene,
   );
   const ensureShootingScriptNodeFromSceneEpisode = useCanvasStore(
-    (state) => state.ensureShootingScriptNodeFromSceneEpisode
+    (state) => state.ensureShootingScriptNodeFromSceneEpisode,
   );
   const deleteEdge = useCanvasStore((state) => state.deleteEdge);
   const deleteEdges = useCanvasStore((state) => state.deleteEdges);
   const deleteNode = useCanvasStore((state) => state.deleteNode);
   const deleteNodes = useCanvasStore((state) => state.deleteNodes);
   const groupNodes = useCanvasStore((state) => state.groupNodes);
-  const mergeImageNodesForCompare = useCanvasStore((state) => state.mergeImageNodesForCompare);
-  const syncAssetItemReferences = useCanvasStore((state) => state.syncAssetItemReferences);
-  const detachDeletedAssetReferences = useCanvasStore((state) => state.detachDeletedAssetReferences);
+  const mergeImageNodesForCompare = useCanvasStore(
+    (state) => state.mergeImageNodesForCompare,
+  );
+  const syncAssetItemReferences = useCanvasStore(
+    (state) => state.syncAssetItemReferences,
+  );
+  const detachDeletedAssetReferences = useCanvasStore(
+    (state) => state.detachDeletedAssetReferences,
+  );
   const undo = useCanvasStore((state) => state.undo);
   const redo = useCanvasStore((state) => state.redo);
-  const reparentNodesToGroup = useCanvasStore((state) => state.reparentNodesToGroup);
-  const detachNodesFromGroup = useCanvasStore((state) => state.detachNodesFromGroup);
+  const reparentNodesToGroup = useCanvasStore(
+    (state) => state.reparentNodesToGroup,
+  );
+  const detachNodesFromGroup = useCanvasStore(
+    (state) => state.detachNodesFromGroup,
+  );
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
   const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
-  const activeDirectorStageNodeId = useCanvasStore((state) => state.activeDirectorStageNodeId);
-  const closeDirectorStage = useCanvasStore((state) => state.closeDirectorStage);
+  const activeDirectorStageNodeId = useCanvasStore(
+    (state) => state.activeDirectorStageNodeId,
+  );
+  const closeDirectorStage = useCanvasStore(
+    (state) => state.closeDirectorStage,
+  );
   const setViewportState = useCanvasStore((state) => state.setViewportState);
-  const setCanvasViewportSize = useCanvasStore((state) => state.setCanvasViewportSize);
+  const setCanvasViewportSize = useCanvasStore(
+    (state) => state.setCanvasViewportSize,
+  );
   const imageViewer = useCanvasStore((state) => state.imageViewer);
   const closeImageViewer = useCanvasStore((state) => state.closeImageViewer);
-  const navigateImageViewer = useCanvasStore((state) => state.navigateImageViewer);
+  const navigateImageViewer = useCanvasStore(
+    (state) => state.navigateImageViewer,
+  );
   const isImageViewerOpen = imageViewer.isOpen;
   const activeCompareViewerNode = useMemo(() => {
     if (
-      !imageViewer.isOpen
-      || imageViewer.mode !== 'compare'
-      || !imageViewer.compareNodeId
+      !imageViewer.isOpen ||
+      imageViewer.mode !== "compare" ||
+      !imageViewer.compareNodeId
     ) {
       return null;
     }
 
-    const candidateNode = nodes.find((node) => node.id === imageViewer.compareNodeId);
-    return candidateNode && isImageCompareNode(candidateNode) ? candidateNode : null;
+    const candidateNode = nodes.find(
+      (node) => node.id === imageViewer.compareNodeId,
+    );
+    return candidateNode && isImageCompareNode(candidateNode)
+      ? candidateNode
+      : null;
   }, [imageViewer.compareNodeId, imageViewer.isOpen, imageViewer.mode, nodes]);
   const snapToGrid = useCanvasStore((state) => state.snapToGrid);
   const snapGridSize = useCanvasStore((state) => state.snapGridSize);
   const setSnapToGrid = useCanvasStore((state) => state.setSnapToGrid);
-  const enableNodeAlignment = useCanvasStore((state) => state.enableNodeAlignment);
-  const alignmentThreshold = useCanvasStore((state) => state.alignmentThreshold);
+  const enableNodeAlignment = useCanvasStore(
+    (state) => state.enableNodeAlignment,
+  );
+  const alignmentThreshold = useCanvasStore(
+    (state) => state.alignmentThreshold,
+  );
   const showMiniMap = useSettingsStore((state) => state.showMiniMap);
   const showGrid = useSettingsStore((state) => state.showGrid);
-  const showAlignmentGuides = useSettingsStore((state) => state.showAlignmentGuides);
+  const showAlignmentGuides = useSettingsStore(
+    (state) => state.showAlignmentGuides,
+  );
   const showCanvasEdges = useSettingsStore((state) => state.showCanvasEdges);
-  const groupNodesShortcut = useSettingsStore((state) => state.groupNodesShortcut);
+  const groupNodesShortcut = useSettingsStore(
+    (state) => state.groupNodesShortcut,
+  );
   const canvasOverviewZoomThreshold = useSettingsStore(
-    (state) => state.canvasOverviewZoomThreshold
+    (state) => state.canvasOverviewZoomThreshold,
   );
   const canvasOverviewThumbnailMaxDimension = useSettingsStore(
-    (state) => state.canvasOverviewThumbnailMaxDimension
+    (state) => state.canvasOverviewThumbnailMaxDimension,
   );
   const canvasThumbnailMediaCountThreshold = useSettingsStore(
-    (state) => state.canvasThumbnailMediaCountThreshold
+    (state) => state.canvasThumbnailMediaCountThreshold,
   );
   const canvasViewportPreloadMarginScreens = useSettingsStore(
-    (state) => state.canvasViewportPreloadMarginScreens
+    (state) => state.canvasViewportPreloadMarginScreens,
   );
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
-  const setShowAlignmentGuides = useSettingsStore((state) => state.setShowAlignmentGuides);
-  const setShowCanvasEdges = useSettingsStore((state) => state.setShowCanvasEdges);
-  const storyboardApiKeys = useSettingsStore((state) => state.storyboardApiKeys);
+  const setShowAlignmentGuides = useSettingsStore(
+    (state) => state.setShowAlignmentGuides,
+  );
+  const setShowCanvasEdges = useSettingsStore(
+    (state) => state.setShowCanvasEdges,
+  );
+  const storyboardApiKeys = useSettingsStore(
+    (state) => state.storyboardApiKeys,
+  );
   const jimengQueueJobs = useJimengVideoQueueStore((state) => state.jobs);
   const jimengQueuePendingCount = useMemo(
-    () => jimengQueueJobs.filter((job) => job.status !== 'completed' && job.status !== 'failed' && job.status !== 'cancelled').length,
-    [jimengQueueJobs]
+    () =>
+      jimengQueueJobs.filter(
+        (job) =>
+          job.status !== "completed" &&
+          job.status !== "failed" &&
+          job.status !== "cancelled",
+      ).length,
+    [jimengQueueJobs],
   );
 
   const syncViewportState = useCallback(
@@ -1584,12 +1991,15 @@ export function Canvas() {
       viewportImagePreloadViewportRef.current = viewport;
       setViewportState(viewport);
     },
-    [setViewportState]
+    [setViewportState],
   );
 
   const syncViewportStateOnZoomChange = useCallback(
     (viewport: Viewport) => {
-      if (Math.abs(viewportStoreRef.current.zoom - viewport.zoom) < VIEWPORT_ZOOM_SYNC_EPSILON) {
+      if (
+        Math.abs(viewportStoreRef.current.zoom - viewport.zoom) <
+        VIEWPORT_ZOOM_SYNC_EPSILON
+      ) {
         return;
       }
 
@@ -1597,33 +2007,32 @@ export function Canvas() {
       viewportImagePreloadViewportRef.current = viewport;
       setViewportState(viewport);
     },
-    [setViewportState]
+    [setViewportState],
   );
 
   useEffect(() => {
     const nextRenderMode: CanvasRenderMode =
-      canvasZoom <= canvasOverviewZoomThreshold ? 'overview' : 'full';
-    setCanvasRenderMode((currentMode) => (
-      currentMode === nextRenderMode ? currentMode : nextRenderMode
-    ));
+      canvasZoom <= canvasOverviewZoomThreshold ? "overview" : "full";
+    setCanvasRenderMode((currentMode) =>
+      currentMode === nextRenderMode ? currentMode : nextRenderMode,
+    );
   }, [canvasOverviewZoomThreshold, canvasZoom]);
 
   useEffect(() => {
     setCanvasEdgeRenderMode((currentMode) => {
-      if (canvasRenderMode === 'overview') {
-        return 'light';
+      if (canvasRenderMode === "overview") {
+        return "light";
       }
 
-      return currentMode === 'full' ? currentMode : 'full';
+      return currentMode === "full" ? currentMode : "full";
     });
   }, [canvasRenderMode]);
 
-  const effectiveCanvasEdgeRenderMode: CanvasEdgeRenderMode =
-    !showCanvasEdges
-      ? 'hidden'
-      : canvasRenderMode === 'overview' || dragHistorySnapshot
-        ? 'light'
-        : canvasEdgeRenderMode;
+  const effectiveCanvasEdgeRenderMode: CanvasEdgeRenderMode = !showCanvasEdges
+    ? "hidden"
+    : canvasRenderMode === "overview" || dragHistorySnapshot
+      ? "light"
+      : canvasEdgeRenderMode;
   const canvasPreviewMediaCountRef = useRef(0);
   const canvasPreviewMediaCount = useMemo(() => {
     const startedAt = performance.now();
@@ -1631,9 +2040,12 @@ export function Canvas() {
       return canvasPreviewMediaCountRef.current;
     }
 
-    const count = countCanvasPreviewMedia(nodes);
+    const count = countCanvasPreviewMedia(
+      nodes,
+      canvasThumbnailMediaCountThreshold + 1,
+    );
     if (nodes.length > 100) {
-      logCanvasPerf('[canvas-perf] countCanvasPreviewMedia', {
+      logCanvasPerf("[canvas-perf] countCanvasPreviewMedia", {
         nodeCount: nodes.length,
         mediaCount: count,
         elapsedMs: Math.round(performance.now() - startedAt),
@@ -1648,19 +2060,21 @@ export function Canvas() {
   const canvasMediaPerformanceState = useMemo<CanvasMediaPerformanceState>(
     () => ({
       renderMode: canvasRenderMode,
-      suspendMedia: canvasRenderMode === 'overview',
+      suspendMedia: canvasRenderMode === "overview",
       preferThumbnailMedia: shouldPreferThumbnailMedia,
     }),
-    [
-      canvasRenderMode,
-      shouldPreferThumbnailMedia,
-    ]
+    [canvasRenderMode, shouldPreferThumbnailMedia],
   );
-  const isCanvasOverviewRender = canvasRenderMode === 'overview';
-  const effectiveNodeTypes = isCanvasOverviewRender ? overviewNodeTypes : nodeTypes;
-  const effectiveEdgeTypes = isCanvasOverviewRender ? overviewEdgeTypes : edgeTypes;
+  const isCanvasOverviewRender = canvasRenderMode === "overview";
+  const effectiveNodeTypes = isCanvasOverviewRender
+    ? overviewNodeTypes
+    : nodeTypes;
+  const effectiveEdgeTypes = isCanvasOverviewRender
+    ? overviewEdgeTypes
+    : edgeTypes;
   const shouldHideCanvasChrome = isCanvasOverviewRender;
-  const shouldHideViewportInteractionChrome = shouldHideCanvasChrome || isViewportInteracting;
+  const shouldHideViewportInteractionChrome =
+    shouldHideCanvasChrome || isViewportInteracting;
   const shouldHideSelectionChrome = shouldHideViewportInteractionChrome;
 
   const clearDragOverlay = useCallback(() => {
@@ -1688,21 +2102,23 @@ export function Canvas() {
     }, DRAG_OVERLAY_IDLE_CLEAR_MS);
   }, []);
 
-  const showImageCompareNotice = useCallback((
-    message: string,
-    tone: ImageCompareNoticeTone = 'error'
-  ) => {
-    if (imageCompareNoticeTimerRef.current) {
-      clearTimeout(imageCompareNoticeTimerRef.current);
-      imageCompareNoticeTimerRef.current = null;
-    }
+  const showImageCompareNotice = useCallback(
+    (message: string, tone: ImageCompareNoticeTone = "error") => {
+      if (imageCompareNoticeTimerRef.current) {
+        clearTimeout(imageCompareNoticeTimerRef.current);
+        imageCompareNoticeTimerRef.current = null;
+      }
 
-    setImageCompareNotice({ message, tone });
-    imageCompareNoticeTimerRef.current = setTimeout(() => {
-      imageCompareNoticeTimerRef.current = null;
-      setImageCompareNotice((current) => (current?.message === message ? null : current));
-    }, IMAGE_COMPARE_NOTICE_DURATION_MS);
-  }, []);
+      setImageCompareNotice({ message, tone });
+      imageCompareNoticeTimerRef.current = setTimeout(() => {
+        imageCompareNoticeTimerRef.current = null;
+        setImageCompareNotice((current) =>
+          current?.message === message ? null : current,
+        );
+      }, IMAGE_COMPARE_NOTICE_DURATION_MS);
+    },
+    [],
+  );
 
   const clearNodeDragStartChromeTimer = useCallback(() => {
     if (nodeDragStartChromeTimerRef.current) {
@@ -1747,11 +2163,11 @@ export function Canvas() {
     const currentNodes = useCanvasStore.getState().nodes;
     if (!alignmentSession || alignmentSession.startNodeId !== pendingNode.id) {
       const draggedNodeIds = currentNodes.some(
-        (candidate) => candidate.id === pendingNode.id && candidate.selected
+        (candidate) => candidate.id === pendingNode.id && candidate.selected,
       )
         ? currentNodes
-          .filter((candidate) => candidate.selected)
-          .map((candidate) => candidate.id)
+            .filter((candidate) => candidate.selected)
+            .map((candidate) => candidate.id)
         : [pendingNode.id];
       alignmentSession = {
         startNodeId: pendingNode.id,
@@ -1783,7 +2199,7 @@ export function Canvas() {
         .filter(
           (candidate) =>
             !alignmentSession.draggedNodeIdSet.has(candidate.id) &&
-            candidate.parentId === pendingNode.parentId
+            candidate.parentId === pendingNode.parentId,
         )
         .map(getAlignmentNodeBounds);
     }
@@ -1791,26 +2207,38 @@ export function Canvas() {
     const otherNodeBounds = alignmentSession.otherNodeBounds;
 
     if (otherNodeBounds.length === 0) {
-      setAlignmentGuides((previousGuides) => (previousGuides.length === 0 ? previousGuides : []));
+      setAlignmentGuides((previousGuides) =>
+        previousGuides.length === 0 ? previousGuides : [],
+      );
       return;
     }
 
     const alignments = detectAlignmentsFromBounds(
       getAlignmentNodeBounds(pendingNode),
       otherNodeBounds,
-      alignmentThreshold
+      alignmentThreshold,
     );
-    const nextGuides = showAlignmentGuides ? alignments.map((alignment) => alignment.guide) : [];
-    setAlignmentGuides((previousGuides) => (
-      areAlignmentGuidesEqual(previousGuides, nextGuides) ? previousGuides : nextGuides
-    ));
+    const nextGuides = showAlignmentGuides
+      ? alignments.map((alignment) => alignment.guide)
+      : [];
+    setAlignmentGuides((previousGuides) =>
+      areAlignmentGuidesEqual(previousGuides, nextGuides)
+        ? previousGuides
+        : nextGuides,
+    );
 
     const snapOffset = alignments.reduce(
       (offset, alignment) => ({
-        x: alignment.guide.type === 'vertical' ? alignment.snapOffset.x : offset.x,
-        y: alignment.guide.type === 'horizontal' ? alignment.snapOffset.y : offset.y,
+        x:
+          alignment.guide.type === "vertical"
+            ? alignment.snapOffset.x
+            : offset.x,
+        y:
+          alignment.guide.type === "horizontal"
+            ? alignment.snapOffset.y
+            : offset.y,
       }),
-      { x: 0, y: 0 }
+      { x: 0, y: 0 },
     );
 
     if (Math.abs(snapOffset.x) <= 0.01 && Math.abs(snapOffset.y) <= 0.01) {
@@ -1820,11 +2248,11 @@ export function Canvas() {
     }
 
     if (
-      alignmentSession.lastSnapPosition
-      && alignmentSession.lastSnapPosition.x === pendingNode.position.x
-      && alignmentSession.lastSnapPosition.y === pendingNode.position.y
-      && alignmentSession.lastSnapOffset.x === snapOffset.x
-      && alignmentSession.lastSnapOffset.y === snapOffset.y
+      alignmentSession.lastSnapPosition &&
+      alignmentSession.lastSnapPosition.x === pendingNode.position.x &&
+      alignmentSession.lastSnapPosition.y === pendingNode.position.y &&
+      alignmentSession.lastSnapOffset.x === snapOffset.x &&
+      alignmentSession.lastSnapOffset.y === snapOffset.y
     ) {
       return;
     }
@@ -1841,7 +2269,7 @@ export function Canvas() {
 
         return {
           id: draggedNodeId,
-          type: 'position' as const,
+          type: "position" as const,
           position: {
             x: currentNode.position.x + snapOffset.x,
             y: currentNode.position.y + snapOffset.y,
@@ -1849,12 +2277,16 @@ export function Canvas() {
           dragging: true,
         };
       })
-      .filter((change): change is {
-        id: string;
-        type: 'position';
-        position: { x: number; y: number };
-        dragging: true;
-      } => Boolean(change));
+      .filter(
+        (
+          change,
+        ): change is {
+          id: string;
+          type: "position";
+          position: { x: number; y: number };
+          dragging: true;
+        } => Boolean(change),
+      );
 
     if (snapChanges.length > 0) {
       alignmentSession.lastSnapOffset = snapOffset;
@@ -1872,22 +2304,49 @@ export function Canvas() {
     showAlignmentGuides,
   ]);
 
-  const scheduleAlignmentDuringDrag = useCallback((node: CanvasNode) => {
-    pendingAlignmentNodeRef.current = node;
-    if (alignmentFrameRef.current !== null) {
-      return;
-    }
+  const scheduleAlignmentDuringDrag = useCallback(
+    (node: CanvasNode) => {
+      pendingAlignmentNodeRef.current = node;
+      if (alignmentFrameRef.current !== null) {
+        return;
+      }
 
-    alignmentFrameRef.current = window.requestAnimationFrame(() => {
-      flushPendingAlignment();
-    });
-  }, [flushPendingAlignment]);
+      alignmentFrameRef.current = window.requestAnimationFrame(() => {
+        flushPendingAlignment();
+      });
+    },
+    [flushPendingAlignment],
+  );
 
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
   const currentProject = useProjectStore((state) => state.currentProject);
   const project =
-    currentProject && currentProject.id === currentProjectId ? currentProject : getCurrentProject();
+    currentProject && currentProject.id === currentProjectId
+      ? currentProject
+      : getCurrentProject();
+  const handleReactFlowInit = useCallback(() => {
+    const activeProjectId = currentProjectId ?? "unknown";
+    logCanvasEntryTrace("reactflow:init", {
+      projectId: activeProjectId,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      elapsedSinceCanvasRenderMs: Math.round(
+        performance.now() - canvasRenderStartedAtRef.current,
+      ),
+    });
+    requestAnimationFrame(() => {
+      logCanvasEntryTrace("reactflow:first-raf", {
+        projectId: activeProjectId,
+        nodeCount: useCanvasStore.getState().nodes.length,
+        edgeCount: useCanvasStore.getState().edges.length,
+        elapsedSinceCanvasRenderMs: Math.round(
+          performance.now() - canvasRenderStartedAtRef.current,
+        ),
+      });
+      reactFlowReadyCountRef.current += 1;
+    });
+  }, [currentProjectId, edges.length, nodes.length]);
   const clearScheduledViewportPreload = useCallback(() => {
     const preloadTimer = viewportImagePreloadTimerRef.current;
     if (preloadTimer) {
@@ -1897,7 +2356,7 @@ export function Canvas() {
 
     const idleCallbackId = viewportImagePreloadIdleRef.current;
     if (idleCallbackId !== null) {
-      if ('cancelIdleCallback' in window) {
+      if ("cancelIdleCallback" in window) {
         window.cancelIdleCallback(Number(idleCallbackId));
       } else {
         globalThis.clearTimeout(idleCallbackId);
@@ -1918,10 +2377,10 @@ export function Canvas() {
     const viewportSize = viewportImagePreloadSizeRef.current;
     const currentNodes = viewportImagePreloadNodesRef.current;
     if (
-      !projectId
-      || viewportSize.width <= 0
-      || viewportSize.height <= 0
-      || currentNodes.length === 0
+      !projectId ||
+      viewportSize.width <= 0 ||
+      viewportSize.height <= 0 ||
+      currentNodes.length === 0
     ) {
       return;
     }
@@ -1941,7 +2400,7 @@ export function Canvas() {
           latestNodes,
           viewportImagePreloadViewportRef.current,
           latestViewportSize,
-          { marginScreens: canvasViewportPreloadMarginScreens }
+          { marginScreens: canvasViewportPreloadMarginScreens },
         );
         if (preloadEntries.length === 0) {
           return;
@@ -1953,26 +2412,46 @@ export function Canvas() {
         void preloadProjectImages(preloadEntries, {
           concurrency: VIEWPORT_IMAGE_PRELOAD_CONCURRENCY,
           signal: abortController.signal,
-        }).catch((error) => {
-          console.debug('Skipped viewport image preload batch', error);
-        }).finally(() => {
-          if (viewportImagePreloadAbortRef.current === abortController) {
-            viewportImagePreloadAbortRef.current = null;
-          }
-        });
+        })
+          .catch((error) => {
+            console.debug("Skipped viewport image preload batch", error);
+          })
+          .finally(() => {
+            if (viewportImagePreloadAbortRef.current === abortController) {
+              viewportImagePreloadAbortRef.current = null;
+            }
+          });
       };
 
-      if ('requestIdleCallback' in window) {
-        viewportImagePreloadIdleRef.current = window.requestIdleCallback(scheduleIdlePreload, {
-          timeout: 800,
-        });
+      if ("requestIdleCallback" in window) {
+        viewportImagePreloadIdleRef.current = window.requestIdleCallback(
+          scheduleIdlePreload,
+          {
+            timeout: 800,
+          },
+        );
       } else {
-        viewportImagePreloadIdleRef.current = globalThis.setTimeout(scheduleIdlePreload, 80);
+        viewportImagePreloadIdleRef.current = globalThis.setTimeout(
+          scheduleIdlePreload,
+          80,
+        );
       }
     }, VIEWPORT_IMAGE_PRELOAD_THROTTLE_MS);
   }, [canvasViewportPreloadMarginScreens, clearScheduledViewportPreload]);
 
   const warmCopiedNodeImages = useCallback((copiedNodeIds: string[]) => {
+    const previousIdleCallbackId = copiedNodeImageWarmupIdleRef.current;
+    if (previousIdleCallbackId !== null) {
+      if ("cancelIdleCallback" in window) {
+        window.cancelIdleCallback(Number(previousIdleCallbackId));
+      } else {
+        globalThis.clearTimeout(previousIdleCallbackId);
+      }
+      copiedNodeImageWarmupIdleRef.current = null;
+    }
+    copiedNodeImageWarmupAbortRef.current?.abort();
+    copiedNodeImageWarmupAbortRef.current = null;
+
     if (copiedNodeIds.length === 0) {
       return;
     }
@@ -1980,25 +2459,43 @@ export function Canvas() {
     const copiedIdSet = new Set(copiedNodeIds);
     const copiedNodes = useCanvasStore
       .getState()
-      .nodes
-      .filter((candidate) => copiedIdSet.has(candidate.id));
-    const preloadEntries = copiedNodes.flatMap(collectCanvasNodeImagePreloadEntries);
+      .nodes.filter((candidate) => copiedIdSet.has(candidate.id));
+    const preloadEntries = copiedNodes.flatMap(
+      collectCanvasNodeImagePreloadEntries,
+    );
     if (preloadEntries.length === 0) {
       return;
     }
 
     const runPreload = () => {
+      copiedNodeImageWarmupIdleRef.current = null;
+      copiedNodeImageWarmupAbortRef.current?.abort();
+      const abortController = new AbortController();
+      copiedNodeImageWarmupAbortRef.current = abortController;
       void preloadProjectImages(preloadEntries, {
         concurrency: 2,
-      }).catch((error) => {
-        console.debug('Skipped copied node image warmup', error);
-      });
+        signal: abortController.signal,
+      })
+        .catch((error) => {
+          console.debug("Skipped copied node image warmup", error);
+        })
+        .finally(() => {
+          if (copiedNodeImageWarmupAbortRef.current === abortController) {
+            copiedNodeImageWarmupAbortRef.current = null;
+          }
+        });
     };
 
-    if ('requestIdleCallback' in window) {
-      window.requestIdleCallback(runPreload, { timeout: 500 });
+    if ("requestIdleCallback" in window) {
+      copiedNodeImageWarmupIdleRef.current = window.requestIdleCallback(
+        runPreload,
+        { timeout: 500 },
+      );
     } else {
-      globalThis.setTimeout(runPreload, 60);
+      copiedNodeImageWarmupIdleRef.current = globalThis.setTimeout(
+        runPreload,
+        60,
+      );
     }
   }, []);
 
@@ -2023,23 +2520,51 @@ export function Canvas() {
     scheduleViewportImagePreload();
   }, [canvasViewport, scheduleViewportImagePreload]);
 
-  useEffect(() => clearScheduledViewportPreload, [clearScheduledViewportPreload]);
+  useEffect(
+    () => clearScheduledViewportPreload,
+    [clearScheduledViewportPreload],
+  );
 
-  const isScriptProject = project?.projectType === 'script';
-  const saveCurrentProject = useProjectStore((state) => state.saveCurrentProject);
-  const saveCurrentProjectViewport = useProjectStore((state) => state.saveCurrentProjectViewport);
+  const isScriptProject = project?.projectType === "script";
+  const saveCurrentProject = useProjectStore(
+    (state) => state.saveCurrentProject,
+  );
+  const saveCurrentProjectViewport = useProjectStore(
+    (state) => state.saveCurrentProjectViewport,
+  );
   const setCurrentProjectColorLabels = useProjectStore(
-    (state) => state.setCurrentProjectColorLabels
+    (state) => state.setCurrentProjectColorLabels,
   );
   const setCurrentProjectScriptWelcomeSkipped = useProjectStore(
-    (state) => state.setCurrentProjectScriptWelcomeSkipped
+    (state) => state.setCurrentProjectScriptWelcomeSkipped,
   );
   const cancelPendingViewportPersist = useProjectStore(
-    (state) => state.cancelPendingViewportPersist
+    (state) => state.cancelPendingViewportPersist,
   );
 
   useEffect(() => {
     return () => {
+      logCanvasEntryTrace("canvas:unmount", {
+        projectId: currentProjectId,
+        nodeCount: useCanvasStore.getState().nodes.length,
+        edgeCount: useCanvasStore.getState().edges.length,
+        reactFlowReadyCount: reactFlowReadyCountRef.current,
+        elapsedSinceCanvasRenderMs: Math.round(
+          performance.now() - canvasRenderStartedAtRef.current,
+        ),
+      });
+      clearScheduledViewportPreload();
+      const copiedWarmupIdleCallbackId = copiedNodeImageWarmupIdleRef.current;
+      if (copiedWarmupIdleCallbackId !== null) {
+        if ("cancelIdleCallback" in window) {
+          window.cancelIdleCallback(Number(copiedWarmupIdleCallbackId));
+        } else {
+          globalThis.clearTimeout(copiedWarmupIdleCallbackId);
+        }
+        copiedNodeImageWarmupIdleRef.current = null;
+      }
+      copiedNodeImageWarmupAbortRef.current?.abort();
+      copiedNodeImageWarmupAbortRef.current = null;
       clearNodeDragStartChromeTimer();
       clearViewportInteractionChromeTimer();
       if (imageCompareNoticeTimerRef.current) {
@@ -2057,7 +2582,12 @@ export function Canvas() {
       pendingAlignmentNodeRef.current = null;
       alignmentDragSessionRef.current = null;
     };
-  }, [clearNodeDragStartChromeTimer, clearViewportInteractionChromeTimer]);
+  }, [
+    clearNodeDragStartChromeTimer,
+    clearScheduledViewportPreload,
+    clearViewportInteractionChromeTimer,
+    currentProjectId,
+  ]);
 
   useEffect(() => {
     if (activeToolDialog) {
@@ -2073,10 +2603,10 @@ export function Canvas() {
 
   useEffect(() => {
     if (
-      imageViewer.isOpen
-      && imageViewer.mode === 'compare'
-      && imageViewer.compareNodeId
-      && !activeCompareViewerNode
+      imageViewer.isOpen &&
+      imageViewer.mode === "compare" &&
+      imageViewer.compareNodeId &&
+      !activeCompareViewerNode
     ) {
       closeImageViewer();
     }
@@ -2102,15 +2632,24 @@ export function Canvas() {
     const currentEdges = useCanvasStore.getState().edges;
     const currentHistory = useCanvasStore.getState().history;
     const currentViewport = reactFlowInstance.getViewport();
-    if (
-      currentProject.history === currentHistory
-      && areCanvasNodesEqualForPersistence(currentProject.nodes, currentNodes)
-      && areCanvasEdgesEqualForPersistence(currentProject.edges, currentEdges)
-      && areViewportsEqualForPersistence(
-        currentProject.viewport ?? DEFAULT_VIEWPORT,
-        currentViewport
-      )
-    ) {
+    const contentChanged =
+      !areCanvasHistoriesEquivalentForAutoPersist(
+        currentProject.history,
+        currentHistory,
+      ) ||
+      !areCanvasNodesEqualForPersistence(currentProject.nodes, currentNodes) ||
+      !areCanvasEdgesEqualForPersistence(currentProject.edges, currentEdges);
+    const viewportChanged = !areViewportsEqualForPersistence(
+      currentProject.viewport ?? DEFAULT_VIEWPORT,
+      currentViewport,
+    );
+
+    if (!contentChanged && !viewportChanged) {
+      return;
+    }
+
+    if (!contentChanged) {
+      saveCurrentProjectViewport(currentViewport);
       return;
     }
 
@@ -2118,9 +2657,14 @@ export function Canvas() {
       currentNodes,
       currentEdges,
       currentViewport,
-      currentHistory
+      currentHistory,
     );
-  }, [getCurrentProject, reactFlowInstance, saveCurrentProject]);
+  }, [
+    getCurrentProject,
+    reactFlowInstance,
+    saveCurrentProject,
+    saveCurrentProjectViewport,
+  ]);
 
   const scheduleCanvasPersist = useCallback(
     (delayMs = 140) => {
@@ -2133,7 +2677,7 @@ export function Canvas() {
         persistCanvasSnapshot();
       }, delayMs);
     },
-    [persistCanvasSnapshot]
+    [persistCanvasSnapshot],
   );
 
   const resetBranchConnectionState = useCallback(() => {
@@ -2145,7 +2689,7 @@ export function Canvas() {
   const connectNodesWithBusinessRules = useCallback(
     (
       connection: Connection,
-      options?: ConnectNodeBusinessRuleOptions
+      options?: ConnectNodeBusinessRuleOptions,
     ): boolean => {
       const sourceId = connection.source ?? null;
       const targetId = connection.target ?? null;
@@ -2154,26 +2698,31 @@ export function Canvas() {
       }
 
       const currentState = useCanvasStore.getState();
-      const sourceNode = currentState.nodes.find((node) => node.id === sourceId);
-      const targetNode = currentState.nodes.find((node) => node.id === targetId);
+      const sourceNode = currentState.nodes.find(
+        (node) => node.id === sourceId,
+      );
+      const targetNode = currentState.nodes.find(
+        (node) => node.id === targetId,
+      );
       if (!sourceNode || !targetNode) {
         return false;
       }
 
-      const sourceHandle = connection.sourceHandle ?? 'source';
-      const targetHandle = connection.targetHandle ?? 'target';
+      const sourceHandle = connection.sourceHandle ?? "source";
+      const targetHandle = connection.targetHandle ?? "target";
       if (
-        (sourceHandle === 'source' && !canNodeTypeBeManualConnectionSource(sourceNode.type))
-        || !nodeHasSourceHandle(sourceNode.type)
-        || !nodeHasTargetHandle(targetNode.type)
+        (sourceHandle === "source" &&
+          !canNodeTypeBeManualConnectionSource(sourceNode.type)) ||
+        !nodeHasSourceHandle(sourceNode.type) ||
+        !nodeHasTargetHandle(targetNode.type)
       ) {
         return false;
       }
 
       if (
-        sourceNode.type === CANVAS_NODE_TYPES.scriptCharacter
-        && targetNode.type !== CANVAS_NODE_TYPES.scriptChapter
-        && targetNode.type !== CANVAS_NODE_TYPES.scriptScene
+        sourceNode.type === CANVAS_NODE_TYPES.scriptCharacter &&
+        targetNode.type !== CANVAS_NODE_TYPES.scriptChapter &&
+        targetNode.type !== CANVAS_NODE_TYPES.scriptScene
       ) {
         return false;
       }
@@ -2183,7 +2732,9 @@ export function Canvas() {
           return false;
         }
 
-        const incomingPanoramaEdges = currentState.edges.filter((edge) => edge.target === targetNode.id);
+        const incomingPanoramaEdges = currentState.edges.filter(
+          (edge) => edge.target === targetNode.id,
+        );
         incomingPanoramaEdges.forEach((edge) => {
           deleteEdge(edge.id);
         });
@@ -2201,7 +2752,7 @@ export function Canvas() {
 
       return true;
     },
-    [connectNodes, deleteEdge, scheduleCanvasPersist]
+    [connectNodes, deleteEdge, scheduleCanvasPersist],
   );
 
   const connectBranchSourcesToExistingNode = useCallback(
@@ -2225,12 +2776,17 @@ export function Canvas() {
           continue;
         }
 
-        if (!connectNodesWithBusinessRules({
-          source: sourceNode.id,
-          target: targetNodeId,
-          sourceHandle: 'source',
-          targetHandle: 'target',
-        }, { schedulePersist: false })) {
+        if (
+          !connectNodesWithBusinessRules(
+            {
+              source: sourceNode.id,
+              target: targetNodeId,
+              sourceHandle: "source",
+              targetHandle: "target",
+            },
+            { schedulePersist: false },
+          )
+        ) {
           continue;
         }
         connectedCount += 1;
@@ -2243,37 +2799,50 @@ export function Canvas() {
       scheduleCanvasPersist(0);
       return true;
     },
-    [branchConnectionSource, connectNodesWithBusinessRules, nodes, scheduleCanvasPersist]
+    [
+      branchConnectionSource,
+      connectNodesWithBusinessRules,
+      nodes,
+      scheduleCanvasPersist,
+    ],
   );
 
   const markGenerationNodeActivity = useCallback((nodeId: string) => {
     generationNodeActivityAtRef.current.set(nodeId, Date.now());
   }, []);
 
-  const resolvePendingGenerationNodeState = useCallback((nodeId: string): PendingGenerationNodeState | null => {
-    const currentNode = useCanvasStore.getState().nodes.find((node) => node.id === nodeId);
-    if (!currentNode || currentNode.type !== CANVAS_NODE_TYPES.exportImage) {
-      generationNodeActivityAtRef.current.delete(nodeId);
-      return null;
-    }
+  const resolvePendingGenerationNodeState = useCallback(
+    (nodeId: string): PendingGenerationNodeState | null => {
+      const currentNode = useCanvasStore
+        .getState()
+        .nodes.find((node) => node.id === nodeId);
+      if (!currentNode || currentNode.type !== CANVAS_NODE_TYPES.exportImage) {
+        generationNodeActivityAtRef.current.delete(nodeId);
+        return null;
+      }
 
-    const currentData = currentNode.data as Record<string, unknown>;
-    const jobId = typeof currentData.generationJobId === 'string' ? currentData.generationJobId.trim() : '';
-    if (!jobId || currentData.isGenerating !== true) {
-      generationNodeActivityAtRef.current.delete(nodeId);
-      return null;
-    }
+      const currentData = currentNode.data as Record<string, unknown>;
+      const jobId =
+        typeof currentData.generationJobId === "string"
+          ? currentData.generationJobId.trim()
+          : "";
+      if (!jobId || currentData.isGenerating !== true) {
+        generationNodeActivityAtRef.current.delete(nodeId);
+        return null;
+      }
 
-    return {
-      nodeId,
-      jobId,
-      generationProviderId:
-        typeof currentData.generationProviderId === 'string'
-          ? currentData.generationProviderId.trim()
-          : '',
-      data: currentData,
-    };
-  }, []);
+      return {
+        nodeId,
+        jobId,
+        generationProviderId:
+          typeof currentData.generationProviderId === "string"
+            ? currentData.generationProviderId.trim()
+            : "",
+        data: currentData,
+      };
+    },
+    [],
+  );
 
   const syncGenerationProviderApiKey = useCallback(
     async (nodeId: string, generationProviderId: string) => {
@@ -2281,20 +2850,22 @@ export function Canvas() {
         return;
       }
 
-      const providerApiKey = storyboardApiKeys[generationProviderId] ?? '';
+      const providerApiKey = storyboardApiKeys[generationProviderId] ?? "";
       if (!providerApiKey) {
         return;
       }
 
-      await canvasAiGateway.setApiKey(generationProviderId, providerApiKey).catch((error) => {
-        console.warn('[GenerationJob] set_api_key failed before poll', {
-          nodeId,
-          generationProviderId,
-          error,
+      await canvasAiGateway
+        .setApiKey(generationProviderId, providerApiKey)
+        .catch((error) => {
+          console.warn("[GenerationJob] set_api_key failed before poll", {
+            nodeId,
+            generationProviderId,
+            error,
+          });
         });
-      });
     },
-    [storyboardApiKeys]
+    [storyboardApiKeys],
   );
 
   const buildStoryboardProductionResultPatch = useCallback(
@@ -2307,66 +2878,82 @@ export function Canvas() {
         thumbnailMaxDimension?: number | null;
         aspectRatio: string;
         generationSummary: ExportImageGenerationSummary | null;
-      }
+      },
     ): Partial<ExportImageNodeData> | null => {
       if (currentData.isStoryboardProductionPlaceholder !== true) {
         return null;
       }
 
-      const existingResults = Array.isArray(currentData.storyboardProductionResults)
+      const existingResults = Array.isArray(
+        currentData.storyboardProductionResults,
+      )
         ? currentData.storyboardProductionResults
             .map((item, index): StoryboardProductionImageResult | null => {
-              if (!item || typeof item !== 'object' || Array.isArray(item)) {
+              if (!item || typeof item !== "object" || Array.isArray(item)) {
                 return null;
               }
               const record = item as Partial<StoryboardProductionImageResult>;
               const imageUrl =
-                typeof record.imageUrl === 'string' ? record.imageUrl.trim() : '';
+                typeof record.imageUrl === "string"
+                  ? record.imageUrl.trim()
+                  : "";
               if (!imageUrl) {
                 return null;
               }
               return {
                 id:
-                  typeof record.id === 'string' && record.id.trim()
+                  typeof record.id === "string" && record.id.trim()
                     ? record.id.trim()
                     : `storyboard-production-result-${index + 1}`,
                 imageUrl,
                 previewImageUrl:
-                  typeof record.previewImageUrl === 'string' && record.previewImageUrl.trim()
+                  typeof record.previewImageUrl === "string" &&
+                  record.previewImageUrl.trim()
                     ? record.previewImageUrl.trim()
                     : imageUrl,
                 thumbnailUrl:
-                  typeof record.thumbnailUrl === 'string' && record.thumbnailUrl.trim()
+                  typeof record.thumbnailUrl === "string" &&
+                  record.thumbnailUrl.trim()
                     ? record.thumbnailUrl.trim()
                     : null,
-                thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
+                thumbnailMaxDimension: Number.isFinite(
+                  record.thumbnailMaxDimension,
+                )
                   ? Number(record.thumbnailMaxDimension)
                   : null,
                 aspectRatio:
-                  typeof record.aspectRatio === 'string' && record.aspectRatio.trim()
+                  typeof record.aspectRatio === "string" &&
+                  record.aspectRatio.trim()
                     ? record.aspectRatio.trim()
                     : null,
-                generationSummary: normalizeExportImageGenerationSummary(record.generationSummary),
+                generationSummary: normalizeExportImageGenerationSummary(
+                  record.generationSummary,
+                ),
                 createdAt: Number.isFinite(record.createdAt)
                   ? Number(record.createdAt)
                   : Date.now(),
               };
             })
-            .filter((item): item is StoryboardProductionImageResult => Boolean(item))
+            .filter((item): item is StoryboardProductionImageResult =>
+              Boolean(item),
+            )
         : [];
       const createdAt = Date.now();
-      const duplicateResult = existingResults.find((item) => (
-        item.imageUrl === result.imageUrl
-        || item.previewImageUrl === result.previewImageUrl
-        || (result.thumbnailUrl ? item.thumbnailUrl === result.thumbnailUrl : false)
-      ));
+      const duplicateResult = existingResults.find(
+        (item) =>
+          item.imageUrl === result.imageUrl ||
+          item.previewImageUrl === result.previewImageUrl ||
+          (result.thumbnailUrl
+            ? item.thumbnailUrl === result.thumbnailUrl
+            : false),
+      );
       if (duplicateResult) {
         const currentSelectedId =
-          typeof currentData.selectedStoryboardProductionResultId === 'string'
+          typeof currentData.selectedStoryboardProductionResultId === "string"
             ? currentData.selectedStoryboardProductionResultId.trim()
-            : '';
+            : "";
         const hasSelectedResult = existingResults.some(
-          (item) => item.id === currentSelectedId
+          (item) => item.id === currentSelectedId,
         );
         return {
           storyboardProductionResults: existingResults,
@@ -2387,11 +2974,11 @@ export function Canvas() {
         createdAt,
       };
       const currentSelectedId =
-        typeof currentData.selectedStoryboardProductionResultId === 'string'
+        typeof currentData.selectedStoryboardProductionResultId === "string"
           ? currentData.selectedStoryboardProductionResultId.trim()
-          : '';
+          : "";
       const hasSelectedResult = existingResults.some(
-        (item) => item.id === currentSelectedId
+        (item) => item.id === currentSelectedId,
       );
 
       return {
@@ -2401,32 +2988,42 @@ export function Canvas() {
           : nextResult.id,
       };
     },
-    []
+    [],
   );
 
   const applyGenerationSuccessResult = useCallback(
-    async (nodeId: string, currentData: Record<string, unknown>, resultSource: string) => {
+    async (
+      nodeId: string,
+      currentData: Record<string, unknown>,
+      resultSource: string,
+    ) => {
       markGenerationNodeActivity(nodeId);
 
       try {
-        const latestNode = useCanvasStore.getState().nodes.find((node) => node.id === nodeId);
+        const latestNode = useCanvasStore
+          .getState()
+          .nodes.find((node) => node.id === nodeId);
         const latestData = (latestNode?.data ?? {}) as Record<string, unknown>;
         const currentSessionId =
-          typeof currentData.generationClientSessionId === 'string'
+          typeof currentData.generationClientSessionId === "string"
             ? currentData.generationClientSessionId
-            : '';
+            : "";
         const latestSessionId =
-          typeof latestData.generationClientSessionId === 'string'
+          typeof latestData.generationClientSessionId === "string"
             ? latestData.generationClientSessionId
-            : '';
+            : "";
         const currentJobId =
-          typeof currentData.generationJobId === 'string' ? currentData.generationJobId : '';
+          typeof currentData.generationJobId === "string"
+            ? currentData.generationJobId
+            : "";
         const latestJobId =
-          typeof latestData.generationJobId === 'string' ? latestData.generationJobId : '';
+          typeof latestData.generationJobId === "string"
+            ? latestData.generationJobId
+            : "";
         if (
-          currentSessionId
-          && latestSessionId
-          && currentSessionId !== latestSessionId
+          currentSessionId &&
+          latestSessionId &&
+          currentSessionId !== latestSessionId
         ) {
           return true;
         }
@@ -2438,18 +3035,22 @@ export function Canvas() {
           resultSource,
           undefined,
           undefined,
-          canvasOverviewThumbnailMaxDimension
+          canvasOverviewThumbnailMaxDimension,
         );
         const storyboardMetadataRaw = currentData.generationStoryboardMetadata;
         let imageWithMetadata = prepared.imageUrl;
 
         if (hasGenerationStoryboardMetadata(storyboardMetadataRaw)) {
-          imageWithMetadata = await embedStoryboardImageMetadata(prepared.imageUrl, {
-            gridRows: Math.max(1, Math.round(storyboardMetadataRaw.gridRows)),
-            gridCols: Math.max(1, Math.round(storyboardMetadataRaw.gridCols)),
-            frameNotes: storyboardMetadataRaw.frameNotes,
-          }, createCurrentProjectMediaContext('image')).catch((error) => {
-            console.warn('[GenerationJob] embed storyboard metadata failed', {
+          imageWithMetadata = await embedStoryboardImageMetadata(
+            prepared.imageUrl,
+            {
+              gridRows: Math.max(1, Math.round(storyboardMetadataRaw.gridRows)),
+              gridCols: Math.max(1, Math.round(storyboardMetadataRaw.gridCols)),
+              frameNotes: storyboardMetadataRaw.frameNotes,
+            },
+            createCurrentProjectMediaContext("image"),
+          ).catch((error) => {
+            console.warn("[GenerationJob] embed storyboard metadata failed", {
               nodeId,
               error,
             });
@@ -2457,17 +3058,18 @@ export function Canvas() {
           });
         }
 
-        const previewWithMetadata = prepared.previewImageUrl === prepared.imageUrl
-          ? imageWithMetadata
-          : prepared.previewImageUrl;
+        const previewWithMetadata =
+          prepared.previewImageUrl === prepared.imageUrl
+            ? imageWithMetadata
+            : prepared.previewImageUrl;
         const generationSummary = normalizeExportImageGenerationSummary(
-          currentData.generationSummary
+          currentData.generationSummary,
         );
         const nextGenerationSummary = generationSummary
           ? {
-            ...generationSummary,
-            generatedAt: Date.now(),
-          }
+              ...generationSummary,
+              generatedAt: Date.now(),
+            }
           : null;
         const storyboardProductionPatch = buildStoryboardProductionResultPatch(
           currentData,
@@ -2478,7 +3080,7 @@ export function Canvas() {
             thumbnailMaxDimension: prepared.thumbnailMaxDimension,
             aspectRatio: prepared.aspectRatio,
             generationSummary: nextGenerationSummary,
-          }
+          },
         );
 
         updateNodeData(nodeId, {
@@ -2488,7 +3090,7 @@ export function Canvas() {
           thumbnailMaxDimension: prepared.thumbnailMaxDimension,
           aspectRatio: prepared.aspectRatio,
           isGenerating: false,
-          generationPhase: 'succeeded',
+          generationPhase: "succeeded",
           generationFailureStage: null,
           generationStartedAt: null,
           generationForceRefreshRequestedAt: null,
@@ -2505,7 +3107,7 @@ export function Canvas() {
         return true;
       } catch (error) {
         markGenerationNodeActivity(nodeId);
-        console.warn('[GenerationJob] result hydration failed', {
+        console.warn("[GenerationJob] result hydration failed", {
           nodeId,
           error,
         });
@@ -2517,7 +3119,7 @@ export function Canvas() {
       canvasOverviewThumbnailMaxDimension,
       markGenerationNodeActivity,
       updateNodeData,
-    ]
+    ],
   );
 
   const applyGenerationFailureState = useCallback(
@@ -2525,21 +3127,25 @@ export function Canvas() {
       nodeId: string,
       currentData: Record<string, unknown>,
       status: {
-        status: 'queued' | 'running' | 'succeeded' | 'failed' | 'not_found';
+        status: "queued" | "running" | "succeeded" | "failed" | "not_found";
         provider_id?: string | null;
         external_task_id?: string | null;
         error?: string | null;
-      }
+      },
     ) => {
       const rawErrorMessage =
-        status.error ?? (status.status === 'not_found' ? 'generation job not found' : 'generation failed');
-      const resolvedError = resolveErrorContent(rawErrorMessage, t('ai.error'));
+        status.error ??
+        (status.status === "not_found"
+          ? "generation job not found"
+          : "generation failed");
+      const resolvedError = resolveErrorContent(rawErrorMessage, t("ai.error"));
       const errorMessage = resolvedError.message;
       const generationClientSessionId =
-        typeof currentData.generationClientSessionId === 'string'
+        typeof currentData.generationClientSessionId === "string"
           ? currentData.generationClientSessionId
-          : '';
-      const shouldShowDialog = generationClientSessionId === CURRENT_RUNTIME_SESSION_ID;
+          : "";
+      const shouldShowDialog =
+        generationClientSessionId === CURRENT_RUNTIME_SESSION_ID;
 
       if (shouldShowDialog) {
         const reportText = buildGenerationErrorReport({
@@ -2551,13 +3157,29 @@ export function Canvas() {
           traceId: resolvedError.traceId,
           requestId: resolvedError.requestId,
         });
-        void showErrorDialog(errorMessage, t('common.error'), resolvedError.details ?? status.error ?? undefined, reportText);
+        void showErrorDialog(
+          errorMessage,
+          t("common.error"),
+          resolvedError.details ?? status.error ?? undefined,
+          reportText,
+        );
       }
 
       void recordImageGenerationErrorLog({
         nodeId,
-        sourceType: (currentData.generationDebugContext as { sourceType?: 'imageEdit' | 'storyboardGen' | 'multiAngleImage' | 'unknown' } | undefined)?.sourceType ?? 'unknown',
-        failureStage: 'run',
+        sourceType:
+          (
+            currentData.generationDebugContext as
+              | {
+                  sourceType?:
+                    | "imageEdit"
+                    | "storyboardGen"
+                    | "multiAngleImage"
+                    | "unknown";
+                }
+              | undefined
+          )?.sourceType ?? "unknown",
+        failureStage: "run",
         errorMessage,
         errorDetails: resolvedError.details ?? status.error ?? undefined,
         context: currentData.generationDebugContext,
@@ -2565,20 +3187,28 @@ export function Canvas() {
         statusCode: resolvedError.statusCode,
         traceId: resolvedError.traceId,
         requestId: resolvedError.requestId,
-        jobId: typeof currentData.generationJobId === 'string' ? currentData.generationJobId : null,
+        jobId:
+          typeof currentData.generationJobId === "string"
+            ? currentData.generationJobId
+            : null,
         externalTaskId: status.external_task_id ?? null,
-        providerId: status.provider_id ?? (
-          typeof currentData.generationProviderId === 'string' ? currentData.generationProviderId : null
-        ),
-        startedAt: typeof currentData.generationStartedAt === 'number' ? currentData.generationStartedAt : null,
+        providerId:
+          status.provider_id ??
+          (typeof currentData.generationProviderId === "string"
+            ? currentData.generationProviderId
+            : null),
+        startedAt:
+          typeof currentData.generationStartedAt === "number"
+            ? currentData.generationStartedAt
+            : null,
       }).catch((error) => {
-        console.warn('[GenerationJob] failed to record error log', error);
+        console.warn("[GenerationJob] failed to record error log", error);
       });
 
       updateNodeData(nodeId, {
         isGenerating: false,
-        generationPhase: 'failed',
-        generationFailureStage: 'run',
+        generationPhase: "failed",
+        generationFailureStage: "run",
         generationStartedAt: null,
         generationForceRefreshRequestedAt: null,
         generationClientSessionId: null,
@@ -2589,7 +3219,7 @@ export function Canvas() {
       });
       generationNodeActivityAtRef.current.delete(nodeId);
     },
-    [t, updateNodeData]
+    [t, updateNodeData],
   );
 
   const reconcileGenerationNode = useCallback(
@@ -2599,7 +3229,7 @@ export function Canvas() {
         continuous?: boolean;
         forceRefresh?: boolean;
         reason?: string;
-      }
+      },
     ) => {
       const continuous = options?.continuous === true;
       let preferForceRefresh = options?.forceRefresh === true;
@@ -2611,25 +3241,30 @@ export function Canvas() {
         }
 
         preferForceRefresh =
-          preferForceRefresh
-          || shouldPreferForceRefreshForPendingGeneration(currentState.data);
+          preferForceRefresh ||
+          shouldPreferForceRefreshForPendingGeneration(currentState.data);
 
         try {
           markGenerationNodeActivity(nodeId);
-          await syncGenerationProviderApiKey(nodeId, currentState.generationProviderId);
+          await syncGenerationProviderApiKey(
+            nodeId,
+            currentState.generationProviderId,
+          );
 
-          const status = await canvasAiGateway.getGenerateImageJob(
-            currentState.jobId,
-            preferForceRefresh ? { forceRefresh: true } : undefined
-          ).catch((error) => {
-            console.warn('[GenerationJob] poll failed', {
-              nodeId,
-              jobId: currentState.jobId,
-              preferForceRefresh,
-              error,
+          const status = await canvasAiGateway
+            .getGenerateImageJob(
+              currentState.jobId,
+              preferForceRefresh ? { forceRefresh: true } : undefined,
+            )
+            .catch((error) => {
+              console.warn("[GenerationJob] poll failed", {
+                nodeId,
+                jobId: currentState.jobId,
+                preferForceRefresh,
+                error,
+              });
+              return null;
             });
-            return null;
-          });
 
           markGenerationNodeActivity(nodeId);
 
@@ -2642,14 +3277,14 @@ export function Canvas() {
           }
 
           if (
-            (status.status === 'queued' || status.status === 'running')
-            && typeof status.error === 'string'
-            && status.error.trim().length > 0
+            (status.status === "queued" || status.status === "running") &&
+            typeof status.error === "string" &&
+            status.error.trim().length > 0
           ) {
             preferForceRefresh = true;
           }
 
-          if (status.status === 'queued' || status.status === 'running') {
+          if (status.status === "queued" || status.status === "running") {
             if (currentState.data.generationPhase !== status.status) {
               updateNodeData(
                 nodeId,
@@ -2657,7 +3292,7 @@ export function Canvas() {
                   generationPhase: status.status,
                   generationFailureStage: null,
                 },
-                { historyMode: 'skip' }
+                { historyMode: "skip" },
               );
             }
             if (!continuous) {
@@ -2666,14 +3301,18 @@ export function Canvas() {
             await sleep(
               preferForceRefresh
                 ? GENERATION_JOB_RESULT_RETRY_INTERVAL_MS
-                : GENERATION_JOB_POLL_INTERVAL_MS
+                : GENERATION_JOB_POLL_INTERVAL_MS,
             );
             continue;
           }
 
-          if (status.status === 'succeeded') {
-            if (typeof status.result === 'string' && status.result.trim()) {
-              const applied = await applyGenerationSuccessResult(nodeId, currentState.data, status.result);
+          if (status.status === "succeeded") {
+            if (typeof status.result === "string" && status.result.trim()) {
+              const applied = await applyGenerationSuccessResult(
+                nodeId,
+                currentState.data,
+                status.result,
+              );
               if (applied) {
                 return;
               }
@@ -2692,9 +3331,9 @@ export function Canvas() {
           return;
         } catch (error) {
           markGenerationNodeActivity(nodeId);
-          console.warn('[GenerationJob] reconcile failed', {
+          console.warn("[GenerationJob] reconcile failed", {
             nodeId,
-            reason: options?.reason ?? 'unknown',
+            reason: options?.reason ?? "unknown",
             preferForceRefresh,
             error,
           });
@@ -2713,40 +3352,54 @@ export function Canvas() {
       markGenerationNodeActivity,
       resolvePendingGenerationNodeState,
       syncGenerationProviderApiKey,
-    ]
+    ],
   );
 
   useEffect(() => {
-    const unsubscribeOpen = canvasEventBus.subscribe('tool-dialog/open', (payload) => {
-      openToolDialog(payload);
-    });
-    const unsubscribeClose = canvasEventBus.subscribe('tool-dialog/close', () => {
-      closeToolDialog();
-    });
-    const unsubscribeStoryboardExpand = canvasEventBus.subscribe('storyboard-asset-expand/open', ({ nodeId }) => {
-      setStoryboardAssetExpandSourceNodeId(nodeId);
-    });
+    const unsubscribeOpen = canvasEventBus.subscribe(
+      "tool-dialog/open",
+      (payload) => {
+        openToolDialog(payload);
+      },
+    );
+    const unsubscribeClose = canvasEventBus.subscribe(
+      "tool-dialog/close",
+      () => {
+        closeToolDialog();
+      },
+    );
+    const unsubscribeStoryboardExpand = canvasEventBus.subscribe(
+      "storyboard-asset-expand/open",
+      ({ nodeId }) => {
+        setStoryboardAssetExpandSourceNodeId(nodeId);
+      },
+    );
     const unsubscribeSmartDirectorStoryboardExpand = canvasEventBus.subscribe(
-      'smart-director-storyboard-transfer/open',
+      "smart-director-storyboard-transfer/open",
       ({ nodeId }) => {
         setSmartDirectorStoryboardExpandSourceNodeId(nodeId);
-      }
+      },
     );
-    const unsubscribeSmartDirectorStoryboardResultChoice = canvasEventBus.subscribe(
-      'smart-director-storyboard-result-choice/open',
-      ({ nodeId, onResolve }) => {
-        setSmartDirectorStoryboardResultChoice({
-          nodeId,
-          onResolve,
-        });
-      }
-    );
+    const unsubscribeSmartDirectorStoryboardResultChoice =
+      canvasEventBus.subscribe(
+        "smart-director-storyboard-result-choice/open",
+        ({ nodeId, onResolve }) => {
+          setSmartDirectorStoryboardResultChoice({
+            nodeId,
+            onResolve,
+          });
+        },
+      );
     const unsubscribeCanvasSelectionTransfer = canvasEventBus.subscribe(
-      'canvas-selection-transfer/open',
+      "canvas-selection-transfer/open",
       ({ nodeIds }) => {
-        const nextNodeIds = Array.from(new Set(nodeIds.filter((nodeId) => nodeId.trim().length > 0)));
-        setCanvasTransferSourceNodeIds(nextNodeIds.length > 0 ? nextNodeIds : null);
-      }
+        const nextNodeIds = Array.from(
+          new Set(nodeIds.filter((nodeId) => nodeId.trim().length > 0)),
+        );
+        setCanvasTransferSourceNodeIds(
+          nextNodeIds.length > 0 ? nextNodeIds : null,
+        );
+      },
     );
 
     return () => {
@@ -2769,11 +3422,14 @@ export function Canvas() {
     }
 
     restoredCanvasProjectIdRef.current = activeProject.id;
-    logCanvasPerf('[canvas-restore]', {
+    logCanvasPerf("[canvas-restore]", {
       projectId: activeProject.id,
       nodeCount: activeProject.nodes.length,
       edgeCount: activeProject.edges.length,
       viewport: activeProject.viewport ?? DEFAULT_VIEWPORT,
+      elapsedSinceCanvasRenderMs: Math.round(
+        performance.now() - canvasRenderStartedAtRef.current,
+      ),
     });
 
     isRestoringCanvasRef.current = true;
@@ -2788,21 +3444,29 @@ export function Canvas() {
 
     const restoreStartedAt = performance.now();
     setCanvasData(activeProject.nodes, activeProject.edges);
-    logCanvasPerf('[canvas-perf] setCanvasData', {
+    logCanvasPerf("[canvas-perf] setCanvasData", {
       projectId: activeProject.id,
       nodeCount: activeProject.nodes.length,
       edgeCount: activeProject.edges.length,
       deferredHistoryPastCount: activeProject.history?.past?.length ?? 0,
       deferredHistoryFutureCount: activeProject.history?.future?.length ?? 0,
       elapsedMs: Math.round(performance.now() - restoreStartedAt),
+      elapsedSinceCanvasRenderMs: Math.round(
+        performance.now() - canvasRenderStartedAtRef.current,
+      ),
     });
     syncViewportState(activeProject.viewport ?? DEFAULT_VIEWPORT);
     requestAnimationFrame(() => {
-      logCanvasPerf('[canvas-perf] restore rAF before setViewport', {
-        elapsedSinceCanvasRenderMs: Math.round(performance.now() - canvasRenderStartedAtRef.current),
+      logCanvasPerf("[canvas-perf] restore rAF before setViewport", {
+        elapsedSinceCanvasRenderMs: Math.round(
+          performance.now() - canvasRenderStartedAtRef.current,
+        ),
         elapsedSinceRestoreMs: Math.round(performance.now() - restoreStartedAt),
       });
-      reactFlowInstance.setViewport(activeProject.viewport ?? DEFAULT_VIEWPORT, { duration: 0 });
+      reactFlowInstance.setViewport(
+        activeProject.viewport ?? DEFAULT_VIEWPORT,
+        { duration: 0 },
+      );
     });
 
     deferredHistoryRestoreFrameRef.current = requestAnimationFrame(() => {
@@ -2812,7 +3476,7 @@ export function Canvas() {
         const historyRestoreStartedAt = performance.now();
         setCanvasHistory(activeProject.history);
         isRestoringCanvasRef.current = false;
-        logCanvasPerf('[canvas-perf] deferred history restore', {
+        logCanvasPerf("[canvas-perf] deferred history restore", {
           projectId: activeProject.id,
           historyPastCount: activeProject.history?.past?.length ?? 0,
           historyFutureCount: activeProject.history?.future?.length ?? 0,
@@ -2868,7 +3532,7 @@ export function Canvas() {
     }
   }, [currentProjectId]);
 
-  const scriptWelcomePresenceSignatureRef = useRef('');
+  const scriptWelcomePresenceSignatureRef = useRef("");
   const scriptWelcomePresenceSignature = useMemo(() => {
     if (dragHistorySnapshot) {
       return scriptWelcomePresenceSignatureRef.current;
@@ -2882,10 +3546,14 @@ export function Canvas() {
   useEffect(() => {
     const timer = setTimeout(() => {
       const currentProject = getCurrentProject();
-      if (!isRestoringCanvasRef.current && currentProject?.projectType === 'script') {
-        const [hasChaptersMarker, hasRootMarker] = scriptWelcomePresenceSignature.split(':');
-        const hasChapters = hasChaptersMarker === '1';
-        const hasRoot = hasRootMarker === '1';
+      if (
+        !isRestoringCanvasRef.current &&
+        currentProject?.projectType === "script"
+      ) {
+        const [hasChaptersMarker, hasRootMarker] =
+          scriptWelcomePresenceSignature.split(":");
+        const hasChapters = hasChaptersMarker === "1";
+        const hasRoot = hasRootMarker === "1";
         if (!hasChapters && !hasRoot && !currentProject.scriptWelcomeSkipped) {
           setShowWelcomeDialog(true);
         }
@@ -2906,10 +3574,14 @@ export function Canvas() {
 
     const currentProject = getCurrentProject();
     if (
-      currentProject
-      && currentProject.id === currentProjectId
-      && areCanvasNodesEqualForPersistence(currentProject.nodes, nodes)
-      && areCanvasEdgesEqualForPersistence(currentProject.edges, edges)
+      currentProject &&
+      currentProject.id === currentProjectId &&
+      areCanvasNodesEqualForPersistence(currentProject.nodes, nodes) &&
+      areCanvasEdgesEqualForPersistence(currentProject.edges, edges) &&
+      areCanvasHistoriesEquivalentForAutoPersist(
+        currentProject.history,
+        history,
+      )
     ) {
       return;
     }
@@ -2932,10 +3604,10 @@ export function Canvas() {
 
     scheduleCanvasThumbnailBackfill(currentProjectId, {
       paused:
-        isCanvasOverviewRender
-        || Boolean(dragHistorySnapshot)
-        || canvasViewportSize.width <= 0
-        || canvasViewportSize.height <= 0,
+        isCanvasOverviewRender ||
+        Boolean(dragHistorySnapshot) ||
+        canvasViewportSize.width <= 0 ||
+        canvasViewportSize.height <= 0,
       viewport: canvasViewport,
       viewportSize: canvasViewportSize,
       options: {
@@ -2951,11 +3623,15 @@ export function Canvas() {
     currentProjectId,
     dragHistorySnapshot,
     isCanvasOverviewRender,
+    nodes,
   ]);
 
-  useEffect(() => () => {
-    scheduleCanvasThumbnailBackfill(null);
-  }, []);
+  useEffect(
+    () => () => {
+      void stopCanvasThumbnailBackfill();
+    },
+    [],
+  );
 
   useEffect(() => {
     const unsubscribeAssetItemUpdated = subscribeAssetItemUpdated((item) => {
@@ -2965,18 +3641,24 @@ export function Canvas() {
       syncAssetItemReferences(item);
     });
 
-    const unsubscribeAssetItemDeleted = subscribeAssetItemDeleted((assetItemId) => {
-      if (!getCurrentProject()) {
-        return;
-      }
-      detachDeletedAssetReferences(assetItemId);
-    });
+    const unsubscribeAssetItemDeleted = subscribeAssetItemDeleted(
+      (assetItemId) => {
+        if (!getCurrentProject()) {
+          return;
+        }
+        detachDeletedAssetReferences(assetItemId);
+      },
+    );
 
     return () => {
       unsubscribeAssetItemUpdated();
       unsubscribeAssetItemDeleted();
     };
-  }, [detachDeletedAssetReferences, getCurrentProject, syncAssetItemReferences]);
+  }, [
+    detachDeletedAssetReferences,
+    getCurrentProject,
+    syncAssetItemReferences,
+  ]);
 
   useEffect(() => {
     if (!areAssetLibrariesHydrated || !getCurrentProject()) {
@@ -2988,7 +3670,12 @@ export function Canvas() {
         syncAssetItemReferences(item);
       }
     }
-  }, [assetLibraries, areAssetLibrariesHydrated, getCurrentProject, syncAssetItemReferences]);
+  }, [
+    assetLibraries,
+    areAssetLibrariesHydrated,
+    getCurrentProject,
+    syncAssetItemReferences,
+  ]);
 
   useEffect(() => {
     const handleDragSessionEnd = () => {
@@ -3000,20 +3687,20 @@ export function Canvas() {
       }
     };
 
-    window.addEventListener('dragend', handleDragSessionEnd, true);
-    window.addEventListener('drop', handleDragSessionEnd, true);
-    window.addEventListener('blur', handleDragSessionEnd);
-    document.addEventListener('dragend', handleDragSessionEnd, true);
-    document.addEventListener('drop', handleDragSessionEnd, true);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener("dragend", handleDragSessionEnd, true);
+    window.addEventListener("drop", handleDragSessionEnd, true);
+    window.addEventListener("blur", handleDragSessionEnd);
+    document.addEventListener("dragend", handleDragSessionEnd, true);
+    document.addEventListener("drop", handleDragSessionEnd, true);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      window.removeEventListener('dragend', handleDragSessionEnd, true);
-      window.removeEventListener('drop', handleDragSessionEnd, true);
-      window.removeEventListener('blur', handleDragSessionEnd);
-      document.removeEventListener('dragend', handleDragSessionEnd, true);
-      document.removeEventListener('drop', handleDragSessionEnd, true);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener("dragend", handleDragSessionEnd, true);
+      window.removeEventListener("drop", handleDragSessionEnd, true);
+      window.removeEventListener("blur", handleDragSessionEnd);
+      document.removeEventListener("dragend", handleDragSessionEnd, true);
+      document.removeEventListener("drop", handleDragSessionEnd, true);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (dragOverlayClearTimerRef.current) {
         clearTimeout(dragOverlayClearTimerRef.current);
         dragOverlayClearTimerRef.current = null;
@@ -3021,7 +3708,7 @@ export function Canvas() {
     };
   }, [clearDragOverlay]);
 
-  const pendingGenerationNodeIdSignatureRef = useRef('');
+  const pendingGenerationNodeIdSignatureRef = useRef("");
   const pendingGenerationNodeIdSignature = useMemo(() => {
     if (dragHistorySnapshot) {
       return pendingGenerationNodeIdSignatureRef.current;
@@ -3035,8 +3722,11 @@ export function Canvas() {
   useEffect(() => {
     const clearStaleSubmittingNodes = () => {
       const now = Date.now();
-      const staleNodeIds = useCanvasStore.getState().nodes
-        .filter((node) => isStaleSubmittingExportGenerationNode(node, now))
+      const staleNodeIds = useCanvasStore
+        .getState()
+        .nodes.filter((node) =>
+          isStaleSubmittingExportGenerationNode(node, now),
+        )
         .map((node) => node.id);
 
       for (const nodeId of staleNodeIds) {
@@ -3047,8 +3737,8 @@ export function Canvas() {
           nodeId,
           {
             isGenerating: false,
-            generationPhase: 'failed',
-            generationFailureStage: 'submit',
+            generationPhase: "failed",
+            generationFailureStage: "submit",
             generationStartedAt: null,
             generationJobId: null,
             generationProviderId: null,
@@ -3057,14 +3747,14 @@ export function Canvas() {
             generationError: STALE_GENERATION_SUBMISSION_ERROR,
             generationErrorDetails: STALE_GENERATION_SUBMISSION_ERROR,
           },
-          { historyMode: 'skip' }
+          { historyMode: "skip" },
         );
       }
     };
 
     const intervalId = window.setInterval(
       clearStaleSubmittingNodes,
-      GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS
+      GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS,
     );
     const handleWindowFocus = () => {
       clearStaleSubmittingNodes();
@@ -3075,20 +3765,22 @@ export function Canvas() {
       }
     };
 
-    window.addEventListener('focus', handleWindowFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     clearStaleSubmittingNodes();
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener('focus', handleWindowFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [updateNodeData]);
 
   useEffect(() => {
-    const pendingNodeIds = parseNodeIdSignature(pendingGenerationNodeIdSignature);
+    const pendingNodeIds = parseNodeIdSignature(
+      pendingGenerationNodeIdSignature,
+    );
 
     for (const nodeId of pendingNodeIds) {
       if (activeGenerationPollNodeIdsRef.current.has(nodeId)) {
@@ -3102,25 +3794,35 @@ export function Canvas() {
         try {
           await reconcileGenerationNode(nodeId, {
             continuous: true,
-            reason: 'poll-loop',
+            reason: "poll-loop",
           });
         } finally {
           activeGenerationPollNodeIdsRef.current.delete(nodeId);
         }
       })();
     }
-  }, [markGenerationNodeActivity, pendingGenerationNodeIdSignature, reconcileGenerationNode]);
+  }, [
+    markGenerationNodeActivity,
+    pendingGenerationNodeIdSignature,
+    reconcileGenerationNode,
+  ]);
 
   useEffect(() => {
-    const pendingNodeIds = new Set(parseNodeIdSignature(pendingGenerationNodeIdSignature));
+    const pendingNodeIds = new Set(
+      parseNodeIdSignature(pendingGenerationNodeIdSignature),
+    );
 
-    for (const nodeId of Array.from(generationNodeActivityAtRef.current.keys())) {
+    for (const nodeId of Array.from(
+      generationNodeActivityAtRef.current.keys(),
+    )) {
       if (!pendingNodeIds.has(nodeId)) {
         generationNodeActivityAtRef.current.delete(nodeId);
       }
     }
 
-    for (const nodeId of Array.from(activeGenerationRecoveryNodeIdsRef.current)) {
+    for (const nodeId of Array.from(
+      activeGenerationRecoveryNodeIdsRef.current,
+    )) {
       if (!pendingNodeIds.has(nodeId)) {
         activeGenerationRecoveryNodeIdsRef.current.delete(nodeId);
       }
@@ -3130,21 +3832,28 @@ export function Canvas() {
   useEffect(() => {
     const runRecoverySweep = () => {
       const now = Date.now();
-      const pendingNodeIds = useCanvasStore.getState().nodes
-        .filter(isPendingExportGenerationNode)
+      const pendingNodeIds = useCanvasStore
+        .getState()
+        .nodes.filter(isPendingExportGenerationNode)
         .filter((node) => {
           const data = node.data as Record<string, unknown>;
           const generationStartedAt =
-            typeof data.generationStartedAt === 'number' ? data.generationStartedAt : null;
+            typeof data.generationStartedAt === "number"
+              ? data.generationStartedAt
+              : null;
           if (generationStartedAt === null) {
             return false;
           }
 
-          if (now - generationStartedAt < GENERATION_JOB_RECOVERY_THRESHOLD_MS) {
+          if (
+            now - generationStartedAt <
+            GENERATION_JOB_RECOVERY_THRESHOLD_MS
+          ) {
             return false;
           }
 
-          const lastActivityAt = generationNodeActivityAtRef.current.get(node.id) ?? 0;
+          const lastActivityAt =
+            generationNodeActivityAtRef.current.get(node.id) ?? 0;
           return now - lastActivityAt >= GENERATION_JOB_STALE_ACTIVITY_MS;
         })
         .map((node) => node.id);
@@ -3166,7 +3875,7 @@ export function Canvas() {
             await reconcileGenerationNode(nodeId, {
               continuous: false,
               forceRefresh: true,
-              reason: 'recovery-sweep',
+              reason: "recovery-sweep",
             });
           } finally {
             activeGenerationRecoveryNodeIdsRef.current.delete(nodeId);
@@ -3175,7 +3884,10 @@ export function Canvas() {
       }
     };
 
-    const intervalId = window.setInterval(runRecoverySweep, GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS);
+    const intervalId = window.setInterval(
+      runRecoverySweep,
+      GENERATION_JOB_RECOVERY_SWEEP_INTERVAL_MS,
+    );
     const handleWindowFocus = () => {
       runRecoverySweep();
     };
@@ -3185,15 +3897,15 @@ export function Canvas() {
       }
     };
 
-    window.addEventListener('focus', handleWindowFocus);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     runRecoverySweep();
 
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener('focus', handleWindowFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [markGenerationNodeActivity, reconcileGenerationNode]);
 
@@ -3226,46 +3938,56 @@ export function Canvas() {
         return;
       }
 
+      const effectiveChanges = isCanvasOverviewRender
+        ? changes.filter((change) => change.type !== "dimensions")
+        : changes;
+      if (effectiveChanges.length === 0) {
+        skipNextCanvasAutoPersistRef.current = true;
+        return;
+      }
+
       if (
-        isCanvasSelectionKeyPressed
-        && marqueeSelectionSessionRef.current
-        && changes.every((change) => change.type === 'select')
+        isCanvasSelectionKeyPressed &&
+        marqueeSelectionSessionRef.current &&
+        effectiveChanges.every((change) => change.type === "select")
       ) {
         skipNextCanvasAutoPersistRef.current = true;
         return;
       }
 
-      applyNodesChange(changes);
+      applyNodesChange(effectiveChanges);
 
-      const hasMeaningfulChange = changes.some((change) => change.type !== 'select');
+      const hasMeaningfulChange = effectiveChanges.some(
+        (change) => change.type !== "select",
+      );
       if (!hasMeaningfulChange) {
         skipNextCanvasAutoPersistRef.current = true;
         return;
       }
 
-      const hasDragMove = changes.some(
+      const hasDragMove = effectiveChanges.some(
         (change) =>
-          change.type === 'position' &&
-          'dragging' in change &&
-          Boolean(change.dragging)
+          change.type === "position" &&
+          "dragging" in change &&
+          Boolean(change.dragging),
       );
-      const hasDragEnd = changes.some(
+      const hasDragEnd = effectiveChanges.some(
         (change) =>
-          change.type === 'position' &&
-          'dragging' in change &&
-          change.dragging === false
+          change.type === "position" &&
+          "dragging" in change &&
+          change.dragging === false,
       );
-      const hasResizeMove = changes.some(
+      const hasResizeMove = effectiveChanges.some(
         (change) =>
-          change.type === 'dimensions' &&
-          'resizing' in change &&
-          Boolean(change.resizing)
+          change.type === "dimensions" &&
+          "resizing" in change &&
+          Boolean(change.resizing),
       );
-      const hasResizeEnd = changes.some(
+      const hasResizeEnd = effectiveChanges.some(
         (change) =>
-          change.type === 'dimensions' &&
-          'resizing' in change &&
-          change.resizing === false
+          change.type === "dimensions" &&
+          "resizing" in change &&
+          change.resizing === false,
       );
       const hasInteractionMove = hasDragMove || hasResizeMove;
       const hasInteractionEnd = hasDragEnd || hasResizeEnd;
@@ -3281,7 +4003,12 @@ export function Canvas() {
 
       scheduleCanvasPersist();
     },
-    [applyNodesChange, isCanvasSelectionKeyPressed, scheduleCanvasPersist]
+    [
+      applyNodesChange,
+      isCanvasOverviewRender,
+      isCanvasSelectionKeyPressed,
+      scheduleCanvasPersist,
+    ],
   );
 
   const handleEdgesChange = useCallback(
@@ -3291,7 +4018,9 @@ export function Canvas() {
       }
 
       applyEdgesChange(changes);
-      const hasMeaningfulChange = changes.some((change) => change.type !== 'select');
+      const hasMeaningfulChange = changes.some(
+        (change) => change.type !== "select",
+      );
       if (!hasMeaningfulChange) {
         skipNextCanvasAutoPersistRef.current = true;
         return;
@@ -3299,7 +4028,7 @@ export function Canvas() {
 
       scheduleCanvasPersist();
     },
-    [applyEdgesChange, scheduleCanvasPersist]
+    [applyEdgesChange, scheduleCanvasPersist],
   );
 
   const handleEdgeDoubleClick = useCallback(
@@ -3309,7 +4038,7 @@ export function Canvas() {
       deleteEdge(edge.id);
       scheduleCanvasPersist(0);
     },
-    [deleteEdge, scheduleCanvasPersist]
+    [deleteEdge, scheduleCanvasPersist],
   );
 
   const handleEdgeClick = useCallback((event: ReactMouseEvent) => {
@@ -3325,7 +4054,7 @@ export function Canvas() {
     (connection: Connection) => {
       connectNodesWithBusinessRules(connection);
     },
-    [connectNodesWithBusinessRules]
+    [connectNodesWithBusinessRules],
   );
 
   const handleMoveEnd = useCallback(
@@ -3344,7 +4073,7 @@ export function Canvas() {
       getCurrentProject,
       saveCurrentProjectViewport,
       syncViewportState,
-    ]
+    ],
   );
 
   const handleMove = useCallback(
@@ -3355,7 +4084,7 @@ export function Canvas() {
       }
       syncViewportStateOnZoomChange(viewport);
     },
-    [scheduleViewportImagePreload, syncViewportStateOnZoomChange]
+    [scheduleViewportImagePreload, syncViewportStateOnZoomChange],
   );
 
   const handleMoveStart = useCallback(() => {
@@ -3363,48 +4092,66 @@ export function Canvas() {
     cancelPendingViewportPersist();
   }, [cancelPendingViewportPersist, scheduleViewportChromeHide]);
 
-  const toFlowPointFromMouseEvent = useCallback((
-    event: ReactMouseEvent<Element, MouseEvent>,
-  ): CanvasPoint => {
-    return reactFlowInstance.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    });
-  }, [reactFlowInstance]);
+  const toFlowPointFromMouseEvent = useCallback(
+    (event: ReactMouseEvent<Element, MouseEvent>): CanvasPoint => {
+      return reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+    },
+    [reactFlowInstance],
+  );
 
-  const handleSelectionStart = useCallback((event: ReactMouseEvent<Element, MouseEvent>) => {
-    marqueeSelectionSessionRef.current = {
-      startFlowPoint: toFlowPointFromMouseEvent(event),
-      initialSelectedNodeIds: nodes.filter((node) => node.selected).map((node) => node.id),
-    };
-  }, [nodes, toFlowPointFromMouseEvent]);
+  const handleSelectionStart = useCallback(
+    (event: ReactMouseEvent<Element, MouseEvent>) => {
+      const isAdditive = event.ctrlKey || event.metaKey;
+      marqueeSelectionSessionRef.current = {
+        startFlowPoint: toFlowPointFromMouseEvent(event),
+        initialSelectedNodeIds: isAdditive
+          ? nodes.filter((node) => node.selected).map((node) => node.id)
+          : [],
+        isAdditive,
+      };
+    },
+    [nodes, toFlowPointFromMouseEvent],
+  );
 
-  const handleSelectionEnd = useCallback((event: ReactMouseEvent<Element, MouseEvent>) => {
-    const marqueeSelectionSession = marqueeSelectionSessionRef.current;
-    marqueeSelectionSessionRef.current = null;
-    if (!marqueeSelectionSession) {
-      return;
-    }
-
-    const selectionRect = normalizeRect(
-      marqueeSelectionSession.startFlowPoint,
-      toFlowPointFromMouseEvent(event)
-    );
-    const nodeMap = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
-    const selectedIdSet = new Set(marqueeSelectionSession.initialSelectedNodeIds);
-    for (const node of nodes) {
-      const nodeRect = getCanvasNodeRect(node, nodeMap);
-      const isInsideSelection = node.type === CANVAS_NODE_TYPES.group
-        ? rectContains(selectionRect, nodeRect)
-        : rectIntersects(selectionRect, nodeRect);
-
-      if (isInsideSelection) {
-        selectedIdSet.add(node.id);
+  const handleSelectionEnd = useCallback(
+    (event: ReactMouseEvent<Element, MouseEvent>) => {
+      const marqueeSelectionSession = marqueeSelectionSessionRef.current;
+      marqueeSelectionSessionRef.current = null;
+      if (!marqueeSelectionSession) {
+        return;
       }
-    }
 
-    setSelectedNodeIds(Array.from(selectedIdSet));
-  }, [nodes, setSelectedNodeIds, toFlowPointFromMouseEvent]);
+      const selectionRect = normalizeRect(
+        marqueeSelectionSession.startFlowPoint,
+        toFlowPointFromMouseEvent(event),
+      );
+      const nodeMap = new globalThis.Map(
+        nodes.map((node) => [node.id, node] as const),
+      );
+      const selectedIdSet = new Set(
+        marqueeSelectionSession.isAdditive
+          ? marqueeSelectionSession.initialSelectedNodeIds
+          : [],
+      );
+      for (const node of nodes) {
+        const nodeRect = getCanvasNodeRect(node, nodeMap);
+        const isInsideSelection =
+          node.type === CANVAS_NODE_TYPES.group
+            ? rectContains(selectionRect, nodeRect)
+            : rectIntersects(selectionRect, nodeRect);
+
+        if (isInsideSelection) {
+          selectedIdSet.add(node.id);
+        }
+      }
+
+      setSelectedNodeIds(Array.from(selectedIdSet));
+    },
+    [nodes, setSelectedNodeIds, toFlowPointFromMouseEvent],
+  );
 
   useEffect(() => {
     const syncSelectionKeyState = (event: KeyboardEvent) => {
@@ -3414,14 +4161,14 @@ export function Canvas() {
       setIsCanvasSelectionKeyPressed(false);
     };
 
-    window.addEventListener('keydown', syncSelectionKeyState);
-    window.addEventListener('keyup', syncSelectionKeyState);
-    window.addEventListener('blur', clearSelectionKeyState);
+    window.addEventListener("keydown", syncSelectionKeyState);
+    window.addEventListener("keyup", syncSelectionKeyState);
+    window.addEventListener("blur", clearSelectionKeyState);
 
     return () => {
-      window.removeEventListener('keydown', syncSelectionKeyState);
-      window.removeEventListener('keyup', syncSelectionKeyState);
-      window.removeEventListener('blur', clearSelectionKeyState);
+      window.removeEventListener("keydown", syncSelectionKeyState);
+      window.removeEventListener("keyup", syncSelectionKeyState);
+      window.removeEventListener("blur", clearSelectionKeyState);
     };
   }, []);
 
@@ -3437,7 +4184,9 @@ export function Canvas() {
       event.stopImmediatePropagation();
     };
 
-    const appendEdgeCutPoint = (event: PointerEvent): EdgeCutGestureState | null => {
+    const appendEdgeCutPoint = (
+      event: PointerEvent,
+    ): EdgeCutGestureState | null => {
       const gesture = edgeCutGestureRef.current;
       if (!gesture || event.pointerId !== gesture.pointerId) {
         return null;
@@ -3448,13 +4197,19 @@ export function Canvas() {
         y: event.clientY,
       });
       const lastFlowPoint = gesture.flowPoints[gesture.flowPoints.length - 1];
-      if (lastFlowPoint && getDistance(lastFlowPoint, nextFlowPoint) < EDGE_CUT_MIN_POINT_DISTANCE) {
+      if (
+        lastFlowPoint &&
+        getDistance(lastFlowPoint, nextFlowPoint) < EDGE_CUT_MIN_POINT_DISTANCE
+      ) {
         return gesture;
       }
 
       gesture.flowPoints.push(nextFlowPoint);
       gesture.screenPoints.push(getRelativePointerPoint(event, wrapperElement));
-      gesture.hitEdgeIds = collectIntersectingEdgeIds(wrapperElement, gesture.flowPoints);
+      gesture.hitEdgeIds = collectIntersectingEdgeIds(
+        wrapperElement,
+        gesture.flowPoints,
+      );
       setEdgeCutVisual({
         screenPoints: [...gesture.screenPoints],
         hitEdgeIds: Array.from(gesture.hitEdgeIds),
@@ -3469,16 +4224,16 @@ export function Canvas() {
 
     const handlePointerDown = (event: PointerEvent) => {
       if (
-        event.button !== 0
-        || !edgeCutKeyPressedRef.current
-        || isImageViewerOpen
-        || isTypingTarget(event.target)
+        event.button !== 0 ||
+        !edgeCutKeyPressedRef.current ||
+        isImageViewerOpen ||
+        isTypingTarget(event.target)
       ) {
         return;
       }
 
       const targetElement = event.target as HTMLElement | null;
-      if (!targetElement?.closest('.react-flow')) {
+      if (!targetElement?.closest(".react-flow")) {
         return;
       }
 
@@ -3552,16 +4307,20 @@ export function Canvas() {
       resetEdgeCutGesture();
     };
 
-    wrapperElement.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', handlePointerUp, true);
-    window.addEventListener('pointercancel', handlePointerCancel, true);
+    wrapperElement.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("pointermove", handlePointerMove, true);
+    window.addEventListener("pointerup", handlePointerUp, true);
+    window.addEventListener("pointercancel", handlePointerCancel, true);
 
     return () => {
-      wrapperElement.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', handlePointerUp, true);
-      window.removeEventListener('pointercancel', handlePointerCancel, true);
+      wrapperElement.removeEventListener(
+        "pointerdown",
+        handlePointerDown,
+        true,
+      );
+      window.removeEventListener("pointermove", handlePointerMove, true);
+      window.removeEventListener("pointerup", handlePointerUp, true);
+      window.removeEventListener("pointercancel", handlePointerCancel, true);
     };
   }, [
     cancelPendingViewportPersist,
@@ -3577,7 +4336,8 @@ export function Canvas() {
       return;
     }
 
-    const edgePathSelector = '.react-flow__edge-path, .react-flow__edge-interaction';
+    const edgePathSelector =
+      ".react-flow__edge-path, .react-flow__edge-interaction";
     const dragThreshold = 4;
 
     const handlePointerDown = (event: PointerEvent) => {
@@ -3590,7 +4350,7 @@ export function Canvas() {
         return;
       }
 
-      if (target.closest('.react-flow__edgeupdater')) {
+      if (target.closest(".react-flow__edgeupdater")) {
         return;
       }
 
@@ -3615,7 +4375,11 @@ export function Canvas() {
 
     const handlePointerMove = (event: PointerEvent) => {
       const gesture = edgePanGestureRef.current;
-      if (!gesture || !gesture.active || event.pointerId !== gesture.pointerId) {
+      if (
+        !gesture ||
+        !gesture.active ||
+        event.pointerId !== gesture.pointerId
+      ) {
         return;
       }
 
@@ -3637,7 +4401,7 @@ export function Canvas() {
           y: gesture.startViewportY + deltaY,
           zoom: gesture.zoom,
         },
-        { duration: 0 }
+        { duration: 0 },
       );
     };
 
@@ -3678,16 +4442,20 @@ export function Canvas() {
       completeEdgePanGesture();
     };
 
-    wrapperElement.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', handlePointerUp, true);
-    window.addEventListener('pointercancel', handlePointerCancel, true);
+    wrapperElement.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("pointermove", handlePointerMove, true);
+    window.addEventListener("pointerup", handlePointerUp, true);
+    window.addEventListener("pointercancel", handlePointerCancel, true);
 
     return () => {
-      wrapperElement.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', handlePointerUp, true);
-      window.removeEventListener('pointercancel', handlePointerCancel, true);
+      wrapperElement.removeEventListener(
+        "pointerdown",
+        handlePointerDown,
+        true,
+      );
+      window.removeEventListener("pointermove", handlePointerMove, true);
+      window.removeEventListener("pointerup", handlePointerUp, true);
+      window.removeEventListener("pointercancel", handlePointerCancel, true);
     };
   }, [
     cancelPendingViewportPersist,
@@ -3700,7 +4468,7 @@ export function Canvas() {
 
   const selectedNodeIds = useMemo(
     () => nodes.filter((node) => Boolean(node.selected)).map((node) => node.id),
-    [nodes]
+    [nodes],
   );
   const selectedUploadNodeId = useMemo(() => {
     if (selectedNodeIds.length !== 1) {
@@ -3713,11 +4481,11 @@ export function Canvas() {
     return selectedNode.id;
   }, [nodes, selectedNodeIds]);
   const useUploadFilenameAsNodeTitle = useSettingsStore(
-    (state) => state.useUploadFilenameAsNodeTitle
+    (state) => state.useUploadFilenameAsNodeTitle,
   );
   const groupNodesList = useMemo(
     () => nodes.filter((node) => node.type === CANVAS_NODE_TYPES.group),
-    [nodes]
+    [nodes],
   );
   const selectedGroupId = useMemo(() => {
     if (!selectedNodeId) {
@@ -3725,7 +4493,9 @@ export function Canvas() {
     }
 
     const selectedNode = nodes.find((node) => node.id === selectedNodeId);
-    return selectedNode?.type === CANVAS_NODE_TYPES.group ? selectedNode.id : null;
+    return selectedNode?.type === CANVAS_NODE_TYPES.group
+      ? selectedNode.id
+      : null;
   }, [nodes, selectedNodeId]);
   const selectedScriptSceneNode = useMemo(() => {
     if (selectedNodeIds.length !== 1) {
@@ -3733,7 +4503,9 @@ export function Canvas() {
     }
 
     const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
-    return selectedNode?.type === CANVAS_NODE_TYPES.scriptScene ? selectedNode : null;
+    return selectedNode?.type === CANVAS_NODE_TYPES.scriptScene
+      ? selectedNode
+      : null;
   }, [nodes, selectedNodeIds]);
   const selectedShootingScriptNode = useMemo(() => {
     if (selectedNodeIds.length !== 1) {
@@ -3741,7 +4513,9 @@ export function Canvas() {
     }
 
     const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
-    return selectedNode?.type === CANVAS_NODE_TYPES.shootingScript ? selectedNode : null;
+    return selectedNode?.type === CANVAS_NODE_TYPES.shootingScript
+      ? selectedNode
+      : null;
   }, [nodes, selectedNodeIds]);
   const selectedScriptChapterNode = useMemo(() => {
     if (selectedNodeIds.length !== 1) {
@@ -3749,7 +4523,9 @@ export function Canvas() {
     }
 
     const selectedNode = nodes.find((node) => node.id === selectedNodeIds[0]);
-    return selectedNode?.type === CANVAS_NODE_TYPES.scriptChapter ? selectedNode : null;
+    return selectedNode?.type === CANVAS_NODE_TYPES.scriptChapter
+      ? selectedNode
+      : null;
   }, [nodes, selectedNodeIds]);
   const sceneCatalogItems = useMemo(() => {
     if (!sceneCatalogChapterNodeId) {
@@ -3757,7 +4533,9 @@ export function Canvas() {
     }
 
     const chapterNode = nodes.find(
-      (node) => node.id === sceneCatalogChapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+      (node) =>
+        node.id === sceneCatalogChapterNodeId &&
+        node.type === CANVAS_NODE_TYPES.scriptChapter,
     );
     if (!chapterNode) {
       return [];
@@ -3770,7 +4548,7 @@ export function Canvas() {
         .map((node) => {
           const sceneNodeData = node.data as ScriptSceneNodeData;
           return `${sceneNodeData.sourceChapterId}::${sceneNodeData.sourceSceneId}`;
-        })
+        }),
     );
 
     return normalizeSceneCards(chapterData.scenes, chapterData.content)
@@ -3780,8 +4558,11 @@ export function Canvas() {
         id: scene.id,
         order: scene.order,
         title: scene.title,
-        summary: scene.summary || scene.purpose || scene.visualHook || scene.draftHtml,
-        created: createdSceneKeys.has(`${sceneCatalogChapterNodeId}::${scene.id}`),
+        summary:
+          scene.summary || scene.purpose || scene.visualHook || scene.draftHtml,
+        created: createdSceneKeys.has(
+          `${sceneCatalogChapterNodeId}::${scene.id}`,
+        ),
       }));
   }, [nodes, sceneCatalogChapterNodeId]);
   const sceneCatalogChapterNode = useMemo(() => {
@@ -3790,7 +4571,9 @@ export function Canvas() {
     }
 
     const chapterNode = nodes.find(
-      (node) => node.id === sceneCatalogChapterNodeId && node.type === CANVAS_NODE_TYPES.scriptChapter
+      (node) =>
+        node.id === sceneCatalogChapterNodeId &&
+        node.type === CANVAS_NODE_TYPES.scriptChapter,
     );
     return chapterNode ?? null;
   }, [nodes, sceneCatalogChapterNodeId]);
@@ -3800,7 +4583,9 @@ export function Canvas() {
     }
 
     const sceneNode = nodes.find(
-      (node) => node.id === episodeCatalogSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+      (node) =>
+        node.id === episodeCatalogSceneNodeId &&
+        node.type === CANVAS_NODE_TYPES.scriptScene,
     );
     if (!sceneNode) {
       return [];
@@ -3810,8 +4595,13 @@ export function Canvas() {
     const createdEpisodeIds = new Set(
       nodes
         .filter((node) => node.type === CANVAS_NODE_TYPES.shootingScript)
-        .map((node) => (node.data as { sourceEpisodeId?: string }).sourceEpisodeId)
-        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map(
+          (node) => (node.data as { sourceEpisodeId?: string }).sourceEpisodeId,
+        )
+        .filter(
+          (value): value is string =>
+            typeof value === "string" && value.trim().length > 0,
+        ),
     );
 
     return [...sceneData.episodes]
@@ -3820,7 +4610,10 @@ export function Canvas() {
         id: episode.id,
         episodeNumber: episode.episodeNumber,
         title: episode.title,
-        summary: episode.summary || episode.purpose || htmlToPlainText(episode.draftHtml || ''),
+        summary:
+          episode.summary ||
+          episode.purpose ||
+          htmlToPlainText(episode.draftHtml || ""),
         created: createdEpisodeIds.has(episode.id),
       }));
   }, [episodeCatalogSceneNodeId, nodes]);
@@ -3830,7 +4623,9 @@ export function Canvas() {
     }
 
     const sceneNode = nodes.find(
-      (node) => node.id === episodeCatalogSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
+      (node) =>
+        node.id === episodeCatalogSceneNodeId &&
+        node.type === CANVAS_NODE_TYPES.scriptScene,
     );
     return sceneNode ?? null;
   }, [episodeCatalogSceneNodeId, nodes]);
@@ -3849,18 +4644,26 @@ export function Canvas() {
   }, [selectedNodeId, selectedNodeIds, setSelectedNode]);
 
   useEffect(() => {
-    if (project?.projectType !== 'script' || !selectedScriptChapterNode) {
+    if (project?.projectType !== "script" || !selectedScriptChapterNode) {
       return;
     }
 
-    const selectedChapterData = selectedScriptChapterNode.data as ScriptChapterNodeData;
-    const chapterScenes = normalizeSceneCards(selectedChapterData.scenes, selectedChapterData.content);
+    const selectedChapterData =
+      selectedScriptChapterNode.data as ScriptChapterNodeData;
+    const chapterScenes = normalizeSceneCards(
+      selectedChapterData.scenes,
+      selectedChapterData.content,
+    );
     const fallbackSceneId = chapterScenes[0]?.id ?? null;
-    const nextSceneId = activeChapterId === selectedScriptChapterNode.id
-      ? activeChapterSceneId ?? fallbackSceneId
-      : fallbackSceneId;
+    const nextSceneId =
+      activeChapterId === selectedScriptChapterNode.id
+        ? (activeChapterSceneId ?? fallbackSceneId)
+        : fallbackSceneId;
 
-    if (activeChapterId === selectedScriptChapterNode.id && activeChapterSceneId === nextSceneId) {
+    if (
+      activeChapterId === selectedScriptChapterNode.id &&
+      activeChapterSceneId === nextSceneId
+    ) {
       return;
     }
 
@@ -3874,17 +4677,22 @@ export function Canvas() {
   ]);
 
   useEffect(() => {
-    if (project?.projectType !== 'script' || !selectedScriptSceneNode) {
+    if (project?.projectType !== "script" || !selectedScriptSceneNode) {
       return;
     }
 
-    const selectedSceneData = selectedScriptSceneNode.data as ScriptSceneNodeData;
+    const selectedSceneData =
+      selectedScriptSceneNode.data as ScriptSceneNodeData;
     const fallbackEpisodeId = selectedSceneData.episodes[0]?.id ?? null;
-    const nextEpisodeId = activeSceneNodeId === selectedScriptSceneNode.id
-      ? activeEpisodeId ?? fallbackEpisodeId
-      : fallbackEpisodeId;
+    const nextEpisodeId =
+      activeSceneNodeId === selectedScriptSceneNode.id
+        ? (activeEpisodeId ?? fallbackEpisodeId)
+        : fallbackEpisodeId;
 
-    if (activeSceneNodeId === selectedScriptSceneNode.id && activeEpisodeId === nextEpisodeId) {
+    if (
+      activeSceneNodeId === selectedScriptSceneNode.id &&
+      activeEpisodeId === nextEpisodeId
+    ) {
       return;
     }
 
@@ -3898,7 +4706,7 @@ export function Canvas() {
   ]);
 
   useEffect(() => {
-    if (project?.projectType !== 'script' || !selectedShootingScriptNode) {
+    if (project?.projectType !== "script" || !selectedShootingScriptNode) {
       return;
     }
 
@@ -3933,7 +4741,9 @@ export function Canvas() {
       setIsDraggingBranchConnection(false);
 
       const clientPosition = getClientPosition(e);
-      const dropNodeId = clientPosition ? resolveDropNodeId(e.target, clientPosition) : null;
+      const dropNodeId = clientPosition
+        ? resolveDropNodeId(e.target, clientPosition)
+        : null;
 
       if (connectBranchSourcesToExistingNode(dropNodeId)) {
         resetBranchConnectionState();
@@ -3944,18 +4754,23 @@ export function Canvas() {
       setShowBatchMenu(true);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [connectBranchSourcesToExistingNode, isDraggingBranchConnection, resetBranchConnectionState]);
+  }, [
+    connectBranchSourcesToExistingNode,
+    isDraggingBranchConnection,
+    resetBranchConnectionState,
+  ]);
 
   useEffect(() => {
     const resolveClipboardInsertPosition = () => {
-      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      const containerRect =
+        reactFlowWrapperRef.current?.getBoundingClientRect();
       return containerRect
         ? reactFlowInstance.screenToFlowPosition({
             x: containerRect.left + containerRect.width / 2,
@@ -3974,7 +4789,7 @@ export function Canvas() {
     const createUploadNodeFromPreparedImage = (
       position: { x: number; y: number },
       imageData: Awaited<ReturnType<typeof prepareNodeImage>>,
-      sourceFileName: string | null
+      sourceFileName: string | null,
     ) => {
       return addNode(CANVAS_NODE_TYPES.upload, position, {
         imageUrl: imageData.imageUrl,
@@ -3983,13 +4798,15 @@ export function Canvas() {
         thumbnailMaxDimension: imageData.thumbnailMaxDimension,
         aspectRatio: imageData.aspectRatio,
         ...(sourceFileName ? { sourceFileName } : {}),
-        ...(useUploadFilenameAsNodeTitle && sourceFileName ? { displayName: sourceFileName } : {}),
+        ...(useUploadFilenameAsNodeTitle && sourceFileName
+          ? { displayName: sourceFileName }
+          : {}),
       });
     };
 
     const applyPreparedImageToSelectedUploadNode = (
       imageData: Awaited<ReturnType<typeof prepareNodeImage>>,
-      sourceFileName: string | null
+      sourceFileName: string | null,
     ) => {
       if (!selectedUploadNodeId) {
         return;
@@ -4004,7 +4821,9 @@ export function Canvas() {
         imageWidth: undefined,
         imageHeight: undefined,
         ...(sourceFileName ? { sourceFileName } : {}),
-        ...(useUploadFilenameAsNodeTitle && sourceFileName ? { displayName: sourceFileName } : {}),
+        ...(useUploadFilenameAsNodeTitle && sourceFileName
+          ? { displayName: sourceFileName }
+          : {}),
       });
       setSelectedNode(selectedUploadNodeId);
     };
@@ -4017,16 +4836,22 @@ export function Canvas() {
           file,
           undefined,
           undefined,
-          canvasOverviewThumbnailMaxDimension
+          canvasOverviewThumbnailMaxDimension,
         );
-        const newNodeId = createUploadNodeFromPreparedImage(position, imageData, file.name || null);
+        const newNodeId = createUploadNodeFromPreparedImage(
+          position,
+          imageData,
+          file.name || null,
+        );
         setSelectedNode(newNodeId);
       } catch (error) {
-        console.error('Failed to process pasted image:', error);
+        console.error("Failed to process pasted image:", error);
       }
     };
 
-    const createNodesFromClipboardFilePaths = async (sourcePaths: string[]): Promise<boolean> => {
+    const createNodesFromClipboardFilePaths = async (
+      sourcePaths: string[],
+    ): Promise<boolean> => {
       if (sourcePaths.length === 0) {
         return false;
       }
@@ -4037,7 +4862,9 @@ export function Canvas() {
       }
 
       if (selectedUploadNodeId) {
-        const imageSource = clipboardSources.find((item) => item.kind === 'image');
+        const imageSource = clipboardSources.find(
+          (item) => item.kind === "image",
+        );
         if (!imageSource) {
           return true;
         }
@@ -4047,11 +4874,14 @@ export function Canvas() {
             imageSource.path,
             undefined,
             undefined,
-            canvasOverviewThumbnailMaxDimension
+            canvasOverviewThumbnailMaxDimension,
           );
-          applyPreparedImageToSelectedUploadNode(imageData, imageSource.fileName);
+          applyPreparedImageToSelectedUploadNode(
+            imageData,
+            imageSource.fileName,
+          );
         } catch (error) {
-          console.error('Failed to process pasted clipboard image file:', {
+          console.error("Failed to process pasted clipboard image file:", {
             sourcePath: imageSource.path,
             error,
           });
@@ -4072,18 +4902,22 @@ export function Canvas() {
         };
 
         try {
-          if (item.kind === 'image') {
+          if (item.kind === "image") {
             const imageData = await prepareNodeImage(
               item.path,
               undefined,
               undefined,
-              canvasOverviewThumbnailMaxDimension
+              canvasOverviewThumbnailMaxDimension,
             );
-            lastCreatedNodeId = createUploadNodeFromPreparedImage(position, imageData, item.fileName);
+            lastCreatedNodeId = createUploadNodeFromPreparedImage(
+              position,
+              imageData,
+              item.fileName,
+            );
             continue;
           }
 
-          if (item.kind === 'video') {
+          if (item.kind === "video") {
             const videoData = await prepareNodeVideoFromSource(item.path);
             lastCreatedNodeId = addNode(CANVAS_NODE_TYPES.video, position, {
               videoUrl: videoData.videoUrl,
@@ -4105,10 +4939,13 @@ export function Canvas() {
             ...(item.fileName ? { displayName: item.fileName } : {}),
           });
         } catch (error) {
-          console.error(`Failed to process pasted clipboard ${item.kind} file:`, {
-            sourcePath: item.path,
-            error,
-          });
+          console.error(
+            `Failed to process pasted clipboard ${item.kind} file:`,
+            {
+              sourcePath: item.path,
+              error,
+            },
+          );
         }
       }
 
@@ -4128,7 +4965,7 @@ export function Canvas() {
 
       const isPasteInsideCanvas = isCanvasPasteTarget(
         event.target,
-        reactFlowWrapperRef.current
+        reactFlowWrapperRef.current,
       );
       if (!selectedUploadNodeId && !isPasteInsideCanvas) {
         return;
@@ -4152,7 +4989,7 @@ export function Canvas() {
         }
 
         if (selectedUploadNodeId) {
-          canvasEventBus.publish('upload-node/paste-image', {
+          canvasEventBus.publish("upload-node/paste-image", {
             nodeId: selectedUploadNodeId,
             file: imageFile,
           });
@@ -4167,7 +5004,7 @@ export function Canvas() {
           return handled;
         })
         .catch((error) => {
-          console.error('Failed to resolve clipboard paste:', error);
+          console.error("Failed to resolve clipboard paste:", error);
           pasteImageHandledRef.current = false;
           return false;
         });
@@ -4180,9 +5017,9 @@ export function Canvas() {
       });
     };
 
-    document.addEventListener('paste', handlePaste);
+    document.addEventListener("paste", handlePaste);
     return () => {
-      document.removeEventListener('paste', handlePaste);
+      document.removeEventListener("paste", handlePaste);
     };
   }, [
     addNode,
@@ -4226,14 +5063,14 @@ export function Canvas() {
       setIsViewportInteracting(false);
     };
 
-    window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', handlePointerUp, true);
-    window.addEventListener('pointercancel', handlePointerUp, true);
+    window.addEventListener("pointermove", handlePointerMove, true);
+    window.addEventListener("pointerup", handlePointerUp, true);
+    window.addEventListener("pointercancel", handlePointerUp, true);
 
     return () => {
-      window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', handlePointerUp, true);
-      window.removeEventListener('pointercancel', handlePointerUp, true);
+      window.removeEventListener("pointermove", handlePointerMove, true);
+      window.removeEventListener("pointerup", handlePointerUp, true);
+      window.removeEventListener("pointercancel", handlePointerUp, true);
     };
   }, [pendingConnectStart, reactFlowInstance, setIsViewportInteracting]);
 
@@ -4274,16 +5111,16 @@ export function Canvas() {
       }
 
       if (
-        event.key.toLowerCase() === 'x'
-        && !event.ctrlKey
-        && !event.metaKey
-        && !event.altKey
+        event.key.toLowerCase() === "x" &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
       ) {
         edgeCutKeyPressedRef.current = true;
         return;
       }
 
-      if (event.key === ' ' && pendingConnectStart) {
+      if (event.key === " " && pendingConnectStart) {
         event.preventDefault();
         connectionSpacePanActiveRef.current = true;
         setIsViewportInteracting(true);
@@ -4293,11 +5130,12 @@ export function Canvas() {
 
       const commandPressed = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
-      const isUndo = commandPressed && key === 'z' && !event.shiftKey;
-      const isRedo = commandPressed && (key === 'y' || (key === 'z' && event.shiftKey));
+      const isUndo = commandPressed && key === "z" && !event.shiftKey;
+      const isRedo =
+        commandPressed && (key === "y" || (key === "z" && event.shiftKey));
       const isGroup = eventMatchesShortcut(event, groupNodesShortcut);
-      const isCopy = commandPressed && key === 'c' && !event.shiftKey;
-      const isPaste = commandPressed && key === 'v' && !event.shiftKey;
+      const isCopy = commandPressed && key === "c" && !event.shiftKey;
+      const isPaste = commandPressed && key === "v" && !event.shiftKey;
 
       if (isCopy) {
         if (selectedNodeIds.length === 0) {
@@ -4308,15 +5146,17 @@ export function Canvas() {
         const selectedIdSet = new Set(selectedNodeIds);
         const copiedNodes = nodes.filter(
           (node) =>
-            selectedIdSet.has(node.id)
-            && node.type !== CANVAS_NODE_TYPES.scriptScene
-            && node.type !== CANVAS_NODE_TYPES.shootingScript
+            selectedIdSet.has(node.id) &&
+            node.type !== CANVAS_NODE_TYPES.scriptScene &&
+            node.type !== CANVAS_NODE_TYPES.shootingScript,
         );
         const copiedNodeIdSet = new Set(copiedNodes.map((node) => node.id));
         copiedSnapshotRef.current = {
           nodes: copiedNodes,
           edges: edges.filter(
-            (edge) => copiedNodeIdSet.has(edge.source) && copiedNodeIdSet.has(edge.target)
+            (edge) =>
+              copiedNodeIdSet.has(edge.source) &&
+              copiedNodeIdSet.has(edge.target),
           ),
         };
         return;
@@ -4326,11 +5166,16 @@ export function Canvas() {
         pasteImageHandledRef.current = false;
         window.setTimeout(() => {
           const duplicateCopiedNodes = () => {
-            if (!copiedSnapshotRef.current || copiedSnapshotRef.current.nodes.length === 0) {
+            if (
+              !copiedSnapshotRef.current ||
+              copiedSnapshotRef.current.nodes.length === 0
+            ) {
               return;
             }
 
-            void duplicateNodesRef.current?.(copiedSnapshotRef.current.nodes.map((node) => node.id));
+            void duplicateNodesRef.current?.(
+              copiedSnapshotRef.current.nodes.map((node) => node.id),
+            );
           };
 
           const pendingPasteHandled = pendingPasteHandledRef.current;
@@ -4377,15 +5222,16 @@ export function Canvas() {
         return;
       }
 
-      if (event.key !== 'Delete' && event.key !== 'Backspace') {
+      if (event.key !== "Delete" && event.key !== "Backspace") {
         return;
       }
 
-      const idsToDelete = selectedNodeIds.length > 0
-        ? selectedNodeIds
-        : selectedNodeId
-          ? [selectedNodeId]
-          : [];
+      const idsToDelete =
+        selectedNodeIds.length > 0
+          ? selectedNodeIds
+          : selectedNodeId
+            ? [selectedNodeId]
+            : [];
       if (idsToDelete.length === 0) {
         return;
       }
@@ -4399,27 +5245,27 @@ export function Canvas() {
       scheduleCanvasPersist(0);
     };
 
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
     const handleWindowBlur = () => {
       edgeCutKeyPressedRef.current = false;
       setIsViewportInteracting(false);
     };
     const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === 'x') {
+      if (event.key.toLowerCase() === "x") {
         edgeCutKeyPressedRef.current = false;
       }
-      if (event.key === ' ') {
+      if (event.key === " ") {
         connectionSpacePanActiveRef.current = false;
         connectionPointerRef.current = null;
         setIsViewportInteracting(false);
       }
     };
-    document.addEventListener('keyup', handleKeyUp);
-    window.addEventListener('blur', handleWindowBlur);
+    document.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleWindowBlur);
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('keyup', handleKeyUp);
-      window.removeEventListener('blur', handleWindowBlur);
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleWindowBlur);
       edgeCutKeyPressedRef.current = false;
     };
   }, [
@@ -4451,176 +5297,211 @@ export function Canvas() {
     setPreviewConnectionVisual(null);
   }, []);
 
-  const openNodeMenuAtClientPosition = useCallback((clientX: number, clientY: number) => {
-    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
-    if (!containerRect) {
-      return;
-    }
-
-    const flowPos = reactFlowInstance.screenToFlowPosition({
-      x: clientX,
-      y: clientY,
-    });
-
-    setFlowPosition(flowPos);
-    setMenuPosition({
-      x: clientX - containerRect.left,
-      y: clientY - containerRect.top,
-    });
-    setShowSceneCatalogMenu(false);
-    setShowEpisodeCatalogMenu(false);
-    setSceneCatalogChapterNodeId(null);
-    setEpisodeCatalogSceneNodeId(null);
-    setMenuAllowedTypes(undefined);
-    setPendingConnectStart(null);
-    setPreviewConnectionVisual(null);
-    setShowNodeMenu(true);
-  }, [reactFlowInstance]);
-
-  const openSceneCatalogAtClientPosition = useCallback((
-    chapterNodeId: string,
-    clientX: number,
-    clientY: number
-  ) => {
-    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
-    if (!containerRect) {
-      return;
-    }
-
-    setMenuPosition({
-      x: clientX - containerRect.left,
-      y: clientY - containerRect.top,
-    });
-    setShowNodeMenu(false);
-    setShowEpisodeCatalogMenu(false);
-    setMenuAllowedTypes(undefined);
-    setSceneCatalogChapterNodeId(chapterNodeId);
-    setEpisodeCatalogSceneNodeId(null);
-    setShowSceneCatalogMenu(true);
-  }, []);
-
-  const openEpisodeCatalogAtClientPosition = useCallback((
-    sceneNodeId: string,
-    clientX: number,
-    clientY: number
-  ) => {
-    const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
-    if (!containerRect) {
-      return;
-    }
-
-    setMenuPosition({
-      x: clientX - containerRect.left,
-      y: clientY - containerRect.top,
-    });
-    setShowNodeMenu(false);
-    setShowSceneCatalogMenu(false);
-    setMenuAllowedTypes(undefined);
-    setSceneCatalogChapterNodeId(null);
-    setEpisodeCatalogSceneNodeId(sceneNodeId);
-    setShowEpisodeCatalogMenu(true);
-  }, []);
-
-  const handleSceneCatalogSelect = useCallback((sceneId: string) => {
-    if (!sceneCatalogChapterNodeId) {
-      return;
-    }
-
-    const nextSceneNodeId = createScriptSceneNodeFromChapterScene(sceneCatalogChapterNodeId, sceneId);
-    if (!nextSceneNodeId) {
-      return;
-    }
-
-    const nextSceneNode = useCanvasStore.getState().nodes.find(
-      (node) => node.id === nextSceneNodeId && node.type === CANVAS_NODE_TYPES.scriptScene
-    );
-    const nextSceneData = nextSceneNode?.data as ScriptSceneNodeData | undefined;
-    const firstEpisodeId = nextSceneData?.episodes[0]?.id ?? null;
-
-    setSelectedNode(nextSceneNodeId);
-    focusSceneNode(nextSceneNodeId, firstEpisodeId);
-    closeConnectMenus();
-    scheduleCanvasPersist(0);
-  }, [
-    closeConnectMenus,
-    createScriptSceneNodeFromChapterScene,
-    focusSceneNode,
-    sceneCatalogChapterNodeId,
-    scheduleCanvasPersist,
-    setSelectedNode,
-  ]);
-
-  const handleEpisodeCatalogSelect = useCallback((episodeId: string) => {
-    if (!episodeCatalogSceneNodeId) {
-      return;
-    }
-
-    const result = ensureShootingScriptNodeFromSceneEpisode(episodeCatalogSceneNodeId, episodeId);
-    if (!result.nodeId) {
-      return;
-    }
-
-    setSelectedNode(result.nodeId);
-    focusShootingScript(result.nodeId, {
-      sceneNodeId: episodeCatalogSceneNodeId,
-      episodeId,
-      cell: null,
-    });
-    closeConnectMenus();
-    if (result.created) {
-      scheduleCanvasPersist(0);
-    }
-  }, [
-    closeConnectMenus,
-    ensureShootingScriptNodeFromSceneEpisode,
-    episodeCatalogSceneNodeId,
-    focusShootingScript,
-    scheduleCanvasPersist,
-    setSelectedNode,
-  ]);
-
-  const handleDragOver = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const hasFiles =
-      event.dataTransfer.types.includes('Files') ||
-      event.dataTransfer.types.includes('text/uri-list');
-    const hasAssetPayload = event.dataTransfer.types.includes(ASSET_DRAG_MIME_TYPE);
-    if (hasFiles || hasAssetPayload) {
-      event.dataTransfer.dropEffect = 'copy';
-    }
-    refreshDragOverlay(hasFiles ? 'files' : hasAssetPayload ? 'asset' : null);
-  }, [refreshDragOverlay]);
-
-  const handleDragLeave = useCallback((event: React.DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = event.clientX;
-    const y = event.clientY;
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      clearDragOverlay();
-    }
-  }, [clearDragOverlay]);
-
-  const insertAssetPayloadNode = useCallback(
-    (assetPayload: CanvasAssetDragPayload, position: { x: number; y: number }) => {
-      if (assetPayload.mediaType === 'audio') {
-        return addNode(CANVAS_NODE_TYPES.audio, position, {
-            displayName: assetPayload.assetName,
-            audioFileName: assetPayload.assetName,
-            audioUrl: assetPayload.sourcePath,
-            previewImageUrl: assetPayload.previewPath,
-            duration: assetPayload.durationMs != null ? assetPayload.durationMs / 1000 : undefined,
-            mimeType: assetPayload.mimeType,
-            assetId: assetPayload.assetId,
-            assetLibraryId: assetPayload.assetLibraryId,
-            assetName: assetPayload.assetName,
-            assetCategory: assetPayload.assetCategory,
-          });
+  const openNodeMenuAtClientPosition = useCallback(
+    (clientX: number, clientY: number) => {
+      const containerRect =
+        reactFlowWrapperRef.current?.getBoundingClientRect();
+      if (!containerRect) {
+        return;
       }
 
-      if (assetPayload.mediaType === 'model') {
+      const flowPos = reactFlowInstance.screenToFlowPosition({
+        x: clientX,
+        y: clientY,
+      });
+
+      setFlowPosition(flowPos);
+      setMenuPosition({
+        x: clientX - containerRect.left,
+        y: clientY - containerRect.top,
+      });
+      setShowSceneCatalogMenu(false);
+      setShowEpisodeCatalogMenu(false);
+      setSceneCatalogChapterNodeId(null);
+      setEpisodeCatalogSceneNodeId(null);
+      setMenuAllowedTypes(undefined);
+      setPendingConnectStart(null);
+      setPreviewConnectionVisual(null);
+      setShowNodeMenu(true);
+    },
+    [reactFlowInstance],
+  );
+
+  const openSceneCatalogAtClientPosition = useCallback(
+    (chapterNodeId: string, clientX: number, clientY: number) => {
+      const containerRect =
+        reactFlowWrapperRef.current?.getBoundingClientRect();
+      if (!containerRect) {
+        return;
+      }
+
+      setMenuPosition({
+        x: clientX - containerRect.left,
+        y: clientY - containerRect.top,
+      });
+      setShowNodeMenu(false);
+      setShowEpisodeCatalogMenu(false);
+      setMenuAllowedTypes(undefined);
+      setSceneCatalogChapterNodeId(chapterNodeId);
+      setEpisodeCatalogSceneNodeId(null);
+      setShowSceneCatalogMenu(true);
+    },
+    [],
+  );
+
+  const openEpisodeCatalogAtClientPosition = useCallback(
+    (sceneNodeId: string, clientX: number, clientY: number) => {
+      const containerRect =
+        reactFlowWrapperRef.current?.getBoundingClientRect();
+      if (!containerRect) {
+        return;
+      }
+
+      setMenuPosition({
+        x: clientX - containerRect.left,
+        y: clientY - containerRect.top,
+      });
+      setShowNodeMenu(false);
+      setShowSceneCatalogMenu(false);
+      setMenuAllowedTypes(undefined);
+      setSceneCatalogChapterNodeId(null);
+      setEpisodeCatalogSceneNodeId(sceneNodeId);
+      setShowEpisodeCatalogMenu(true);
+    },
+    [],
+  );
+
+  const handleSceneCatalogSelect = useCallback(
+    (sceneId: string) => {
+      if (!sceneCatalogChapterNodeId) {
+        return;
+      }
+
+      const nextSceneNodeId = createScriptSceneNodeFromChapterScene(
+        sceneCatalogChapterNodeId,
+        sceneId,
+      );
+      if (!nextSceneNodeId) {
+        return;
+      }
+
+      const nextSceneNode = useCanvasStore
+        .getState()
+        .nodes.find(
+          (node) =>
+            node.id === nextSceneNodeId &&
+            node.type === CANVAS_NODE_TYPES.scriptScene,
+        );
+      const nextSceneData = nextSceneNode?.data as
+        | ScriptSceneNodeData
+        | undefined;
+      const firstEpisodeId = nextSceneData?.episodes[0]?.id ?? null;
+
+      setSelectedNode(nextSceneNodeId);
+      focusSceneNode(nextSceneNodeId, firstEpisodeId);
+      closeConnectMenus();
+      scheduleCanvasPersist(0);
+    },
+    [
+      closeConnectMenus,
+      createScriptSceneNodeFromChapterScene,
+      focusSceneNode,
+      sceneCatalogChapterNodeId,
+      scheduleCanvasPersist,
+      setSelectedNode,
+    ],
+  );
+
+  const handleEpisodeCatalogSelect = useCallback(
+    (episodeId: string) => {
+      if (!episodeCatalogSceneNodeId) {
+        return;
+      }
+
+      const result = ensureShootingScriptNodeFromSceneEpisode(
+        episodeCatalogSceneNodeId,
+        episodeId,
+      );
+      if (!result.nodeId) {
+        return;
+      }
+
+      setSelectedNode(result.nodeId);
+      focusShootingScript(result.nodeId, {
+        sceneNodeId: episodeCatalogSceneNodeId,
+        episodeId,
+        cell: null,
+      });
+      closeConnectMenus();
+      if (result.created) {
+        scheduleCanvasPersist(0);
+      }
+    },
+    [
+      closeConnectMenus,
+      ensureShootingScriptNodeFromSceneEpisode,
+      episodeCatalogSceneNodeId,
+      focusShootingScript,
+      scheduleCanvasPersist,
+      setSelectedNode,
+    ],
+  );
+
+  const handleDragOver = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const hasFiles =
+        event.dataTransfer.types.includes("Files") ||
+        event.dataTransfer.types.includes("text/uri-list");
+      const hasAssetPayload =
+        event.dataTransfer.types.includes(ASSET_DRAG_MIME_TYPE);
+      if (hasFiles || hasAssetPayload) {
+        event.dataTransfer.dropEffect = "copy";
+      }
+      refreshDragOverlay(hasFiles ? "files" : hasAssetPayload ? "asset" : null);
+    },
+    [refreshDragOverlay],
+  );
+
+  const handleDragLeave = useCallback(
+    (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = event.currentTarget.getBoundingClientRect();
+      const x = event.clientX;
+      const y = event.clientY;
+      if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+        clearDragOverlay();
+      }
+    },
+    [clearDragOverlay],
+  );
+
+  const insertAssetPayloadNode = useCallback(
+    (
+      assetPayload: CanvasAssetDragPayload,
+      position: { x: number; y: number },
+    ) => {
+      if (assetPayload.mediaType === "audio") {
+        return addNode(CANVAS_NODE_TYPES.audio, position, {
+          displayName: assetPayload.assetName,
+          audioFileName: assetPayload.assetName,
+          audioUrl: assetPayload.sourcePath,
+          previewImageUrl: assetPayload.previewPath,
+          duration:
+            assetPayload.durationMs != null
+              ? assetPayload.durationMs / 1000
+              : undefined,
+          mimeType: assetPayload.mimeType,
+          assetId: assetPayload.assetId,
+          assetLibraryId: assetPayload.assetLibraryId,
+          assetName: assetPayload.assetName,
+          assetCategory: assetPayload.assetCategory,
+        });
+      }
+
+      if (assetPayload.mediaType === "model") {
         const directorProject = createDefaultDirectorStageProject();
         const entity = createDirectorStageEntityFromModelAsset({
           assetId: assetPayload.assetId,
@@ -4628,11 +5509,11 @@ export function Canvas() {
           modelPath: assetPayload.sourcePath,
           previewPath: assetPayload.previewPath,
           kind:
-            assetPayload.assetCategory === 'character'
-              ? 'character'
-              : assetPayload.assetCategory === 'scene'
-                ? 'scene'
-                : 'prop',
+            assetPayload.assetCategory === "character"
+              ? "character"
+              : assetPayload.assetCategory === "scene"
+                ? "scene"
+                : "prop",
           index: 0,
         });
         directorProject.entities = [entity];
@@ -4645,7 +5526,7 @@ export function Canvas() {
           cameraShotCount: directorProject.cameraShots.length,
           activeCameraShotName:
             directorProject.cameraShots.find(
-              (shot) => shot.id === directorProject.activeCameraShotId
+              (shot) => shot.id === directorProject.activeCameraShotId,
             )?.name ?? null,
         });
       }
@@ -4662,12 +5543,13 @@ export function Canvas() {
         assetCategory: assetPayload.assetCategory,
       });
     },
-    [addNode]
+    [addNode],
   );
 
   const insertAssetPayloadAtViewportCenter = useCallback(
     (assetPayload: CanvasAssetDragPayload) => {
-      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      const containerRect =
+        reactFlowWrapperRef.current?.getBoundingClientRect();
       if (!containerRect) {
         return;
       }
@@ -4681,7 +5563,12 @@ export function Canvas() {
       setSelectedNode(newNodeId);
       scheduleCanvasPersist(0);
     },
-    [insertAssetPayloadNode, reactFlowInstance, scheduleCanvasPersist, setSelectedNode]
+    [
+      insertAssetPayloadNode,
+      reactFlowInstance,
+      scheduleCanvasPersist,
+      setSelectedNode,
+    ],
   );
 
   useEffect(() => {
@@ -4690,12 +5577,13 @@ export function Canvas() {
     let disposed = false;
 
     const registerInsertAssetListener = async () => {
-      const nextUnlistenInsertAsset = await currentWindow.listen<CanvasAssetDragPayload>(
-        ASSET_PANEL_INSERT_EVENT,
-        (event) => {
-          insertAssetPayloadAtViewportCenter(event.payload);
-        }
-      );
+      const nextUnlistenInsertAsset =
+        await currentWindow.listen<CanvasAssetDragPayload>(
+          ASSET_PANEL_INSERT_EVENT,
+          (event) => {
+            insertAssetPayloadAtViewportCenter(event.payload);
+          },
+        );
       if (disposed) {
         nextUnlistenInsertAsset();
         return;
@@ -4704,7 +5592,7 @@ export function Canvas() {
     };
 
     void registerInsertAssetListener().catch((error) => {
-      console.error('Failed to register detached asset insert listener', error);
+      console.error("Failed to register detached asset insert listener", error);
     });
 
     return () => {
@@ -4713,102 +5601,109 @@ export function Canvas() {
     };
   }, [insertAssetPayloadAtViewportCenter]);
 
-  const handleDrop = useCallback(async (event: React.DragEvent) => {
-    event.preventDefault();
-    event.stopPropagation();
-    clearDragOverlay();
+  const handleDrop = useCallback(
+    async (event: React.DragEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearDragOverlay();
 
-    const assetPayload = parseAssetDragPayload(
-      event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE)
-    );
-    if (assetPayload) {
-      const position = reactFlowInstance.screenToFlowPosition({
+      const assetPayload = parseAssetDragPayload(
+        event.dataTransfer.getData(ASSET_DRAG_MIME_TYPE),
+      );
+      if (assetPayload) {
+        const position = reactFlowInstance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        const newNodeId = insertAssetPayloadNode(assetPayload, position);
+        setSelectedNode(newNodeId);
+        scheduleCanvasPersist(0);
+        return;
+      }
+
+      const imageFiles: File[] = [];
+      const videoFiles: File[] = [];
+      const audioFiles: File[] = [];
+
+      if (event.dataTransfer.files?.length) {
+        Array.from(event.dataTransfer.files).forEach((file) => {
+          if (file.type.startsWith("image/")) {
+            imageFiles.push(file);
+          } else if (file.type.startsWith("video/")) {
+            videoFiles.push(file);
+          } else if (isSupportedAudioFile(file)) {
+            audioFiles.push(file);
+          }
+        });
+      } else {
+        Array.from(event.dataTransfer.items || []).forEach((item) => {
+          if (item.kind === "file") {
+            if (item.type?.startsWith("image/")) {
+              const file = item.getAsFile();
+              if (file) imageFiles.push(file);
+            } else if (item.type?.startsWith("video/")) {
+              const file = item.getAsFile();
+              if (file) videoFiles.push(file);
+            } else {
+              const file = item.getAsFile();
+              if (file && isSupportedAudioFile(file)) {
+                audioFiles.push(file);
+              }
+            }
+          }
+        });
+      }
+
+      if (
+        imageFiles.length === 0 &&
+        videoFiles.length === 0 &&
+        audioFiles.length === 0
+      ) {
+        return;
+      }
+
+      const basePosition = reactFlowInstance.screenToFlowPosition({
         x: event.clientX,
         y: event.clientY,
       });
-      const newNodeId = insertAssetPayloadNode(assetPayload, position);
-      setSelectedNode(newNodeId);
-      scheduleCanvasPersist(0);
-      return;
-    }
 
-    const imageFiles: File[] = [];
-    const videoFiles: File[] = [];
-    const audioFiles: File[] = [];
-    
-    if (event.dataTransfer.files?.length) {
-      Array.from(event.dataTransfer.files).forEach(file => {
-        if (file.type.startsWith('image/')) {
-          imageFiles.push(file);
-        } else if (file.type.startsWith('video/')) {
-          videoFiles.push(file);
-        } else if (isSupportedAudioFile(file)) {
-          audioFiles.push(file);
+      const NODE_OFFSET = 30;
+
+      for (let i = 0; i < imageFiles.length; i++) {
+        const file = imageFiles[i];
+        const position = {
+          x: basePosition.x + (i % 4) * NODE_OFFSET,
+          y: basePosition.y + Math.floor(i / 4) * NODE_OFFSET,
+        };
+
+        try {
+          const imageData = await prepareNodeImageFromFile(
+            file,
+            undefined,
+            undefined,
+            canvasOverviewThumbnailMaxDimension,
+          );
+          addNode(CANVAS_NODE_TYPES.upload, position, {
+            displayName: "上传图片",
+            imageUrl: imageData.imageUrl,
+            previewImageUrl: imageData.previewImageUrl,
+            thumbnailUrl: imageData.thumbnailImageUrl,
+            thumbnailMaxDimension: imageData.thumbnailMaxDimension,
+            aspectRatio: imageData.aspectRatio,
+          });
+        } catch (err) {
+          console.error("Failed to process dropped image:", err);
         }
-      });
-    } else {
-      Array.from(event.dataTransfer.items || []).forEach(item => {
-        if (item.kind === 'file') {
-          if (item.type?.startsWith('image/')) {
-            const file = item.getAsFile();
-            if (file) imageFiles.push(file);
-          } else if (item.type?.startsWith('video/')) {
-            const file = item.getAsFile();
-            if (file) videoFiles.push(file);
-          } else {
-            const file = item.getAsFile();
-            if (file && isSupportedAudioFile(file)) {
-              audioFiles.push(file);
-            }
-          }
-        }
-      });
-    }
-
-    if (imageFiles.length === 0 && videoFiles.length === 0 && audioFiles.length === 0) {
-      return;
-    }
-
-    const basePosition = reactFlowInstance.screenToFlowPosition({
-      x: event.clientX,
-      y: event.clientY,
-    });
-
-    const NODE_OFFSET = 30;
-
-    for (let i = 0; i < imageFiles.length; i++) {
-      const file = imageFiles[i];
-      const position = {
-        x: basePosition.x + (i % 4) * NODE_OFFSET,
-        y: basePosition.y + Math.floor(i / 4) * NODE_OFFSET,
-      };
-
-      try {
-        const imageData = await prepareNodeImageFromFile(
-          file,
-          undefined,
-          undefined,
-          canvasOverviewThumbnailMaxDimension
-        );
-        addNode(CANVAS_NODE_TYPES.upload, position, {
-          displayName: '上传图片',
-          imageUrl: imageData.imageUrl,
-          previewImageUrl: imageData.previewImageUrl,
-          thumbnailUrl: imageData.thumbnailImageUrl,
-          thumbnailMaxDimension: imageData.thumbnailMaxDimension,
-          aspectRatio: imageData.aspectRatio,
-        });
-      } catch (err) {
-        console.error('Failed to process dropped image:', err);
       }
-    }
 
-    for (let i = 0; i < videoFiles.length; i++) {
-      const file = videoFiles[i];
-      const position = {
-        x: basePosition.x + ((imageFiles.length + i) % 4) * NODE_OFFSET,
-        y: basePosition.y + Math.floor((imageFiles.length + i) / 4) * NODE_OFFSET,
-      };
+      for (let i = 0; i < videoFiles.length; i++) {
+        const file = videoFiles[i];
+        const position = {
+          x: basePosition.x + ((imageFiles.length + i) % 4) * NODE_OFFSET,
+          y:
+            basePosition.y +
+            Math.floor((imageFiles.length + i) / 4) * NODE_OFFSET,
+        };
 
         try {
           const videoData = await prepareNodeVideoFromFile(file);
@@ -4820,288 +5715,334 @@ export function Canvas() {
             duration: videoData.duration,
           });
         } catch (err) {
-        console.error('Failed to process dropped video:', err);
+          console.error("Failed to process dropped video:", err);
+        }
       }
-    }
 
-    for (let i = 0; i < audioFiles.length; i++) {
-      const file = audioFiles[i];
-      const offsetIndex = imageFiles.length + videoFiles.length + i;
-      const position = {
-        x: basePosition.x + (offsetIndex % 4) * NODE_OFFSET,
-        y: basePosition.y + Math.floor(offsetIndex / 4) * NODE_OFFSET,
-      };
+      for (let i = 0; i < audioFiles.length; i++) {
+        const file = audioFiles[i];
+        const offsetIndex = imageFiles.length + videoFiles.length + i;
+        const position = {
+          x: basePosition.x + (offsetIndex % 4) * NODE_OFFSET,
+          y: basePosition.y + Math.floor(offsetIndex / 4) * NODE_OFFSET,
+        };
 
-      try {
-        const audioData = await prepareNodeAudioFromFile(file);
-        addNode(CANVAS_NODE_TYPES.audio, position, {
-          displayName: file.name,
-          audioUrl: audioData.audioUrl,
-          audioFileName: file.name,
-          previewImageUrl: audioData.previewImageUrl,
-          duration: audioData.duration,
-          mimeType: audioData.mimeType,
-        });
-      } catch (err) {
-        console.error('Failed to process dropped audio:', err);
+        try {
+          const audioData = await prepareNodeAudioFromFile(file);
+          addNode(CANVAS_NODE_TYPES.audio, position, {
+            displayName: file.name,
+            audioUrl: audioData.audioUrl,
+            audioFileName: file.name,
+            previewImageUrl: audioData.previewImageUrl,
+            duration: audioData.duration,
+            mimeType: audioData.mimeType,
+          });
+        } catch (err) {
+          console.error("Failed to process dropped audio:", err);
+        }
       }
-    }
-  }, [
-    addNode,
-    clearDragOverlay,
-    insertAssetPayloadNode,
-    canvasOverviewThumbnailMaxDimension,
-    reactFlowInstance,
-    scheduleCanvasPersist,
-    setSelectedNode,
-  ]);
+    },
+    [
+      addNode,
+      clearDragOverlay,
+      insertAssetPayloadNode,
+      canvasOverviewThumbnailMaxDimension,
+      reactFlowInstance,
+      scheduleCanvasPersist,
+      setSelectedNode,
+    ],
+  );
 
-  const handlePaneClick = useCallback((event: ReactMouseEvent) => {
-    if (suppressNextPaneClickRef.current) {
-      suppressNextPaneClickRef.current = false;
-      return;
-    }
+  const handlePaneClick = useCallback(
+    (event: ReactMouseEvent) => {
+      if (suppressNextPaneClickRef.current) {
+        suppressNextPaneClickRef.current = false;
+        return;
+      }
 
-    if (event.detail >= 2) {
-      openNodeMenuAtClientPosition(event.clientX, event.clientY);
-      return;
-    }
+      if (event.detail >= 2) {
+        openNodeMenuAtClientPosition(event.clientX, event.clientY);
+        return;
+      }
 
-    setSelectedNode(null);
-    closeConnectMenus();
-  }, [
-    closeConnectMenus,
-    openNodeMenuAtClientPosition,
-    setSelectedNode,
-  ]);
+      setSelectedNode(null);
+      closeConnectMenus();
+    },
+    [closeConnectMenus, openNodeMenuAtClientPosition, setSelectedNode],
+  );
 
-  const handlePaneContextMenu = useCallback((event: MouseEvent | React.MouseEvent) => {
-    event.preventDefault();
-    const clientX = 'clientX' in event ? event.clientX : 0;
-    const clientY = 'clientY' in event ? event.clientY : 0;
-    openNodeMenuAtClientPosition(clientX, clientY);
-  }, [openNodeMenuAtClientPosition]);
+  const handlePaneContextMenu = useCallback(
+    (event: MouseEvent | React.MouseEvent) => {
+      event.preventDefault();
+      const clientX = "clientX" in event ? event.clientX : 0;
+      const clientY = "clientY" in event ? event.clientY : 0;
+      openNodeMenuAtClientPosition(clientX, clientY);
+    },
+    [openNodeMenuAtClientPosition],
+  );
 
   const handleNodeSelect = useCallback(
-  (type: CanvasNodeType) => {
-    const isBranchConnection = (() => {
-      if (!pendingConnectStart?.nodeId) return false;
-      const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
-      return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
-    })();
-    
-    let nodeData: Partial<CanvasNodeData> = {};
-    let nodePosition = flowPosition;
-      
+    (type: CanvasNodeType) => {
+      const isBranchConnection = (() => {
+        if (!pendingConnectStart?.nodeId) return false;
+        const sourceNode = nodes.find(
+          (n) => n.id === pendingConnectStart.nodeId,
+        );
+        return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+      })();
+
+      let nodeData: Partial<CanvasNodeData> = {};
+      let nodePosition = flowPosition;
+
       if (type === CANVAS_NODE_TYPES.scriptChapter && isBranchConnection) {
-        const sourceNode = nodes.find(n => n.id === pendingConnectStart?.nodeId);
-        const isSourceRootNode = sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
-        
+        const sourceNode = nodes.find(
+          (n) => n.id === pendingConnectStart?.nodeId,
+        );
+        const isSourceRootNode =
+          sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
+
         if (isSourceRootNode) {
           const maxChapterNumber = nodes.reduce((max, node) => {
             if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
             const d = node.data as ScriptChapterNodeData;
-            if (d.branchType === 'branch') return max;
+            if (d.branchType === "branch") return max;
             return Math.max(max, d.chapterNumber || 0);
           }, 0);
-          
+
           const nextChapterNumber = maxChapterNumber + 1;
-          
+
           nodeData = {
             chapterNumber: nextChapterNumber,
-            branchType: 'main',
+            branchType: "main",
             depth: 1,
             parentId: pendingConnectStart?.nodeId,
           };
-          
-          const mainLineChildren = nodes.filter(n => {
+
+          const mainLineChildren = nodes.filter((n) => {
             const d = n.data as ScriptChapterNodeData;
-            return n.type === CANVAS_NODE_TYPES.scriptChapter && 
-                   d.branchType === 'main' &&
-                   d.parentId === pendingConnectStart?.nodeId;
+            return (
+              n.type === CANVAS_NODE_TYPES.scriptChapter &&
+              d.branchType === "main" &&
+              d.parentId === pendingConnectStart?.nodeId
+            );
           });
           nodePosition = calculateChildNodePosition(
             sourceNode,
             mainLineChildren.length,
             mainLineChildren.length + 1,
-            DEFAULT_LAYOUT_CONFIG
+            DEFAULT_LAYOUT_CONFIG,
           );
         } else {
-          const sourceData = sourceNode?.data as ScriptChapterNodeData | undefined;
-    const sourceDepth = sourceData?.depth || 1;
-    const parentChapterNumber = sourceData?.chapterNumber || 1;
-    const parentDisplayName = sourceData?.displayName;
-    
-    const existingBranches = nodes.filter(n => {
-      const d = n.data as ScriptChapterNodeData;
-      return n.type === CANVAS_NODE_TYPES.scriptChapter && 
-             d.branchType === 'branch' && 
-             d.parentId === pendingConnectStart?.nodeId;
-    });
-    const branchIndex = existingBranches.length + 1;
-    
-    const newDisplayName = parentDisplayName 
-      ? `${parentDisplayName}-${branchIndex}`
-      : `${parentChapterNumber}-${branchIndex}`;
-    
-    nodeData = {
-      branchType: 'branch',
-      parentId: pendingConnectStart?.nodeId,
-      branchIndex,
-      chapterNumber: parentChapterNumber,
-      displayName: newDisplayName,
-      depth: sourceDepth + 1,
-    };
-          
+          const sourceData = sourceNode?.data as
+            | ScriptChapterNodeData
+            | undefined;
+          const sourceDepth = sourceData?.depth || 1;
+          const parentChapterNumber = sourceData?.chapterNumber || 1;
+          const parentDisplayName = sourceData?.displayName;
+
+          const existingBranches = nodes.filter((n) => {
+            const d = n.data as ScriptChapterNodeData;
+            return (
+              n.type === CANVAS_NODE_TYPES.scriptChapter &&
+              d.branchType === "branch" &&
+              d.parentId === pendingConnectStart?.nodeId
+            );
+          });
+          const branchIndex = existingBranches.length + 1;
+
+          const newDisplayName = parentDisplayName
+            ? `${parentDisplayName}-${branchIndex}`
+            : `${parentChapterNumber}-${branchIndex}`;
+
+          nodeData = {
+            branchType: "branch",
+            parentId: pendingConnectStart?.nodeId,
+            branchIndex,
+            chapterNumber: parentChapterNumber,
+            displayName: newDisplayName,
+            depth: sourceDepth + 1,
+          };
+
           if (sourceNode) {
             nodePosition = calculateBranchNodePosition(
               sourceNode,
               existingBranches.length,
-              DEFAULT_LAYOUT_CONFIG
+              DEFAULT_LAYOUT_CONFIG,
             );
           }
         }
       } else if (type === CANVAS_NODE_TYPES.scriptChapter) {
-  if (pendingConnectStart) {
-    const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
-    if (sourceNode && sourceNode.type === CANVAS_NODE_TYPES.scriptChapter) {
-      const sourceData = sourceNode.data as ScriptChapterNodeData;
-      const sourceDepth = sourceData?.depth || 1;
-      const parentChapterNumber = sourceData?.chapterNumber || 1;
-      const parentDisplayName = sourceData?.displayName;
-      
-      const existingBranches = nodes.filter(n => {
-        const d = n.data as ScriptChapterNodeData;
-        return n.type === CANVAS_NODE_TYPES.scriptChapter && 
-               d.branchType === 'branch' && 
-               d.parentId === pendingConnectStart.nodeId;
-      });
-      const branchIndex = existingBranches.length + 1;
-      
-      const newDisplayName = parentDisplayName 
-        ? `${parentDisplayName}-${branchIndex}`
-        : `${parentChapterNumber}-${branchIndex}`;
-      
-      nodeData = {
-        branchType: 'branch',
-        parentId: pendingConnectStart.nodeId,
-        branchIndex,
-        chapterNumber: parentChapterNumber,
-        displayName: newDisplayName,
-        depth: sourceDepth + 1,
-      };
-      
-      nodePosition = calculateBranchNodePosition(
-        sourceNode,
-        existingBranches.length,
-        DEFAULT_LAYOUT_CONFIG
-      );
-    } else if (sourceNode && sourceNode.type === CANVAS_NODE_TYPES.scriptRoot) {
-      const maxChapterNumber = nodes.reduce((max, node) => {
-        if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
-        const d = node.data as ScriptChapterNodeData;
-        if (d.branchType === 'branch') return max;
-        return Math.max(max, d.chapterNumber || 0);
-      }, 0);
-      
-      const nextChapterNumber = maxChapterNumber + 1;
-      nodeData = {
-        chapterNumber: nextChapterNumber,
-        branchType: 'main',
-        depth: 1,
-        parentId: pendingConnectStart.nodeId,
-      };
-      
-      const mainLineChildren = nodes.filter(n => {
-        const d = n.data as ScriptChapterNodeData;
-        return n.type === CANVAS_NODE_TYPES.scriptChapter && 
-               d.branchType === 'main' &&
-               d.parentId === pendingConnectStart.nodeId;
-      });
-      nodePosition = calculateChildNodePosition(
-        sourceNode,
-        mainLineChildren.length,
-        mainLineChildren.length + 1,
-        DEFAULT_LAYOUT_CONFIG
-      );
-    }
-  } else {
-    const maxChapterNumber = nodes.reduce((max, node) => {
-      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
-      const d = node.data as ScriptChapterNodeData;
-      if (d.branchType === 'branch') return max;
-      return Math.max(max, d.chapterNumber || 0);
-    }, 0);
-    
-    const nextChapterNumber = maxChapterNumber + 1;
-    nodeData = {
-      chapterNumber: nextChapterNumber,
-      branchType: 'main',
-      depth: 1,
-    };
-  }
-}
+        if (pendingConnectStart) {
+          const sourceNode = nodes.find(
+            (n) => n.id === pendingConnectStart.nodeId,
+          );
+          if (
+            sourceNode &&
+            sourceNode.type === CANVAS_NODE_TYPES.scriptChapter
+          ) {
+            const sourceData = sourceNode.data as ScriptChapterNodeData;
+            const sourceDepth = sourceData?.depth || 1;
+            const parentChapterNumber = sourceData?.chapterNumber || 1;
+            const parentDisplayName = sourceData?.displayName;
+
+            const existingBranches = nodes.filter((n) => {
+              const d = n.data as ScriptChapterNodeData;
+              return (
+                n.type === CANVAS_NODE_TYPES.scriptChapter &&
+                d.branchType === "branch" &&
+                d.parentId === pendingConnectStart.nodeId
+              );
+            });
+            const branchIndex = existingBranches.length + 1;
+
+            const newDisplayName = parentDisplayName
+              ? `${parentDisplayName}-${branchIndex}`
+              : `${parentChapterNumber}-${branchIndex}`;
+
+            nodeData = {
+              branchType: "branch",
+              parentId: pendingConnectStart.nodeId,
+              branchIndex,
+              chapterNumber: parentChapterNumber,
+              displayName: newDisplayName,
+              depth: sourceDepth + 1,
+            };
+
+            nodePosition = calculateBranchNodePosition(
+              sourceNode,
+              existingBranches.length,
+              DEFAULT_LAYOUT_CONFIG,
+            );
+          } else if (
+            sourceNode &&
+            sourceNode.type === CANVAS_NODE_TYPES.scriptRoot
+          ) {
+            const maxChapterNumber = nodes.reduce((max, node) => {
+              if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
+              const d = node.data as ScriptChapterNodeData;
+              if (d.branchType === "branch") return max;
+              return Math.max(max, d.chapterNumber || 0);
+            }, 0);
+
+            const nextChapterNumber = maxChapterNumber + 1;
+            nodeData = {
+              chapterNumber: nextChapterNumber,
+              branchType: "main",
+              depth: 1,
+              parentId: pendingConnectStart.nodeId,
+            };
+
+            const mainLineChildren = nodes.filter((n) => {
+              const d = n.data as ScriptChapterNodeData;
+              return (
+                n.type === CANVAS_NODE_TYPES.scriptChapter &&
+                d.branchType === "main" &&
+                d.parentId === pendingConnectStart.nodeId
+              );
+            });
+            nodePosition = calculateChildNodePosition(
+              sourceNode,
+              mainLineChildren.length,
+              mainLineChildren.length + 1,
+              DEFAULT_LAYOUT_CONFIG,
+            );
+          }
+        } else {
+          const maxChapterNumber = nodes.reduce((max, node) => {
+            if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
+            const d = node.data as ScriptChapterNodeData;
+            if (d.branchType === "branch") return max;
+            return Math.max(max, d.chapterNumber || 0);
+          }, 0);
+
+          const nextChapterNumber = maxChapterNumber + 1;
+          nodeData = {
+            chapterNumber: nextChapterNumber,
+            branchType: "main",
+            depth: 1,
+          };
+        }
+      }
 
       const newNodeId = addNode(type, nodePosition, nodeData);
       if (pendingConnectStart) {
-        if (pendingConnectStart.handleType === 'source') {
-          const sourceNode = nodes.find((node) => node.id === pendingConnectStart.nodeId);
+        if (pendingConnectStart.handleType === "source") {
+          const sourceNode = nodes.find(
+            (node) => node.id === pendingConnectStart.nodeId,
+          );
 
           if (shouldInsertIntoLinearOutgoingFlow(sourceNode)) {
             const existingOutgoingEdges = edges.filter(
-              (e) => e.source === pendingConnectStart.nodeId && e.sourceHandle === 'source'
+              (e) =>
+                e.source === pendingConnectStart.nodeId &&
+                e.sourceHandle === "source",
             );
 
             existingOutgoingEdges.forEach((edge) => {
               deleteEdge(edge.id);
             });
 
-            connectNodesWithBusinessRules({
-              source: pendingConnectStart.nodeId,
-              target: newNodeId,
-              sourceHandle: 'source',
-              targetHandle: 'target',
-            }, { schedulePersist: false });
+            connectNodesWithBusinessRules(
+              {
+                source: pendingConnectStart.nodeId,
+                target: newNodeId,
+                sourceHandle: "source",
+                targetHandle: "target",
+              },
+              { schedulePersist: false },
+            );
 
             existingOutgoingEdges.forEach((edge) => {
-              connectNodesWithBusinessRules({
-                source: newNodeId,
-                target: edge.target,
-                sourceHandle: 'source',
-                targetHandle: edge.targetHandle ?? 'target',
-              }, { schedulePersist: false });
+              connectNodesWithBusinessRules(
+                {
+                  source: newNodeId,
+                  target: edge.target,
+                  sourceHandle: "source",
+                  targetHandle: edge.targetHandle ?? "target",
+                },
+                { schedulePersist: false },
+              );
             });
           } else {
-            connectNodesWithBusinessRules({
-              source: pendingConnectStart.nodeId,
-              target: newNodeId,
-              sourceHandle: 'source',
-              targetHandle: 'target',
-            }, { schedulePersist: false });
+            connectNodesWithBusinessRules(
+              {
+                source: pendingConnectStart.nodeId,
+                target: newNodeId,
+                sourceHandle: "source",
+                targetHandle: "target",
+              },
+              { schedulePersist: false },
+            );
           }
         } else {
           const existingIncomingEdges = edges.filter(
-            (e) => e.target === pendingConnectStart.nodeId
+            (e) => e.target === pendingConnectStart.nodeId,
           );
-          
+
           existingIncomingEdges.forEach((edge) => {
             deleteEdge(edge.id);
           });
-          
-          connectNodesWithBusinessRules({
-            source: newNodeId,
-            target: pendingConnectStart.nodeId,
-            sourceHandle: 'source',
-            targetHandle: 'target',
-          }, { schedulePersist: false });
-          
+
+          connectNodesWithBusinessRules(
+            {
+              source: newNodeId,
+              target: pendingConnectStart.nodeId,
+              sourceHandle: "source",
+              targetHandle: "target",
+            },
+            { schedulePersist: false },
+          );
+
           existingIncomingEdges.forEach((edge) => {
-            connectNodesWithBusinessRules({
-              source: edge.source,
-              target: newNodeId,
-              sourceHandle: edge.sourceHandle ?? 'source',
-              targetHandle: 'target',
-            }, { schedulePersist: false });
+            connectNodesWithBusinessRules(
+              {
+                source: edge.source,
+                target: newNodeId,
+                sourceHandle: edge.sourceHandle ?? "source",
+                targetHandle: "target",
+              },
+              { schedulePersist: false },
+            );
           });
         }
       }
@@ -5120,112 +6061,130 @@ export function Canvas() {
       pendingConnectStart,
       scheduleCanvasPersist,
       setPreviewConnectionVisual,
-    ]
+    ],
   );
 
   const handleCreateBranch = useCallback(() => {
-  if (!pendingConnectStart) return;
-  
-  const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
-  if (!sourceNode) return;
-  
-  const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
-  
-  if (isSourceRootNode) {
-    const maxChapterNumber = nodes.reduce((max, node) => {
-      if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
-      const d = node.data as ScriptChapterNodeData;
-      if (d.branchType === 'branch') return max;
-      return Math.max(max, d.chapterNumber || 0);
-    }, 0);
-    
-    const nextChapterNumber = maxChapterNumber + 1;
-    
-    const nodeData: Partial<ScriptChapterNodeData> = {
-      chapterNumber: nextChapterNumber,
-      branchType: 'main',
-      depth: 1,
-      parentId: pendingConnectStart.nodeId,
-    };
-    
-    const mainLineChildren = nodes.filter(n => {
+    if (!pendingConnectStart) return;
+
+    const sourceNode = nodes.find((n) => n.id === pendingConnectStart.nodeId);
+    if (!sourceNode) return;
+
+    const isSourceRootNode = sourceNode.type === CANVAS_NODE_TYPES.scriptRoot;
+
+    if (isSourceRootNode) {
+      const maxChapterNumber = nodes.reduce((max, node) => {
+        if (node.type !== CANVAS_NODE_TYPES.scriptChapter) return max;
+        const d = node.data as ScriptChapterNodeData;
+        if (d.branchType === "branch") return max;
+        return Math.max(max, d.chapterNumber || 0);
+      }, 0);
+
+      const nextChapterNumber = maxChapterNumber + 1;
+
+      const nodeData: Partial<ScriptChapterNodeData> = {
+        chapterNumber: nextChapterNumber,
+        branchType: "main",
+        depth: 1,
+        parentId: pendingConnectStart.nodeId,
+      };
+
+      const mainLineChildren = nodes.filter((n) => {
+        const d = n.data as ScriptChapterNodeData;
+        return (
+          n.type === CANVAS_NODE_TYPES.scriptChapter &&
+          d.branchType === "main" &&
+          d.parentId === pendingConnectStart.nodeId
+        );
+      });
+      const nodePosition = calculateChildNodePosition(
+        sourceNode,
+        mainLineChildren.length,
+        mainLineChildren.length + 1,
+        DEFAULT_LAYOUT_CONFIG,
+      );
+
+      const newNodeId = addNode(
+        CANVAS_NODE_TYPES.scriptChapter,
+        nodePosition,
+        nodeData,
+      );
+
+      connectNodesWithBusinessRules(
+        {
+          source: pendingConnectStart.nodeId,
+          target: newNodeId,
+          sourceHandle: "source",
+          targetHandle: "target",
+        },
+        { schedulePersist: false },
+      );
+
+      scheduleCanvasPersist(0);
+      closeConnectMenus();
+      return;
+    }
+
+    const sourceData = sourceNode.data as ScriptChapterNodeData;
+    const sourceDepth = sourceData?.depth || 1;
+    const parentChapterNumber = sourceData?.chapterNumber || 1;
+    const parentDisplayName = sourceData?.displayName;
+
+    const existingBranches = nodes.filter((n) => {
       const d = n.data as ScriptChapterNodeData;
-      return n.type === CANVAS_NODE_TYPES.scriptChapter && 
-             d.branchType === 'main' &&
-             d.parentId === pendingConnectStart.nodeId;
+      return (
+        n.type === CANVAS_NODE_TYPES.scriptChapter &&
+        d.branchType === "branch" &&
+        d.parentId === pendingConnectStart.nodeId
+      );
     });
-    const nodePosition = calculateChildNodePosition(
+    const branchIndex = existingBranches.length + 1;
+
+    const newDisplayName = parentDisplayName
+      ? `${parentDisplayName}-${branchIndex}`
+      : `${parentChapterNumber}-${branchIndex}`;
+
+    const nodeData: Partial<ScriptChapterNodeData> = {
+      branchType: "branch",
+      parentId: pendingConnectStart.nodeId,
+      branchIndex,
+      chapterNumber: parentChapterNumber,
+      displayName: newDisplayName,
+      depth: sourceDepth + 1,
+    };
+
+    const nodePosition = calculateBranchNodePosition(
       sourceNode,
-      mainLineChildren.length,
-      mainLineChildren.length + 1,
-      DEFAULT_LAYOUT_CONFIG
+      existingBranches.length,
+      DEFAULT_LAYOUT_CONFIG,
     );
-    
-    const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
-    
-    connectNodesWithBusinessRules({
-      source: pendingConnectStart.nodeId,
-      target: newNodeId,
-      sourceHandle: 'source',
-      targetHandle: 'target',
-    }, { schedulePersist: false });
-    
+
+    const newNodeId = addNode(
+      CANVAS_NODE_TYPES.scriptChapter,
+      nodePosition,
+      nodeData,
+    );
+
+    connectNodesWithBusinessRules(
+      {
+        source: pendingConnectStart.nodeId,
+        target: newNodeId,
+        sourceHandle: "source",
+        targetHandle: "target",
+      },
+      { schedulePersist: false },
+    );
+
     scheduleCanvasPersist(0);
     closeConnectMenus();
-    return;
-  }
-  
-  const sourceData = sourceNode.data as ScriptChapterNodeData;
-  const sourceDepth = sourceData?.depth || 1;
-  const parentChapterNumber = sourceData?.chapterNumber || 1;
-  const parentDisplayName = sourceData?.displayName;
-  
-  const existingBranches = nodes.filter(n => {
-    const d = n.data as ScriptChapterNodeData;
-    return n.type === CANVAS_NODE_TYPES.scriptChapter && 
-           d.branchType === 'branch' && 
-           d.parentId === pendingConnectStart.nodeId;
-  });
-  const branchIndex = existingBranches.length + 1;
-  
-  const newDisplayName = parentDisplayName 
-    ? `${parentDisplayName}-${branchIndex}`
-    : `${parentChapterNumber}-${branchIndex}`;
-  
-  const nodeData: Partial<ScriptChapterNodeData> = {
-    branchType: 'branch',
-    parentId: pendingConnectStart.nodeId,
-    branchIndex,
-    chapterNumber: parentChapterNumber,
-    displayName: newDisplayName,
-    depth: sourceDepth + 1,
-  };
-  
-  const nodePosition = calculateBranchNodePosition(
-    sourceNode,
-    existingBranches.length,
-    DEFAULT_LAYOUT_CONFIG
-  );
-  
-  const newNodeId = addNode(CANVAS_NODE_TYPES.scriptChapter, nodePosition, nodeData);
-  
-  connectNodesWithBusinessRules({
-    source: pendingConnectStart.nodeId,
-    target: newNodeId,
-    sourceHandle: 'source',
-    targetHandle: 'target',
-  }, { schedulePersist: false });
-  
-  scheduleCanvasPersist(0);
-  closeConnectMenus();
-}, [
-  addNode,
-  closeConnectMenus,
-  connectNodesWithBusinessRules,
-  nodes,
-  pendingConnectStart,
-  scheduleCanvasPersist,
-]);
+  }, [
+    addNode,
+    closeConnectMenus,
+    connectNodesWithBusinessRules,
+    nodes,
+    pendingConnectStart,
+    scheduleCanvasPersist,
+  ]);
 
   const duplicateNodes = useCallback(
     (sourceNodeIds: string[], options: DuplicateOptions = {}) => {
@@ -5236,40 +6195,50 @@ export function Canvas() {
 
       const sourceNodes = nodes.filter(
         (node) =>
-          dedupedIds.includes(node.id)
-          && node.type !== CANVAS_NODE_TYPES.scriptScene
-          && node.type !== CANVAS_NODE_TYPES.shootingScript
+          dedupedIds.includes(node.id) &&
+          node.type !== CANVAS_NODE_TYPES.scriptScene &&
+          node.type !== CANVAS_NODE_TYPES.shootingScript,
       );
       if (sourceNodes.length === 0) {
         return null as DuplicateResult | null;
       }
 
       const sourceIdSet = new Set(sourceNodes.map((node) => node.id));
-      const sourceById = new globalThis.Map(sourceNodes.map((sourceNode) => [sourceNode.id, sourceNode] as const));
-      const allNodeById = new globalThis.Map(nodes.map((currentNode) => [currentNode.id, currentNode] as const));
+      const sourceById = new globalThis.Map(
+        sourceNodes.map((sourceNode) => [sourceNode.id, sourceNode] as const),
+      );
+      const allNodeById = new globalThis.Map(
+        nodes.map((currentNode) => [currentNode.id, currentNode] as const),
+      );
       const sourceAbsolutePositionById = new globalThis.Map(
-        sourceNodes.map((sourceNode) => [
-          sourceNode.id,
-          resolveAbsoluteNodePosition(sourceNode, allNodeById),
-        ] as const)
+        sourceNodes.map(
+          (sourceNode) =>
+            [
+              sourceNode.id,
+              resolveAbsoluteNodePosition(sourceNode, allNodeById),
+            ] as const,
+        ),
       );
       const internalEdges = edges.filter(
-        (edge) => sourceIdSet.has(edge.source) && sourceIdSet.has(edge.target)
+        (edge) => sourceIdSet.has(edge.source) && sourceIdSet.has(edge.target),
       );
       const externalMaterialIncomingEdges = options.includeExternalMaterialEdges
         ? edges.filter((edge) => {
-          if (sourceIdSet.has(edge.source) || !sourceIdSet.has(edge.target)) {
-            return false;
-          }
+            if (sourceIdSet.has(edge.source) || !sourceIdSet.has(edge.target)) {
+              return false;
+            }
 
-          const targetNode = sourceById.get(edge.target);
-          const sourceNode = allNodeById.get(edge.source);
-          if (!canNodeInheritAltDuplicatedReferenceInputs(targetNode) || !sourceNode) {
-            return false;
-          }
+            const targetNode = sourceById.get(edge.target);
+            const sourceNode = allNodeById.get(edge.source);
+            if (
+              !canNodeInheritAltDuplicatedReferenceInputs(targetNode) ||
+              !sourceNode
+            ) {
+              return false;
+            }
 
-          return nodeProvidesReferenceMaterial(sourceNode);
-        })
+            return nodeProvidesReferenceMaterial(sourceNode);
+          })
         : [];
 
       const baseOffsets = [
@@ -5280,35 +6249,43 @@ export function Canvas() {
       ];
       const existingNodes = useCanvasStore.getState().nodes;
       const existingNodeMap = new globalThis.Map(
-        existingNodes.map((currentNode) => [currentNode.id, currentNode] as const)
+        existingNodes.map(
+          (currentNode) => [currentNode.id, currentNode] as const,
+        ),
       );
       const ignoreNodeIds = new Set<string>();
-      const offsetStep = options.disableOffsetIteration ? 0 : pasteIterationRef.current;
+      const offsetStep = options.disableOffsetIteration
+        ? 0
+        : pasteIterationRef.current;
       let chosenOffset = options.explicitOffset ?? baseOffsets[0];
       const resolveTotalOffset = (offset: { x: number; y: number }) => ({
         x: offset.x + offsetStep * 8,
         y: offset.y + offsetStep * 6,
       });
 
-      const isOffsetAvailable = (offset: { x: number; y: number }) => sourceNodes.every((node) => {
-        const size = getNodeSize(node);
-        const sourceAbsolutePosition = sourceAbsolutePositionById.get(node.id) ?? node.position;
-        const totalOffset = resolveTotalOffset(offset);
-        return !hasRectCollision(
-          {
-            x: sourceAbsolutePosition.x + totalOffset.x,
-            y: sourceAbsolutePosition.y + totalOffset.y,
-            width: size.width,
-            height: size.height,
-          },
-          existingNodes,
-          ignoreNodeIds,
-          existingNodeMap
-        );
-      });
+      const isOffsetAvailable = (offset: { x: number; y: number }) =>
+        sourceNodes.every((node) => {
+          const size = getNodeSize(node);
+          const sourceAbsolutePosition =
+            sourceAbsolutePositionById.get(node.id) ?? node.position;
+          const totalOffset = resolveTotalOffset(offset);
+          return !hasRectCollision(
+            {
+              x: sourceAbsolutePosition.x + totalOffset.x,
+              y: sourceAbsolutePosition.y + totalOffset.y,
+              width: size.width,
+              height: size.height,
+            },
+            existingNodes,
+            ignoreNodeIds,
+            existingNodeMap,
+          );
+        });
 
       if (!options.explicitOffset) {
-        const matchedBaseOffset = baseOffsets.find((offset) => isOffsetAvailable(offset));
+        const matchedBaseOffset = baseOffsets.find((offset) =>
+          isOffsetAvailable(offset),
+        );
         if (matchedBaseOffset) {
           chosenOffset = matchedBaseOffset;
         } else {
@@ -5324,7 +6301,10 @@ export function Canvas() {
       }
 
       const idMap = new globalThis.Map<string, string>();
-      const sizeMap = new globalThis.Map<string, { width: number; height: number }>();
+      const sizeMap = new globalThis.Map<
+        string,
+        { width: number; height: number }
+      >();
       const totalOffset = resolveTotalOffset(chosenOffset);
       const copiedNodes: CanvasNode[] = [];
       for (const sourceNode of sourceNodes) {
@@ -5337,43 +6317,62 @@ export function Canvas() {
             lastSubmittedAt: null,
           });
         }
-        if ('isGenerating' in (data as Record<string, unknown>)) {
+        if ("isGenerating" in (data as Record<string, unknown>)) {
           (data as { isGenerating?: boolean }).isGenerating = false;
         }
-        if ('generationStartedAt' in (data as Record<string, unknown>)) {
-          (data as { generationStartedAt?: number | null }).generationStartedAt = null;
+        if ("generationStartedAt" in (data as Record<string, unknown>)) {
+          (
+            data as { generationStartedAt?: number | null }
+          ).generationStartedAt = null;
         }
-        if ('generationJobId' in (data as Record<string, unknown>)) {
+        if ("generationJobId" in (data as Record<string, unknown>)) {
           (data as { generationJobId?: string | null }).generationJobId = null;
         }
-        if ('generationPhase' in (data as Record<string, unknown>)) {
+        if ("generationPhase" in (data as Record<string, unknown>)) {
           (data as { generationPhase?: string | null }).generationPhase = null;
         }
-        if ('generationFailureStage' in (data as Record<string, unknown>)) {
-          (data as { generationFailureStage?: string | null }).generationFailureStage = null;
+        if ("generationFailureStage" in (data as Record<string, unknown>)) {
+          (
+            data as { generationFailureStage?: string | null }
+          ).generationFailureStage = null;
         }
-        if ('generationProviderId' in (data as Record<string, unknown>)) {
-          (data as { generationProviderId?: string | null }).generationProviderId = null;
+        if ("generationProviderId" in (data as Record<string, unknown>)) {
+          (
+            data as { generationProviderId?: string | null }
+          ).generationProviderId = null;
         }
-        if ('generationClientSessionId' in (data as Record<string, unknown>)) {
-          (data as { generationClientSessionId?: string | null }).generationClientSessionId = null;
+        if ("generationClientSessionId" in (data as Record<string, unknown>)) {
+          (
+            data as { generationClientSessionId?: string | null }
+          ).generationClientSessionId = null;
         }
-        if ('generationStoryboardMetadata' in (data as Record<string, unknown>)) {
-          (data as { generationStoryboardMetadata?: unknown }).generationStoryboardMetadata = undefined;
+        if (
+          "generationStoryboardMetadata" in (data as Record<string, unknown>)
+        ) {
+          (
+            data as { generationStoryboardMetadata?: unknown }
+          ).generationStoryboardMetadata = undefined;
         }
-        if ('generationError' in (data as Record<string, unknown>)) {
+        if ("generationError" in (data as Record<string, unknown>)) {
           (data as { generationError?: string | null }).generationError = null;
         }
-        if ('generationErrorDetails' in (data as Record<string, unknown>)) {
-          (data as { generationErrorDetails?: string | null }).generationErrorDetails = null;
+        if ("generationErrorDetails" in (data as Record<string, unknown>)) {
+          (
+            data as { generationErrorDetails?: string | null }
+          ).generationErrorDetails = null;
         }
-        if ('generationDebugContext' in (data as Record<string, unknown>)) {
-          (data as { generationDebugContext?: unknown }).generationDebugContext = undefined;
+        if ("generationDebugContext" in (data as Record<string, unknown>)) {
+          (
+            data as { generationDebugContext?: unknown }
+          ).generationDebugContext = undefined;
         }
-        if ('generationStatusText' in (data as Record<string, unknown>)) {
-          (data as { generationStatusText?: string | null }).generationStatusText = null;
+        if ("generationStatusText" in (data as Record<string, unknown>)) {
+          (
+            data as { generationStatusText?: string | null }
+          ).generationStatusText = null;
         }
-        const sourceAbsolutePosition = sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
+        const sourceAbsolutePosition =
+          sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
 
         const nextNode = canvasNodeFactory.createNode(
           sourceNode.type as CanvasNodeType,
@@ -5381,26 +6380,35 @@ export function Canvas() {
             x: sourceAbsolutePosition.x + totalOffset.x,
             y: sourceAbsolutePosition.y + totalOffset.y,
           },
-          { ...data }
+          { ...data },
         );
         idMap.set(sourceNode.id, nextNode.id);
         sizeMap.set(nextNode.id, getNodeSize(sourceNode));
         copiedNodes.push(nextNode);
       }
 
-      const copiedNodeById = new globalThis.Map(copiedNodes.map((node) => [node.id, node] as const));
+      const copiedNodeById = new globalThis.Map(
+        copiedNodes.map((node) => [node.id, node] as const),
+      );
       const copiedNodesForInsert = copiedNodes.map((copiedNode) => {
-        const sourceNodeEntry = Array.from(idMap.entries()).find(([, copiedId]) => copiedId === copiedNode.id);
-        const sourceNode = sourceNodeEntry ? sourceById.get(sourceNodeEntry[0]) : null;
+        const sourceNodeEntry = Array.from(idMap.entries()).find(
+          ([, copiedId]) => copiedId === copiedNode.id,
+        );
+        const sourceNode = sourceNodeEntry
+          ? sourceById.get(sourceNodeEntry[0])
+          : null;
         if (!sourceNode) {
           return copiedNode;
         }
 
-        const isUsingCopiedParent = Boolean(sourceNode.parentId && idMap.has(sourceNode.parentId));
+        const isUsingCopiedParent = Boolean(
+          sourceNode.parentId && idMap.has(sourceNode.parentId),
+        );
         const copiedParentId = sourceNode.parentId
           ? (idMap.get(sourceNode.parentId) ?? sourceNode.parentId)
           : undefined;
-        const sourceAbsolutePosition = sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
+        const sourceAbsolutePosition =
+          sourceAbsolutePositionById.get(sourceNode.id) ?? sourceNode.position;
         const nextPosition = copiedParentId
           ? isUsingCopiedParent
             ? {
@@ -5416,7 +6424,7 @@ export function Canvas() {
               y: Math.round(sourceAbsolutePosition.y + totalOffset.y),
             };
         const remapCopiedReferenceId = (value: unknown): string | null => {
-          const normalizedValue = typeof value === 'string' ? value.trim() : '';
+          const normalizedValue = typeof value === "string" ? value.trim() : "";
           if (!normalizedValue) {
             return null;
           }
@@ -5439,8 +6447,12 @@ export function Canvas() {
           nextData = {
             ...copiedNode.data,
             sourceNodeId: remapCopiedReferenceId(sourceData.sourceNodeId),
-            rootSourceNodeId: remapCopiedReferenceId(sourceData.rootSourceNodeId),
-            parentResultNodeId: remapCopiedReferenceId(sourceData.parentResultNodeId),
+            rootSourceNodeId: remapCopiedReferenceId(
+              sourceData.rootSourceNodeId,
+            ),
+            parentResultNodeId: remapCopiedReferenceId(
+              sourceData.parentResultNodeId,
+            ),
           };
         }
 
@@ -5475,9 +6487,9 @@ export function Canvas() {
         const sourceNode = sourceById.get(edge.source);
         const targetNode = sourceById.get(edge.target);
         const shouldSkipMjResultBindingEdge = Boolean(
-          sourceNode?.type === CANVAS_NODE_TYPES.mj
-          && targetNode?.type === CANVAS_NODE_TYPES.mjResult
-          && (targetNode.data as Record<string, unknown>).nodeRole !== 'branch'
+          sourceNode?.type === CANVAS_NODE_TYPES.mj &&
+          targetNode?.type === CANVAS_NODE_TYPES.mjResult &&
+          (targetNode.data as Record<string, unknown>).nodeRole !== "branch",
         );
         if (shouldSkipMjResultBindingEdge) {
           continue;
@@ -5493,9 +6505,9 @@ export function Canvas() {
           id: `e-${nextSource}-${nextTarget}`,
           source: nextSource,
           target: nextTarget,
-          sourceHandle: edge.sourceHandle ?? 'source',
-          targetHandle: edge.targetHandle ?? 'target',
-          type: 'disconnectableEdge',
+          sourceHandle: edge.sourceHandle ?? "source",
+          targetHandle: edge.targetHandle ?? "target",
+          type: "disconnectableEdge",
         });
       }
 
@@ -5504,12 +6516,12 @@ export function Canvas() {
         const sourceNode = allNodeById.get(edge.source);
         const targetNode = nextTarget ? copiedNodeById.get(nextTarget) : null;
         if (
-          !nextTarget
-          || !sourceNode
-          || !targetNode
-          || !canNodeTypeBeManualConnectionSource(sourceNode.type)
-          || !nodeHasSourceHandle(sourceNode.type)
-          || !nodeHasTargetHandle(targetNode.type)
+          !nextTarget ||
+          !sourceNode ||
+          !targetNode ||
+          !canNodeTypeBeManualConnectionSource(sourceNode.type) ||
+          !nodeHasSourceHandle(sourceNode.type) ||
+          !nodeHasTargetHandle(targetNode.type)
         ) {
           continue;
         }
@@ -5518,14 +6530,16 @@ export function Canvas() {
           id: `e-${edge.source}-${nextTarget}`,
           source: edge.source,
           target: nextTarget,
-          sourceHandle: edge.sourceHandle ?? 'source',
-          targetHandle: edge.targetHandle ?? 'target',
-          type: 'disconnectableEdge',
+          sourceHandle: edge.sourceHandle ?? "source",
+          targetHandle: edge.targetHandle ?? "target",
+          type: "disconnectableEdge",
         });
       }
 
       const dedupedDuplicatedEdges = Array.from(
-        new globalThis.Map(duplicatedEdges.map((edge) => [edge.id, edge] as const)).values()
+        new globalThis.Map(
+          duplicatedEdges.map((edge) => [edge.id, edge] as const),
+        ).values(),
       );
       addPreparedNodes(copiedNodesForInsert, {
         edges: dedupedDuplicatedEdges,
@@ -5558,11 +6572,12 @@ export function Canvas() {
       scheduleCanvasPersist,
       setSelectedNode,
       setSelectedNodeIds,
-    ]
+    ],
   );
 
   useEffect(() => {
-    duplicateNodesRef.current = (sourceNodeIds: string[]) => duplicateNodes(sourceNodeIds)?.firstNodeId ?? null;
+    duplicateNodesRef.current = (sourceNodeIds: string[]) =>
+      duplicateNodes(sourceNodeIds)?.firstNodeId ?? null;
   }, [duplicateNodes]);
 
   const handleConnectStart = useCallback(
@@ -5581,16 +6596,19 @@ export function Canvas() {
       }
 
       if (
-        params.handleType === 'source'
-        && !canNodeBeManualConnectionSource(params.nodeId, nodes)
+        params.handleType === "source" &&
+        !canNodeBeManualConnectionSource(params.nodeId, nodes)
       ) {
         setPendingConnectStart(null);
         return;
       }
 
-      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      const containerRect =
+        reactFlowWrapperRef.current?.getBoundingClientRect();
       const eventTarget = event.target as Element | null;
-      const handleElement = eventTarget?.closest?.('.react-flow__handle') as HTMLElement | null;
+      const handleElement = eventTarget?.closest?.(
+        ".react-flow__handle",
+      ) as HTMLElement | null;
       const clientPosition = getClientPosition(event);
       const handleId = handleElement?.dataset?.handleid;
       let start: { x: number; y: number } | undefined;
@@ -5625,7 +6643,7 @@ export function Canvas() {
         start,
       });
     },
-    [nodes]
+    [nodes],
   );
 
   const handleNodeDragStart = useCallback(
@@ -5662,7 +6680,10 @@ export function Canvas() {
         altDragCopyRef.current = null;
         return;
       }
-      const startPositions = new globalThis.Map<string, { x: number; y: number }>();
+      const startPositions = new globalThis.Map<
+        string,
+        { x: number; y: number }
+      >();
       for (const sourceNodeId of sourceNodeIds) {
         const sourceNode = nodes.find((item) => item.id === sourceNodeId);
         if (!sourceNode) {
@@ -5723,7 +6744,13 @@ export function Canvas() {
         sourceToCopyIdMap: duplicateResult.idMap,
       };
     },
-    [duplicateNodes, nodes, scheduleNodeDragChromeHide, selectedNodeIds, warmCopiedNodeImages]
+    [
+      duplicateNodes,
+      nodes,
+      scheduleNodeDragChromeHide,
+      selectedNodeIds,
+      warmCopiedNodeImages,
+    ],
   );
 
   const handleNodeDrag = useCallback(
@@ -5755,17 +6782,21 @@ export function Canvas() {
           }
           return {
             id: sourceId,
-            type: 'position' as const,
+            type: "position" as const,
             position: sourceStart,
             dragging: true,
           };
         })
-        .filter((change): change is {
-          id: string;
-          type: 'position';
-          position: { x: number; y: number };
-          dragging: true;
-        } => Boolean(change));
+        .filter(
+          (
+            change,
+          ): change is {
+            id: string;
+            type: "position";
+            position: { x: number; y: number };
+            dragging: true;
+          } => Boolean(change),
+        );
 
       const moveCopyChanges = altCopyState.sourceNodeIds
         .map((sourceId) => {
@@ -5776,17 +6807,21 @@ export function Canvas() {
           }
           return {
             id: copyId,
-            type: 'position' as const,
+            type: "position" as const,
             position: { x: sourceStart.x + deltaX, y: sourceStart.y + deltaY },
             dragging: true,
           };
         })
-        .filter((change): change is {
-          id: string;
-          type: 'position';
-          position: { x: number; y: number };
-          dragging: true;
-        } => Boolean(change));
+        .filter(
+          (
+            change,
+          ): change is {
+            id: string;
+            type: "position";
+            position: { x: number; y: number };
+            dragging: true;
+          } => Boolean(change),
+        );
 
       const allChanges = [...restoreSourceChanges, ...moveCopyChanges];
       if (allChanges.length > 0) {
@@ -5798,7 +6833,7 @@ export function Canvas() {
       enableNodeAlignment,
       scheduleAlignmentDuringDrag,
       scheduleViewportImagePreload,
-    ]
+    ],
   );
 
   const handleNodeDragStop = useCallback(
@@ -5812,7 +6847,9 @@ export function Canvas() {
       clearNodeDragStartChromeTimer();
       setIsDraggingNode(false);
       // Clear alignment guides after drag ends.
-      setAlignmentGuides((previousGuides) => (previousGuides.length === 0 ? previousGuides : []));
+      setAlignmentGuides((previousGuides) =>
+        previousGuides.length === 0 ? previousGuides : [],
+      );
 
       const altCopyState = altDragCopyRef.current;
       if (!altCopyState) {
@@ -5820,49 +6857,64 @@ export function Canvas() {
         const currentNodes = currentState.nodes;
         const currentEdges = currentState.edges;
         const currentNodeMap = new globalThis.Map(
-          currentNodes.map((currentNode) => [currentNode.id, currentNode] as const)
+          currentNodes.map(
+            (currentNode) => [currentNode.id, currentNode] as const,
+          ),
         );
-        const draggedNodeIds = selectedNodeIds.includes(node.id) ? selectedNodeIds : [node.id];
+        const draggedNodeIds = selectedNodeIds.includes(node.id)
+          ? selectedNodeIds
+          : [node.id];
 
         if (draggedNodeIds.length === 1) {
-          const draggedNode = currentNodes.find((currentNode) => currentNode.id === node.id);
+          const draggedNode = currentNodes.find(
+            (currentNode) => currentNode.id === node.id,
+          );
           if (draggedNode && isImageCompareSourceNode(draggedNode)) {
-            const compareDropTarget = findImageCompareDropTarget(draggedNode, currentNodes);
+            const compareDropTarget = findImageCompareDropTarget(
+              draggedNode,
+              currentNodes,
+            );
             if (compareDropTarget) {
               const validationReason = validateImageComparePair(
                 draggedNode,
                 compareDropTarget,
-                currentEdges
+                currentEdges,
               );
               if (!validationReason) {
-                const mergeResult = mergeImageNodesForCompare(draggedNode.id, compareDropTarget.id);
-                if (mergeResult.status === 'success') {
-                  showImageCompareNotice(t('canvas.compare.mergeSuccess'), 'success');
+                const mergeResult = mergeImageNodesForCompare(
+                  draggedNode.id,
+                  compareDropTarget.id,
+                );
+                if (mergeResult.status === "success") {
+                  showImageCompareNotice(
+                    t("canvas.compare.mergeSuccess"),
+                    "success",
+                  );
                   scheduleCanvasPersist(0);
                   return;
                 }
 
-                if (mergeResult.status === 'missingImage') {
-                  showImageCompareNotice(t('canvas.compare.missingImage'));
+                if (mergeResult.status === "missingImage") {
+                  showImageCompareNotice(t("canvas.compare.missingImage"));
                 } else {
-                  showImageCompareNotice(t('canvas.compare.mergeFailed'));
+                  showImageCompareNotice(t("canvas.compare.mergeFailed"));
                 }
               } else {
                 switch (validationReason) {
-                  case 'connected':
-                    showImageCompareNotice(t('canvas.compare.connected'));
+                  case "connected":
+                    showImageCompareNotice(t("canvas.compare.connected"));
                     break;
-                  case 'grouped':
-                    showImageCompareNotice(t('canvas.compare.grouped'));
+                  case "grouped":
+                    showImageCompareNotice(t("canvas.compare.grouped"));
                     break;
-                  case 'ratioMismatch':
-                    showImageCompareNotice(t('canvas.compare.ratioMismatch'));
+                  case "ratioMismatch":
+                    showImageCompareNotice(t("canvas.compare.ratioMismatch"));
                     break;
-                  case 'missingImage':
-                    showImageCompareNotice(t('canvas.compare.missingImage'));
+                  case "missingImage":
+                    showImageCompareNotice(t("canvas.compare.missingImage"));
                     break;
                   default:
-                    showImageCompareNotice(t('canvas.compare.mergeFailed'));
+                    showImageCompareNotice(t("canvas.compare.mergeFailed"));
                     break;
                 }
               }
@@ -5874,16 +6926,23 @@ export function Canvas() {
         const detachedNodeIds: string[] = [];
 
         draggedNodeIds.forEach((draggedNodeId) => {
-          const draggedNode = currentNodes.find((currentNode) => currentNode.id === draggedNodeId);
+          const draggedNode = currentNodes.find(
+            (currentNode) => currentNode.id === draggedNodeId,
+          );
           if (!draggedNode || draggedNode.type === CANVAS_NODE_TYPES.group) {
             return;
           }
 
           const currentGroupId =
-            draggedNode.parentId && currentNodeMap.get(draggedNode.parentId)?.type === CANVAS_NODE_TYPES.group
+            draggedNode.parentId &&
+            currentNodeMap.get(draggedNode.parentId)?.type ===
+              CANVAS_NODE_TYPES.group
               ? draggedNode.parentId
               : null;
-          const targetGroupId = findContainingGroupId(draggedNode, currentNodes);
+          const targetGroupId = findContainingGroupId(
+            draggedNode,
+            currentNodes,
+          );
           if (!targetGroupId) {
             if (currentGroupId) {
               detachedNodeIds.push(draggedNodeId);
@@ -5902,7 +6961,9 @@ export function Canvas() {
 
         let didGroupMembershipChange = false;
         groupAssignments.forEach((nodeIds, groupNodeId) => {
-          didGroupMembershipChange = reparentNodesToGroup(nodeIds, groupNodeId) || didGroupMembershipChange;
+          didGroupMembershipChange =
+            reparentNodesToGroup(nodeIds, groupNodeId) ||
+            didGroupMembershipChange;
         });
 
         if (detachedNodeIds.length > 0) {
@@ -5935,17 +6996,21 @@ export function Canvas() {
           }
           return {
             id: sourceId,
-            type: 'position' as const,
+            type: "position" as const,
             position: sourceStart,
             dragging: false,
           };
         })
-        .filter((change): change is {
-          id: string;
-          type: 'position';
-          position: { x: number; y: number };
-          dragging: false;
-        } => Boolean(change));
+        .filter(
+          (
+            change,
+          ): change is {
+            id: string;
+            type: "position";
+            position: { x: number; y: number };
+            dragging: false;
+          } => Boolean(change),
+        );
 
       const finalizeCopyChanges = altCopyState.sourceNodeIds
         .map((sourceId) => {
@@ -5956,17 +7021,24 @@ export function Canvas() {
           }
           return {
             id: copyId,
-            type: 'position' as const,
-            position: { x: sourceStart.x + offset.x, y: sourceStart.y + offset.y },
+            type: "position" as const,
+            position: {
+              x: sourceStart.x + offset.x,
+              y: sourceStart.y + offset.y,
+            },
             dragging: false,
           };
         })
-        .filter((change): change is {
-          id: string;
-          type: 'position';
-          position: { x: number; y: number };
-          dragging: false;
-        } => Boolean(change));
+        .filter(
+          (
+            change,
+          ): change is {
+            id: string;
+            type: "position";
+            position: { x: number; y: number };
+            dragging: false;
+          } => Boolean(change),
+        );
 
       const allChanges = [...restoreSourceChanges, ...finalizeCopyChanges];
       const copiedNodeIdSet = new Set(altCopyState.copiedNodeIds);
@@ -5978,8 +7050,10 @@ export function Canvas() {
           }
 
           const currentStyle = currentNode.style ?? {};
-          const hasTemporaryNodeZIndex = currentNode.zIndex === ALT_DRAG_COPY_Z_INDEX;
-          const hasTemporaryStyleZIndex = currentStyle.zIndex === ALT_DRAG_COPY_Z_INDEX;
+          const hasTemporaryNodeZIndex =
+            currentNode.zIndex === ALT_DRAG_COPY_Z_INDEX;
+          const hasTemporaryStyleZIndex =
+            currentStyle.zIndex === ALT_DRAG_COPY_Z_INDEX;
           if (!hasTemporaryNodeZIndex && !hasTemporaryStyleZIndex) {
             return currentNode;
           }
@@ -6001,18 +7075,24 @@ export function Canvas() {
 
       const currentNodes = useCanvasStore.getState().nodes;
       const currentNodeMap = new globalThis.Map(
-        currentNodes.map((currentNode) => [currentNode.id, currentNode] as const)
+        currentNodes.map(
+          (currentNode) => [currentNode.id, currentNode] as const,
+        ),
       );
       const groupAssignments = new Map<string, string[]>();
       const detachedNodeIds: string[] = [];
       altCopyState.copiedNodeIds.forEach((copiedNodeId) => {
-        const copiedNode = currentNodes.find((currentNode) => currentNode.id === copiedNodeId);
+        const copiedNode = currentNodes.find(
+          (currentNode) => currentNode.id === copiedNodeId,
+        );
         if (!copiedNode || copiedNode.type === CANVAS_NODE_TYPES.group) {
           return;
         }
 
         const currentGroupId =
-          copiedNode.parentId && currentNodeMap.get(copiedNode.parentId)?.type === CANVAS_NODE_TYPES.group
+          copiedNode.parentId &&
+          currentNodeMap.get(copiedNode.parentId)?.type ===
+            CANVAS_NODE_TYPES.group
             ? copiedNode.parentId
             : null;
         const targetGroupId = findContainingGroupId(copiedNode, currentNodes);
@@ -6054,7 +7134,7 @@ export function Canvas() {
       setSelectedNode,
       showImageCompareNotice,
       t,
-    ]
+    ],
   );
 
   const handleConnectEnd = useCallback(
@@ -6066,7 +7146,8 @@ export function Canvas() {
       }
 
       const clientPosition = getClientPosition(event);
-      const containerRect = reactFlowWrapperRef.current?.getBoundingClientRect();
+      const containerRect =
+        reactFlowWrapperRef.current?.getBoundingClientRect();
       if (!clientPosition || !containerRect) {
         setPendingConnectStart(null);
         setPreviewConnectionVisual(null);
@@ -6075,27 +7156,32 @@ export function Canvas() {
 
       const dropNodeId = resolveDropNodeId(event.target, clientPosition);
 
-      const sourceConnectNode = nodes.find((node) => node.id === pendingConnectStart.nodeId);
+      const sourceConnectNode = nodes.find(
+        (node) => node.id === pendingConnectStart.nodeId,
+      );
       const isSceneCatalogConnection =
-        project?.projectType === 'script'
-        && pendingConnectStart.handleType === 'source'
-        && sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+        project?.projectType === "script" &&
+        pendingConnectStart.handleType === "source" &&
+        sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
       const isEpisodeCatalogConnection =
-        project?.projectType === 'script'
-        && pendingConnectStart.handleType === 'source'
-        && sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptScene;
-      const isBranchConnection = !isSceneCatalogConnection && !isEpisodeCatalogConnection && (() => {
-        if (!pendingConnectStart?.nodeId) return false;
-        return sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
-      })();
+        project?.projectType === "script" &&
+        pendingConnectStart.handleType === "source" &&
+        sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptScene;
+      const isBranchConnection =
+        !isSceneCatalogConnection &&
+        !isEpisodeCatalogConnection &&
+        (() => {
+          if (!pendingConnectStart?.nodeId) return false;
+          return sourceConnectNode?.type === CANVAS_NODE_TYPES.scriptChapter;
+        })();
 
       if (dropNodeId && dropNodeId !== pendingConnectStart.nodeId) {
         const sourceNode =
-          pendingConnectStart.handleType === 'source'
+          pendingConnectStart.handleType === "source"
             ? nodes.find((node) => node.id === pendingConnectStart.nodeId)
             : nodes.find((node) => node.id === dropNodeId);
         const targetNode =
-          pendingConnectStart.handleType === 'source'
+          pendingConnectStart.handleType === "source"
             ? nodes.find((node) => node.id === dropNodeId)
             : nodes.find((node) => node.id === pendingConnectStart.nodeId);
 
@@ -6109,8 +7195,8 @@ export function Canvas() {
           connectNodesWithBusinessRules({
             source: sourceNode.id,
             target: targetNode.id,
-            sourceHandle: 'source',
-            targetHandle: 'target',
+            sourceHandle: "source",
+            targetHandle: "target",
           });
           setPendingConnectStart(null);
           setPreviewConnectionVisual(null);
@@ -6124,11 +7210,12 @@ export function Canvas() {
       let startY: number | null = pendingConnectStart.start?.y ?? null;
 
       if (startX === null || startY === null) {
-        const nodeElement = reactFlowWrapperRef.current?.querySelector<HTMLElement>(
-          `.react-flow__node[data-id="${pendingConnectStart.nodeId}"]`
-        );
+        const nodeElement =
+          reactFlowWrapperRef.current?.querySelector<HTMLElement>(
+            `.react-flow__node[data-id="${pendingConnectStart.nodeId}"]`,
+          );
         const handleElement = nodeElement?.querySelector<HTMLElement>(
-          `.react-flow__handle-${pendingConnectStart.handleType}`
+          `.react-flow__handle-${pendingConnectStart.handleType}`,
         );
         if (handleElement) {
           const handleRect = handleElement.getBoundingClientRect();
@@ -6137,7 +7224,7 @@ export function Canvas() {
         } else if (nodeElement) {
           const nodeRect = nodeElement.getBoundingClientRect();
           startX =
-            pendingConnectStart.handleType === 'source'
+            pendingConnectStart.handleType === "source"
               ? nodeRect.right - containerRect.left
               : nodeRect.left - containerRect.left;
           startY = nodeRect.top - containerRect.top + nodeRect.height / 2;
@@ -6157,14 +7244,14 @@ export function Canvas() {
             handleType: pendingConnectStart.handleType,
           }),
           stroke: isSceneCatalogConnection
-            ? 'rgba(20, 184, 166, 0.92)'
+            ? "rgba(20, 184, 166, 0.92)"
             : isEpisodeCatalogConnection
-              ? 'rgba(34, 211, 238, 0.92)'
-            : isBranchConnection
-              ? 'rgba(168, 85, 247, 0.9)'
-              : 'rgba(255,255,255,0.9)',
+              ? "rgba(34, 211, 238, 0.92)"
+              : isBranchConnection
+                ? "rgba(168, 85, 247, 0.9)"
+                : "rgba(255,255,255,0.9)",
           strokeWidth: 1,
-          strokeLinecap: 'round',
+          strokeLinecap: "round",
           left: 0,
           top: 0,
           width: containerRect.width,
@@ -6180,23 +7267,31 @@ export function Canvas() {
       });
       if (isSceneCatalogConnection && sourceConnectNode) {
         suppressNextPaneClickRef.current = true;
-        openSceneCatalogAtClientPosition(sourceConnectNode.id, clientPosition.x, clientPosition.y);
+        openSceneCatalogAtClientPosition(
+          sourceConnectNode.id,
+          clientPosition.x,
+          clientPosition.y,
+        );
         return;
       }
 
       if (isEpisodeCatalogConnection && sourceConnectNode) {
         suppressNextPaneClickRef.current = true;
-        openEpisodeCatalogAtClientPosition(sourceConnectNode.id, clientPosition.x, clientPosition.y);
+        openEpisodeCatalogAtClientPosition(
+          sourceConnectNode.id,
+          clientPosition.x,
+          clientPosition.y,
+        );
         return;
       }
 
       const allowedTypes = resolveAllowedNodeTypes(
         pendingConnectStart.handleType,
-        project?.projectType === 'script' ? 'script' : 'storyboard',
+        project?.projectType === "script" ? "script" : "storyboard",
         project?.linkedScriptProjectId ?? null,
         project?.linkedAdProjectId ?? null,
         pendingConnectStart.nodeId,
-        nodes
+        nodes,
       );
       if (allowedTypes.length === 0) {
         setPendingConnectStart(null);
@@ -6216,7 +7311,7 @@ export function Canvas() {
       pendingConnectStart,
       project?.projectType,
       reactFlowInstance,
-    ]
+    ],
   );
 
   const emptyHint = useMemo(
@@ -6224,161 +7319,176 @@ export function Canvas() {
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
         <div className="flex max-w-3xl flex-col items-center gap-5 px-6 text-center">
           <div>
-            <div className="mb-2 text-2xl text-text-muted">{t('canvas.emptyHintTitle')}</div>
-            <div className="text-sm text-text-muted opacity-60">{t('canvas.emptyHintSubtitle')}</div>
+            <div className="mb-2 text-2xl text-text-muted">
+              {t("canvas.emptyHintTitle")}
+            </div>
+            <div className="text-sm text-text-muted opacity-60">
+              {t("canvas.emptyHintSubtitle")}
+            </div>
           </div>
         </div>
       </div>
     ),
-    [t]
+    [t],
   );
 
   const selectedNodes = useMemo<CanvasNode[]>(
     () => nodes.filter((node) => node.selected),
-    [nodes]
+    [nodes],
   );
-  const flowNodes = useMemo<CanvasNode[]>(
-    () => {
-      const startedAt = performance.now();
-      const previousCache = flowNodePresentationCacheRef.current;
-      const nextCache = new Map<
-        string,
-        { isOverviewRender: boolean; node: CanvasNode; sourceNode: CanvasNode }
-      >();
+  const flowNodes = useMemo<CanvasNode[]>(() => {
+    const startedAt = performance.now();
+    const previousCache = flowNodePresentationCacheRef.current;
+    const nextCache = new Map<
+      string,
+      { isOverviewRender: boolean; node: CanvasNode; sourceNode: CanvasNode }
+    >();
 
-      const nextFlowNodes = nodes.map((node) => {
-        const cached = previousCache.get(node.id);
-        if (
-          cached
-          && cached.sourceNode === node
-          && cached.isOverviewRender === isCanvasOverviewRender
-        ) {
-          nextCache.set(node.id, cached);
-          return cached.node;
-        }
+    const nextFlowNodes = nodes.map((node) => {
+      const cached = previousCache.get(node.id);
+      if (
+        cached &&
+        cached.sourceNode === node &&
+        cached.isOverviewRender === isCanvasOverviewRender
+      ) {
+        nextCache.set(node.id, cached);
+        return cached.node;
+      }
 
-        const presentedNode = withSemanticNodePresentation(node);
+      const presentedNode = withSemanticNodePresentation(node);
 
-        if (isCanvasOverviewRender || node.type !== CANVAS_NODE_TYPES.scriptChapter) {
-          const cacheEntry = {
-            isOverviewRender: isCanvasOverviewRender,
-            node: presentedNode,
-            sourceNode: node,
-          };
-          nextCache.set(node.id, cacheEntry);
-          return presentedNode;
-        }
-
-        const flowNode = {
-          ...presentedNode,
-          dragHandle: SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR,
-        };
+      if (
+        isCanvasOverviewRender ||
+        node.type !== CANVAS_NODE_TYPES.scriptChapter
+      ) {
         const cacheEntry = {
           isOverviewRender: isCanvasOverviewRender,
-          node: flowNode,
+          node: presentedNode,
           sourceNode: node,
         };
         nextCache.set(node.id, cacheEntry);
-        return flowNode;
-      });
-
-      flowNodePresentationCacheRef.current = nextCache;
-      if (nodes.length > 100) {
-        logCanvasPerf('[canvas-perf] flowNodes useMemo', {
-          nodeCount: nodes.length,
-          overview: isCanvasOverviewRender,
-          elapsedMs: Math.round(performance.now() - startedAt),
-        });
+        return presentedNode;
       }
-      return nextFlowNodes;
-    },
-    [isCanvasOverviewRender, nodes]
-  );
+
+      const flowNode = {
+        ...presentedNode,
+        dragHandle: SCRIPT_CHAPTER_NODE_DRAG_HANDLE_SELECTOR,
+      };
+      const cacheEntry = {
+        isOverviewRender: isCanvasOverviewRender,
+        node: flowNode,
+        sourceNode: node,
+      };
+      nextCache.set(node.id, cacheEntry);
+      return flowNode;
+    });
+
+    flowNodePresentationCacheRef.current = nextCache;
+    if (nodes.length > 100) {
+      logCanvasPerf("[canvas-perf] flowNodes useMemo", {
+        nodeCount: nodes.length,
+        overview: isCanvasOverviewRender,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+    }
+    return nextFlowNodes;
+  }, [isCanvasOverviewRender, nodes]);
   const edgeCutHitEdgeIds = useMemo(
     () => new Set(edgeCutVisual?.hitEdgeIds ?? []),
-    [edgeCutVisual?.hitEdgeIds]
+    [edgeCutVisual?.hitEdgeIds],
   );
   const flowEdges = useMemo<CanvasEdge[]>(() => {
     if (edgeCutHitEdgeIds.size === 0) {
       return edges;
     }
 
-    return edges.map((edge) => (
+    return edges.map((edge) =>
       edgeCutHitEdgeIds.has(edge.id)
         ? {
             ...edge,
             style: {
               ...edge.style,
-              stroke: 'rgb(var(--accent-rgb) / 0.98)',
+              stroke: "rgb(var(--accent-rgb) / 0.98)",
               strokeWidth: 3.8,
             },
           }
-        : edge
-    ));
+        : edge,
+    );
   }, [edgeCutHitEdgeIds, edges]);
-  const visibleFlowEdges = useMemo<CanvasEdge[]>(
-    () => {
-      const startedAt = performance.now();
-      const nextEdges = effectiveCanvasEdgeRenderMode === 'hidden' ? [] : flowEdges;
-      if (flowEdges.length > 100) {
-        logCanvasPerf('[canvas-perf] visibleFlowEdges useMemo', {
-          edgeCount: flowEdges.length,
-          visibleEdgeCount: nextEdges.length,
-          mode: effectiveCanvasEdgeRenderMode,
-          elapsedMs: Math.round(performance.now() - startedAt),
-        });
-      }
-      return nextEdges;
-    },
-    [effectiveCanvasEdgeRenderMode, flowEdges]
-  );
-  const colorLegendLabels = project?.colorLabels ?? createDefaultCanvasColorLabelMap();
+  const visibleFlowEdges = useMemo<CanvasEdge[]>(() => {
+    const startedAt = performance.now();
+    const nextEdges =
+      effectiveCanvasEdgeRenderMode === "hidden" ? [] : flowEdges;
+    if (flowEdges.length > 100) {
+      logCanvasPerf("[canvas-perf] visibleFlowEdges useMemo", {
+        edgeCount: flowEdges.length,
+        visibleEdgeCount: nextEdges.length,
+        mode: effectiveCanvasEdgeRenderMode,
+        elapsedMs: Math.round(performance.now() - startedAt),
+      });
+    }
+    return nextEdges;
+  }, [effectiveCanvasEdgeRenderMode, flowEdges]);
+  const colorLegendLabels =
+    project?.colorLabels ?? createDefaultCanvasColorLabelMap();
   const selectedColorableNodes = useMemo<CanvasNode[]>(
     () => selectedNodes.filter((node) => node.type !== CANVAS_NODE_TYPES.group),
-    [selectedNodes]
+    [selectedNodes],
   );
-  const activeSelectedSemanticColor = useMemo<CanvasSemanticColor | null>(() => {
-    if (selectedColorableNodes.length === 0) {
-      return null;
-    }
+  const activeSelectedSemanticColor =
+    useMemo<CanvasSemanticColor | null>(() => {
+      if (selectedColorableNodes.length === 0) {
+        return null;
+      }
 
-    const [firstNode] = selectedColorableNodes;
-    const firstColor = (firstNode.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor;
-    if (!firstColor) {
-      return null;
-    }
+      const [firstNode] = selectedColorableNodes;
+      const firstColor = (
+        firstNode.data as { semanticColor?: CanvasSemanticColor | null }
+      ).semanticColor;
+      if (!firstColor) {
+        return null;
+      }
 
-    return selectedColorableNodes.every((node) => (
-      (node.data as { semanticColor?: CanvasSemanticColor | null }).semanticColor === firstColor
-    ))
-      ? firstColor
-      : null;
-  }, [selectedColorableNodes]);
+      return selectedColorableNodes.every(
+        (node) =>
+          (node.data as { semanticColor?: CanvasSemanticColor | null })
+            .semanticColor === firstColor,
+      )
+        ? firstColor
+        : null;
+    }, [selectedColorableNodes]);
   const selectedNodesForOverlay = useMemo<CanvasNode[]>(() => {
     if (isDraggingNode || selectedNodes.length === 0) {
       return [];
     }
 
-    const nodeMap = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
+    const nodeMap = new globalThis.Map(
+      nodes.map((node) => [node.id, node] as const),
+    );
     return selectedNodes.map((node) => ({
       ...node,
       position: resolveAbsoluteNodePosition(node, nodeMap),
     }));
   }, [isDraggingNode, nodes, selectedNodes]);
   const activeDirectorStageNode = useMemo(
-    () => nodes.find(
-      (node) =>
-        node.id === activeDirectorStageNodeId
-        && node.type === CANVAS_NODE_TYPES.directorStage
-    ) ?? null,
-    [activeDirectorStageNodeId, nodes]
+    () =>
+      nodes.find(
+        (node) =>
+          node.id === activeDirectorStageNodeId &&
+          node.type === CANVAS_NODE_TYPES.directorStage,
+      ) ?? null,
+    [activeDirectorStageNodeId, nodes],
   );
-  const connectedDirectorStageEnvironments = useMemo<DirectorStageConnectedEnvironment[]>(() => {
+  const connectedDirectorStageEnvironments = useMemo<
+    DirectorStageConnectedEnvironment[]
+  >(() => {
     if (!activeDirectorStageNode) {
       return [];
     }
 
-    const nodeById = new globalThis.Map(nodes.map((node) => [node.id, node] as const));
+    const nodeById = new globalThis.Map(
+      nodes.map((node) => [node.id, node] as const),
+    );
     return edges
       .filter((edge) => edge.target === activeDirectorStageNode.id)
       .flatMap((edge, index) => {
@@ -6388,16 +7498,21 @@ export function Canvas() {
           return [];
         }
 
-        const name = resolveNodeDisplayName(sourceNode.type, sourceNode.data).trim()
-          || t('directorStage.environment.connectedFallback', { count: index + 1 });
-        return [{
-          id: `canvas-env:${edge.id}:${sourceNode.id}`,
-          name,
-          backgroundPath: imageSource.imageUrl,
-          previewPath: imageSource.previewImageUrl ?? imageSource.imageUrl,
-          sourceNodeId: sourceNode.id,
-          sourceEdgeId: edge.id,
-        }];
+        const name =
+          resolveNodeDisplayName(sourceNode.type, sourceNode.data).trim() ||
+          t("directorStage.environment.connectedFallback", {
+            count: index + 1,
+          });
+        return [
+          {
+            id: `canvas-env:${edge.id}:${sourceNode.id}`,
+            name,
+            backgroundPath: imageSource.imageUrl,
+            previewPath: imageSource.previewImageUrl ?? imageSource.imageUrl,
+            sourceNodeId: sourceNode.id,
+            sourceEdgeId: edge.id,
+          },
+        ];
       });
   }, [activeDirectorStageNode, edges, nodes, t]);
 
@@ -6406,47 +7521,47 @@ export function Canvas() {
       closeDirectorStage();
     }
   }, [activeDirectorStageNode, activeDirectorStageNodeId, closeDirectorStage]);
-  const selectedDownloadNodes = useMemo(
-    () => {
-      return selectedNodes.flatMap((node, index) => {
-        const downloadSource = getNodePrimaryDownloadSource(node);
-        if (!downloadSource) {
-          return [];
-        }
+  const selectedDownloadNodes = useMemo(() => {
+    return selectedNodes.flatMap((node, index) => {
+      const downloadSource = getNodePrimaryDownloadSource(node);
+      if (!downloadSource) {
+        return [];
+      }
 
-        return [
-          {
-            source: downloadSource.source,
-            suggestedFileName: resolveSelectedDownloadSuggestedFileName(
-              node,
-              index
-            ),
-          },
-        ];
-      });
-    },
-    [selectedNodes]
-  );
+      return [
+        {
+          source: downloadSource.source,
+          suggestedFileName: resolveSelectedDownloadSuggestedFileName(
+            node,
+            index,
+          ),
+        },
+      ];
+    });
+  }, [selectedNodes]);
   const selectedAssetAddableNodeIds = useMemo(
     () => selectedNodes.filter(isBatchAssetAddableNode).map((node) => node.id),
-    [selectedNodes]
+    [selectedNodes],
   );
-  const handleApplySemanticColor = useCallback((color: CanvasSemanticColor) => {
-    applySemanticColorToSelected(color);
-  }, [applySemanticColorToSelected]);
-  const handleUpdateColorLabel = useCallback((
-    color: CanvasSemanticColor,
-    label: string
-  ) => {
-    if (!project) {
-      return;
-    }
+  const handleApplySemanticColor = useCallback(
+    (color: CanvasSemanticColor) => {
+      applySemanticColorToSelected(color);
+    },
+    [applySemanticColorToSelected],
+  );
+  const handleUpdateColorLabel = useCallback(
+    (color: CanvasSemanticColor, label: string) => {
+      if (!project) {
+        return;
+      }
 
-    setCurrentProjectColorLabels({
-      ...colorLegendLabels,
-      [color]: label,
-    });
-  }, [colorLegendLabels, project, setCurrentProjectColorLabels]);
+      setCurrentProjectColorLabels({
+        ...colorLegendLabels,
+        [color]: label,
+      });
+    },
+    [colorLegendLabels, project, setCurrentProjectColorLabels],
+  );
 
   const handleGroupSelectedNodes = useCallback(() => {
     if (selectedNodeIds.length < 2) {
@@ -6470,20 +7585,30 @@ export function Canvas() {
         await open({
           directory: true,
           multiple: false,
-          title: t('selection.exportFolderPickerTitle'),
-        })
+          title: t("selection.exportFolderPickerTitle"),
+        }),
       );
       if (!baseDirectory) {
         return;
       }
 
-      const targetDirectory = await join(baseDirectory, buildTimestampFolderName());
+      const targetDirectory = await join(
+        baseDirectory,
+        buildTimestampFolderName(),
+      );
       for (const item of selectedDownloadNodes) {
-        await saveImageSourceToDirectory(item.source, targetDirectory, item.suggestedFileName);
+        await saveImageSourceToDirectory(
+          item.source,
+          targetDirectory,
+          item.suggestedFileName,
+        );
       }
     } catch (error) {
-      const { message, details } = resolveErrorContent(error, t('selection.exportFailed'));
-      await showErrorDialog(message, t('common.error'), details);
+      const { message, details } = resolveErrorContent(
+        error,
+        t("selection.exportFailed"),
+      );
+      await showErrorDialog(message, t("common.error"), details);
     } finally {
       setIsExportingSelectedImages(false);
     }
@@ -6495,7 +7620,9 @@ export function Canvas() {
 
     setIsPreparingSelectedAssets(true);
     try {
-      const resolution = buildBatchAssetDraftsFromSelectedNodes(selectedAssetAddableNodeIds);
+      const resolution = buildBatchAssetDraftsFromSelectedNodes(
+        selectedAssetAddableNodeIds,
+      );
       if (resolution.drafts.length > 0) {
         setBatchAddToAssetsResolution(resolution);
       }
@@ -6509,580 +7636,704 @@ export function Canvas() {
       return;
     }
 
-    canvasEventBus.publish('canvas-selection-transfer/open', {
+    canvasEventBus.publish("canvas-selection-transfer/open", {
       nodeIds: selectedNodeIds,
     });
   }, [selectedNodeIds]);
 
-  const handleLocateGroup = useCallback((groupId: string) => {
-    const groupNode = nodes.find((node) => node.id === groupId && node.type === CANVAS_NODE_TYPES.group);
-    if (!groupNode) {
-      return;
-    }
-
-    const nodeWidth = groupNode.measured?.width ?? groupNode.width ?? DEFAULT_NODE_WIDTH;
-    const nodeHeight = groupNode.measured?.height ?? groupNode.height ?? 200;
-
-    setSelectedNode(groupNode.id);
-    reactFlowInstance.setCenter(
-      groupNode.position.x + nodeWidth / 2,
-      groupNode.position.y + nodeHeight / 2,
-      {
-        zoom: Math.max(reactFlowInstance.getZoom(), 0.85),
-        duration: 260,
+  const handleLocateGroup = useCallback(
+    (groupId: string) => {
+      const groupNode = nodes.find(
+        (node) => node.id === groupId && node.type === CANVAS_NODE_TYPES.group,
+      );
+      if (!groupNode) {
+        return;
       }
-    );
-  }, [nodes, reactFlowInstance, setSelectedNode]);
 
-  const handleMergedAnchorMouseDown = useCallback((e: ReactMouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDraggingBranchConnection(true);
-    setBranchConnectionSource(selectedNodes as CanvasNode[]);
-    setBranchConnectionPosition({ x: e.clientX, y: e.clientY });
-  }, [selectedNodes]);
+      const nodeWidth =
+        groupNode.measured?.width ?? groupNode.width ?? DEFAULT_NODE_WIDTH;
+      const nodeHeight = groupNode.measured?.height ?? groupNode.height ?? 200;
 
-  const handleBatchOperationSelect = useCallback((nodeType: CanvasNodeType) => {
-    if (branchConnectionSource.length === 0) return;
+      setSelectedNode(groupNode.id);
+      reactFlowInstance.setCenter(
+        groupNode.position.x + nodeWidth / 2,
+        groupNode.position.y + nodeHeight / 2,
+        {
+          zoom: Math.max(reactFlowInstance.getZoom(), 0.85),
+          duration: 260,
+        },
+      );
+    },
+    [nodes, reactFlowInstance, setSelectedNode],
+  );
 
-    const bounds = calculateNodesBounds(branchConnectionSource);
-    const newNodePosition = {
-      x: bounds.right + 100,
-      y: bounds.centerY,
-    };
+  const handleMergedAnchorMouseDown = useCallback(
+    (e: ReactMouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingBranchConnection(true);
+      setBranchConnectionSource(selectedNodes as CanvasNode[]);
+      setBranchConnectionPosition({ x: e.clientX, y: e.clientY });
+    },
+    [selectedNodes],
+  );
 
-    const newNodeId = addNode(nodeType, newNodePosition, undefined);
+  const handleBatchOperationSelect = useCallback(
+    (nodeType: CanvasNodeType) => {
+      if (branchConnectionSource.length === 0) return;
 
-    // 自动连接所有源节点到新节点
-    for (const sourceNode of branchConnectionSource) {
-      connectNodesWithBusinessRules({
-        source: sourceNode.id,
-        target: newNodeId,
-        sourceHandle: 'source',
-        targetHandle: 'target',
-      }, { schedulePersist: false });
-    }
+      const bounds = calculateNodesBounds(branchConnectionSource);
+      const newNodePosition = {
+        x: bounds.right + 100,
+        y: bounds.centerY,
+      };
 
-    scheduleCanvasPersist(0);
-    resetBranchConnectionState();
-  }, [branchConnectionSource, addNode, connectNodesWithBusinessRules, resetBranchConnectionState, scheduleCanvasPersist]);
+      const newNodeId = addNode(nodeType, newNodePosition, undefined);
+
+      // 自动连接所有源节点到新节点
+      for (const sourceNode of branchConnectionSource) {
+        connectNodesWithBusinessRules(
+          {
+            source: sourceNode.id,
+            target: newNodeId,
+            sourceHandle: "source",
+            targetHandle: "target",
+          },
+          { schedulePersist: false },
+        );
+      }
+
+      scheduleCanvasPersist(0);
+      resetBranchConnectionState();
+    },
+    [
+      branchConnectionSource,
+      addNode,
+      connectNodesWithBusinessRules,
+      resetBranchConnectionState,
+      scheduleCanvasPersist,
+    ],
+  );
 
   return (
     <CanvasMediaPerformanceContext.Provider value={canvasMediaPerformanceState}>
-    <CanvasEdgePerformanceContext.Provider value={effectiveCanvasEdgeRenderMode}>
-    <div ref={wrapperRef} className="relative h-full w-full flex">
-      {isScriptProject && (
-        <Suspense fallback={null}>
-          <ScriptBiblePanel />
-        </Suspense>
-      )}
-      {isScriptProject && showWelcomeDialog && (
-        <Suspense fallback={null}>
-          <ScriptWelcomeDialog
-            isOpen={showWelcomeDialog}
-            onClose={() => setShowWelcomeDialog(false)}
-            onSkipToEmptyCanvas={() => {
-              setCurrentProjectScriptWelcomeSkipped(true);
-              setShowWelcomeDialog(false);
+      <CanvasEdgePerformanceContext.Provider
+        value={effectiveCanvasEdgeRenderMode}
+      >
+        <div ref={wrapperRef} className="relative h-full w-full flex">
+          {isScriptProject && (
+            <Suspense fallback={null}>
+              <ScriptBiblePanel />
+            </Suspense>
+          )}
+          {isScriptProject && showWelcomeDialog && (
+            <Suspense fallback={null}>
+              <ScriptWelcomeDialog
+                isOpen={showWelcomeDialog}
+                onClose={() => setShowWelcomeDialog(false)}
+                onSkipToEmptyCanvas={() => {
+                  setCurrentProjectScriptWelcomeSkipped(true);
+                  setShowWelcomeDialog(false);
+                }}
+              />
+            </Suspense>
+          )}
+          <StoryboardAssetExpandDialog
+            isOpen={storyboardAssetExpandSourceNodeId !== null}
+            sourceNodeId={storyboardAssetExpandSourceNodeId}
+            onClose={() => setStoryboardAssetExpandSourceNodeId(null)}
+          />
+          <CanvasSelectionTransferDialog
+            isOpen={canvasTransferSourceNodeIds !== null}
+            sourceNodeIds={canvasTransferSourceNodeIds ?? []}
+            onClose={() => setCanvasTransferSourceNodeIds(null)}
+          />
+          <SmartDirectorStoryboardExpandDialog
+            isOpen={smartDirectorStoryboardExpandSourceNodeId !== null}
+            sourceNodeId={smartDirectorStoryboardExpandSourceNodeId}
+            onClose={() => setSmartDirectorStoryboardExpandSourceNodeId(null)}
+          />
+          <SmartDirectorStoryboardResultChoiceDialog
+            isOpen={smartDirectorStoryboardResultChoice !== null}
+            onClose={() => {
+              smartDirectorStoryboardResultChoice?.onResolve(null);
+              setSmartDirectorStoryboardResultChoice(null);
+            }}
+            onSelect={(choice) => {
+              smartDirectorStoryboardResultChoice?.onResolve(choice);
+              setSmartDirectorStoryboardResultChoice(null);
             }}
           />
-        </Suspense>
-      )}
-      <StoryboardAssetExpandDialog
-        isOpen={storyboardAssetExpandSourceNodeId !== null}
-        sourceNodeId={storyboardAssetExpandSourceNodeId}
-        onClose={() => setStoryboardAssetExpandSourceNodeId(null)}
-      />
-      <CanvasSelectionTransferDialog
-        isOpen={canvasTransferSourceNodeIds !== null}
-        sourceNodeIds={canvasTransferSourceNodeIds ?? []}
-        onClose={() => setCanvasTransferSourceNodeIds(null)}
-      />
-      <SmartDirectorStoryboardExpandDialog
-        isOpen={smartDirectorStoryboardExpandSourceNodeId !== null}
-        sourceNodeId={smartDirectorStoryboardExpandSourceNodeId}
-        onClose={() => setSmartDirectorStoryboardExpandSourceNodeId(null)}
-      />
-      <SmartDirectorStoryboardResultChoiceDialog
-        isOpen={smartDirectorStoryboardResultChoice !== null}
-        onClose={() => {
-          smartDirectorStoryboardResultChoice?.onResolve(null);
-          setSmartDirectorStoryboardResultChoice(null);
-        }}
-        onSelect={(choice) => {
-          smartDirectorStoryboardResultChoice?.onResolve(choice);
-          setSmartDirectorStoryboardResultChoice(null);
-        }}
-      />
-      <BatchAddToAssetsDialog
-        isOpen={batchAddToAssetsResolution !== null}
-        resolution={batchAddToAssetsResolution}
-        onClose={() => setBatchAddToAssetsResolution(null)}
-      />
-      <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
-      {!isImageViewerOpen && !shouldHideSelectionChrome && (
-        <CanvasColorLegend
-          colorLabels={colorLegendLabels}
-          eligibleSelectedCount={selectedColorableNodes.length}
-          activeColor={activeSelectedSemanticColor}
-          onApplyColor={handleApplySemanticColor}
-          onUpdateLabel={handleUpdateColorLabel}
-        />
-      )}
-      {!isImageViewerOpen && imageCompareNotice && (
-        <div className="pointer-events-none absolute inset-x-0 top-4 z-[90] flex justify-center px-4">
-          <div
-            className={`max-w-[min(540px,100%)] rounded-full border px-4 py-2 text-sm font-medium shadow-[0_18px_48px_rgba(15,23,42,0.22)] backdrop-blur ${
-              imageCompareNotice.tone === 'success'
-                ? 'border-emerald-400/55 bg-emerald-500/18 text-emerald-50'
-                : 'border-amber-300/45 bg-surface-dark/92 text-text-dark'
-            }`}
-          >
-            {imageCompareNotice.message}
-          </div>
-        </div>
-      )}
-      {!isImageViewerOpen && edgeCutNoticeCount !== null && (
-        <div className="pointer-events-none absolute inset-x-0 top-14 z-[90] flex justify-center px-4">
-          <div className="max-w-[min(420px,100%)] rounded-full border border-accent/45 bg-accent/18 px-4 py-2 text-sm font-medium text-text-dark shadow-[0_18px_48px_rgba(15,23,42,0.22)] backdrop-blur">
-            {t('canvas.edgeCutDisconnected', { count: edgeCutNoticeCount })}
-          </div>
-        </div>
-      )}
-      {!isImageViewerOpen && !shouldHideCanvasChrome && (
-        <GroupSidebar
-          groups={groupNodesList}
-          selectedGroupId={selectedGroupId}
-          onLocateGroup={handleLocateGroup}
-          onSelectGroup={handleLocateGroup}
-        />
-      )}
-      <ReactFlow
-        nodes={flowNodes}
-        edges={visibleFlowEdges}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={handleEdgesChange}
-        onEdgeClick={handleEdgeClick}
-        onEdgeDoubleClick={handleEdgeDoubleClick}
-        onConnect={handleConnect}
-        onConnectStart={handleConnectStart}
-        onConnectEnd={handleConnectEnd}
-        onNodeDragStart={handleNodeDragStart}
-        onNodeDrag={handleNodeDrag}
-        onNodeDragStop={handleNodeDragStop}
-        onPaneClick={handlePaneClick}
-        onPaneContextMenu={handlePaneContextMenu}
-        onMove={handleMove}
-        onMoveStart={handleMoveStart}
-        onMoveEnd={handleMoveEnd}
-        onSelectionStart={handleSelectionStart}
-        onSelectionEnd={handleSelectionEnd}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        nodeTypes={effectiveNodeTypes}
-        edgeTypes={effectiveEdgeTypes}
-        defaultEdgeOptions={{ type: 'disconnectableEdge' }}
-        defaultViewport={DEFAULT_VIEWPORT}
-        minZoom={0.1}
-        maxZoom={5}
-        selectionOnDrag={isCanvasSelectionKeyPressed}
-        selectionMode={SelectionMode.Partial}
-        multiSelectionKeyCode={['Control', 'Meta']}
-        selectionKeyCode={null}
-        deleteKeyCode={null}
-        panOnDrag={!isCanvasSelectionKeyPressed}
-        onlyRenderVisibleElements={!isCanvasOverviewRender}
-        zoomOnDoubleClick={false}
-        snapToGrid={snapToGrid}
-        snapGrid={[snapGridSize, snapGridSize]}
-        proOptions={{ hideAttribution: true }}
-        className={`bg-bg-dark ${isCanvasOverviewRender ? 'canvas-render-overview' : 'canvas-render-full'} ${
-          dragHistorySnapshot || isDraggingNode ? 'canvas-render-dragging' : ''
-        }`}
-      >
-        {showGrid && !shouldHideCanvasChrome ? (
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={snapGridSize}
-            size={1.5}
-            color="var(--canvas-grid-dot)"
+          <BatchAddToAssetsDialog
+            isOpen={batchAddToAssetsResolution !== null}
+            resolution={batchAddToAssetsResolution}
+            onClose={() => setBatchAddToAssetsResolution(null)}
           />
-        ) : null}
-        
-        {showMiniMap && !shouldHideViewportInteractionChrome && !isImageViewerOpen && (
-          <MiniMap
-            className="canvas-minimap nopan nowheel !border-border-dark !bg-surface-dark"
-            style={{ pointerEvents: 'all', zIndex: 10000, bottom: 84, right: 16 }}
-            nodeColor="rgba(120, 120, 120, 0.92)"
-            maskColor="rgba(0, 0, 0, 0.62)"
-            pannable
-            zoomable
-          />
-        )}
-
-        {!shouldHideSelectionChrome && <SelectedNodeOverlay />}
-        {!shouldHideSelectionChrome && !isImageViewerOpen && !isDraggingNode && (
-          <SelectionGroupBar
-            selectedNodes={selectedNodesForOverlay}
-            onGroup={handleGroupSelectedNodes}
-            downloadableCount={selectedDownloadNodes.length}
-            onExportSelected={handleExportSelectedMedia}
-            isExportingSelected={isExportingSelectedImages}
-            assetAddableCount={selectedAssetAddableNodeIds.length}
-            onAddSelectedToAssets={handleAddSelectedToAssets}
-            isAddingSelectedToAssets={isPreparingSelectedAssets}
-            onTransferSelected={handleTransferSelectedNodes}
-          />
-        )}
-
-        {/* 对齐辅助线 */}
-        {isDraggingNode && alignmentGuides.length > 0 && (
-          <AlignmentGuides 
-            guides={alignmentGuides}
-          />
-        )}
-      </ReactFlow>
-
-      {edgeCutVisual && edgeCutVisual.screenPoints.length > 0 && (
-        <svg className="pointer-events-none absolute inset-0 z-[120] overflow-visible">
-          <polyline
-            points={edgeCutVisual.screenPoints.map((point) => `${point.x},${point.y}`).join(' ')}
-            fill="none"
-            stroke="rgb(var(--accent-rgb) / 0.22)"
-            strokeWidth={10}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <polyline
-            points={edgeCutVisual.screenPoints.map((point) => `${point.x},${point.y}`).join(' ')}
-            fill="none"
-            stroke="rgb(var(--accent-rgb) / 0.95)"
-            strokeWidth={2.5}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      )}
-
-      {/* 合并锚点 - 多选时显示 */}
-      {selectedNodes.length >= 2 && !isDraggingBranchConnection && !shouldHideSelectionChrome && !isImageViewerOpen && (
-        <MergedConnectionAnchor
-          selectedNodes={selectedNodesForOverlay}
-          onMouseDown={handleMergedAnchorMouseDown}
-        />
-      )}
-
-      {/* 分支连线预览 */}
-      {isDraggingBranchConnection && branchConnectionPosition && !shouldHideViewportInteractionChrome && !isImageViewerOpen && (
-        <BranchConnectionPreview
-          sourceNodes={branchConnectionSource}
-          currentPosition={branchConnectionPosition}
-        />
-      )}
-
-      {/* 批量操作菜单 */}
-      {showBatchMenu && branchConnectionSource.length > 0 && !shouldHideSelectionChrome && !isImageViewerOpen && (
-        <BatchOperationMenu
-          position={batchMenuPosition}
-          sourceNodeIds={branchConnectionSource.map(n => n.id)}
-          sourceNodeType={branchConnectionSource[0]?.type || 'default'}
-          projectType={project?.projectType === 'script' ? 'script' : 'storyboard'}
-          onSelectNodeType={handleBatchOperationSelect}
-          onClose={resetBranchConnectionState}
-        />
-      )}
-
-      {/* 右下角控制条 */}
-      {!isImageViewerOpen && <CanvasAssetDock />}
-
-      {!isImageViewerOpen && (
-        <div 
-          className="absolute flex items-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-2 py-1.5 shadow-lg"
-          style={{ 
-            bottom: '16px', 
-            right: '16px', 
-            zIndex: 9999 
-          }}
-        >
-        {/* 网格吸附开关 */}
-        <button
-          onClick={() => setSnapToGrid(!snapToGrid)}
-          style={{ 
-            color: snapToGrid ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px'
-          }}
-          title={snapToGrid ? t('canvas.toolbar.gridSnapOff') : t('canvas.toolbar.gridSnapOn')}
-        >
-          <Grid3x3 style={{ width: '16px', height: '16px' }} />
-        </button>
-
-        <div style={{ width: '1px', height: '16px', backgroundColor: 'rgb(var(--border-rgb))' }} />
-
-        {/* 对齐辅助线开关 */}
-        <button
-          onClick={() => setShowAlignmentGuides(!showAlignmentGuides)}
-          style={{
-            color: showAlignmentGuides ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px'
-          }}
-          title={
-            showAlignmentGuides
-              ? t('canvas.toolbar.alignmentGuidesOff')
-              : t('canvas.toolbar.alignmentGuidesOn')
-          }
-        >
-          <AlignCenter style={{ width: '16px', height: '16px' }} />
-        </button>
-
-        <div style={{ width: '1px', height: '16px', backgroundColor: 'rgb(var(--border-rgb))' }} />
-
-        <button
-          onClick={() => setShowJimengQueuePanel((value) => !value)}
-          style={{
-            color: showJimengQueuePanel ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px',
-            position: 'relative',
-          }}
-          title={t('jimengQueue.panel.toggle')}
-        >
-          <ListOrdered style={{ width: '16px', height: '16px' }} />
-          {jimengQueuePendingCount > 0 ? (
-            <span
-              className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white"
-            >
-              {jimengQueuePendingCount > 99 ? '99+' : jimengQueuePendingCount}
-            </span>
-          ) : null}
-        </button>
-
-        {/* 小地图开关 */}
-        <button
-          onClick={() => setShowMiniMap(!showMiniMap)}
-          style={{ 
-            color: showMiniMap ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px'
-          }}
-          title={showMiniMap ? t('canvas.toolbar.miniMapOff') : t('canvas.toolbar.miniMapOn')}
-        >
-          <MapIcon style={{ width: '16px', height: '16px' }} />
-        </button>
-
-        <button
-          onClick={() => setShowCanvasEdges(!showCanvasEdges)}
-          aria-pressed={showCanvasEdges}
-          style={{
-            color: showCanvasEdges ? 'rgb(var(--accent-rgb))' : 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px'
-          }}
-          title={
-            showCanvasEdges
-              ? t('canvas.toolbar.connectionLinesOn')
-              : t('canvas.toolbar.connectionLinesOff')
-          }
-        >
-          <Link2 style={{ width: '16px', height: '16px' }} />
-        </button>
-
-        <div style={{ width: '1px', height: '16px', backgroundColor: 'rgb(var(--border-rgb))' }} />
-
-        {/* 缩小 */}
-        <button
-          onClick={() => zoomOut()}
-          style={{ 
-            color: 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px'
-          }}
-          title="缩小"
-        >
-          <Minus style={{ width: '16px', height: '16px' }} />
-        </button>
-
-        {/* 缩放百分比 */}
-        <CanvasZoomIndicator />
-
-        {/* 放大 */}
-        <button
-          onClick={() => zoomIn()}
-          style={{ 
-            color: 'rgb(var(--text-muted-rgb))',
-            padding: '6px',
-            borderRadius: '4px'
-          }}
-          title="放大"
-        >
-          <Plus style={{ width: '16px', height: '16px' }} />
-        </button>
-        </div>
-      )}
-
-      <JimengVideoQueuePanel
-        isOpen={showJimengQueuePanel && !isImageViewerOpen}
-        onClose={() => setShowJimengQueuePanel(false)}
-      />
-
-      {dragOverlayKind && (
-        <div className="absolute inset-0 z-50 pointer-events-none">
-          <div
-            className={`absolute inset-0 m-4 flex items-center justify-center rounded-lg border-2 border-dashed ${
-              dragOverlayKind === 'files'
-                ? 'border-amber-500/50 bg-amber-500/10'
-                : 'border-accent/40 bg-accent/10'
-            }`}
-          >
-            <div
-              className={`rounded-xl px-6 py-4 shadow-lg ${
-                dragOverlayKind === 'files'
-                  ? 'border border-amber-500/30 bg-surface-dark/90'
-                  : 'border border-accent/30 bg-surface-dark/92'
+          <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
+            {!isImageViewerOpen && !shouldHideSelectionChrome && (
+              <CanvasColorLegend
+                colorLabels={colorLegendLabels}
+                eligibleSelectedCount={selectedColorableNodes.length}
+                activeColor={activeSelectedSemanticColor}
+                onApplyColor={handleApplySemanticColor}
+                onUpdateLabel={handleUpdateColorLabel}
+              />
+            )}
+            {!isImageViewerOpen && imageCompareNotice && (
+              <div className="pointer-events-none absolute inset-x-0 top-4 z-[90] flex justify-center px-4">
+                <div
+                  className={`max-w-[min(540px,100%)] rounded-full border px-4 py-2 text-sm font-medium shadow-[0_18px_48px_rgba(15,23,42,0.22)] backdrop-blur ${
+                    imageCompareNotice.tone === "success"
+                      ? "border-emerald-400/55 bg-emerald-500/18 text-emerald-50"
+                      : "border-amber-300/45 bg-surface-dark/92 text-text-dark"
+                  }`}
+                >
+                  {imageCompareNotice.message}
+                </div>
+              </div>
+            )}
+            {!isImageViewerOpen && edgeCutNoticeCount !== null && (
+              <div className="pointer-events-none absolute inset-x-0 top-14 z-[90] flex justify-center px-4">
+                <div className="max-w-[min(420px,100%)] rounded-full border border-accent/45 bg-accent/18 px-4 py-2 text-sm font-medium text-text-dark shadow-[0_18px_48px_rgba(15,23,42,0.22)] backdrop-blur">
+                  {t("canvas.edgeCutDisconnected", {
+                    count: edgeCutNoticeCount,
+                  })}
+                </div>
+              </div>
+            )}
+            {!isImageViewerOpen && !shouldHideCanvasChrome && (
+              <GroupSidebar
+                groups={groupNodesList}
+                selectedGroupId={selectedGroupId}
+                onLocateGroup={handleLocateGroup}
+                onSelectGroup={handleLocateGroup}
+              />
+            )}
+            <ReactFlow
+              nodes={flowNodes}
+              edges={visibleFlowEdges}
+              onNodesChange={handleNodesChange}
+              onEdgesChange={handleEdgesChange}
+              onEdgeClick={handleEdgeClick}
+              onEdgeDoubleClick={handleEdgeDoubleClick}
+              onConnect={handleConnect}
+              onConnectStart={handleConnectStart}
+              onConnectEnd={handleConnectEnd}
+              onNodeDragStart={handleNodeDragStart}
+              onNodeDrag={handleNodeDrag}
+              onNodeDragStop={handleNodeDragStop}
+              onPaneClick={handlePaneClick}
+              onPaneContextMenu={handlePaneContextMenu}
+              onMove={handleMove}
+              onMoveStart={handleMoveStart}
+              onMoveEnd={handleMoveEnd}
+              onSelectionStart={handleSelectionStart}
+              onSelectionEnd={handleSelectionEnd}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onInit={handleReactFlowInit}
+              nodeTypes={effectiveNodeTypes}
+              edgeTypes={effectiveEdgeTypes}
+              defaultEdgeOptions={{ type: "disconnectableEdge" }}
+              defaultViewport={DEFAULT_VIEWPORT}
+              minZoom={0.1}
+              maxZoom={5}
+              selectionOnDrag={isCanvasSelectionKeyPressed}
+              selectionMode={SelectionMode.Partial}
+              multiSelectionKeyCode={["Control", "Meta"]}
+              selectionKeyCode={null}
+              deleteKeyCode={null}
+              panOnDrag={!isCanvasSelectionKeyPressed}
+              onlyRenderVisibleElements
+              zoomOnDoubleClick={false}
+              snapToGrid={snapToGrid}
+              snapGrid={[snapGridSize, snapGridSize]}
+              proOptions={{ hideAttribution: true }}
+              className={`bg-bg-dark ${isCanvasOverviewRender ? "canvas-render-overview" : "canvas-render-full"} ${
+                dragHistorySnapshot || isDraggingNode
+                  ? "canvas-render-dragging"
+                  : ""
               }`}
             >
-              <div
-                className={`flex items-center gap-3 ${
-                  dragOverlayKind === 'files' ? 'text-amber-400' : 'text-accent'
-                }`}
-              >
-                {dragOverlayKind === 'files' ? (
-                  <Upload className="h-6 w-6" />
-                ) : (
-                  <ImagePlus className="h-6 w-6" />
+              {showGrid && !shouldHideCanvasChrome ? (
+                <Background
+                  variant={BackgroundVariant.Dots}
+                  gap={snapGridSize}
+                  size={1.5}
+                  color="var(--canvas-grid-dot)"
+                />
+              ) : null}
+
+              {showMiniMap &&
+                !shouldHideViewportInteractionChrome &&
+                !isImageViewerOpen && (
+                  <MiniMap
+                    className="canvas-minimap nopan nowheel !border-border-dark !bg-surface-dark"
+                    style={{
+                      pointerEvents: "all",
+                      zIndex: 10000,
+                      bottom: 84,
+                      right: 16,
+                    }}
+                    nodeColor="rgba(120, 120, 120, 0.92)"
+                    maskColor="rgba(0, 0, 0, 0.62)"
+                    pannable
+                    zoomable
+                  />
                 )}
-                <span className="text-lg font-medium">
-                  {dragOverlayKind === 'files'
-                    ? t('canvas.dropFilesHint')
-                    : t('assets.dropToCanvas')}
-                </span>
+
+              {!shouldHideSelectionChrome && <SelectedNodeOverlay />}
+              {!shouldHideSelectionChrome &&
+                !isImageViewerOpen &&
+                !isDraggingNode && (
+                  <SelectionGroupBar
+                    selectedNodes={selectedNodesForOverlay}
+                    onGroup={handleGroupSelectedNodes}
+                    downloadableCount={selectedDownloadNodes.length}
+                    onExportSelected={handleExportSelectedMedia}
+                    isExportingSelected={isExportingSelectedImages}
+                    assetAddableCount={selectedAssetAddableNodeIds.length}
+                    onAddSelectedToAssets={handleAddSelectedToAssets}
+                    isAddingSelectedToAssets={isPreparingSelectedAssets}
+                    onTransferSelected={handleTransferSelectedNodes}
+                  />
+                )}
+
+              {/* 对齐辅助线 */}
+              {isDraggingNode && alignmentGuides.length > 0 && (
+                <AlignmentGuides guides={alignmentGuides} />
+              )}
+            </ReactFlow>
+
+            {edgeCutVisual && edgeCutVisual.screenPoints.length > 0 && (
+              <svg className="pointer-events-none absolute inset-0 z-[120] overflow-visible">
+                <polyline
+                  points={edgeCutVisual.screenPoints
+                    .map((point) => `${point.x},${point.y}`)
+                    .join(" ")}
+                  fill="none"
+                  stroke="rgb(var(--accent-rgb) / 0.22)"
+                  strokeWidth={10}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <polyline
+                  points={edgeCutVisual.screenPoints
+                    .map((point) => `${point.x},${point.y}`)
+                    .join(" ")}
+                  fill="none"
+                  stroke="rgb(var(--accent-rgb) / 0.95)"
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+
+            {/* 合并锚点 - 多选时显示 */}
+            {selectedNodes.length >= 2 &&
+              !isDraggingBranchConnection &&
+              !shouldHideSelectionChrome &&
+              !isImageViewerOpen && (
+                <MergedConnectionAnchor
+                  selectedNodes={selectedNodesForOverlay}
+                  onMouseDown={handleMergedAnchorMouseDown}
+                />
+              )}
+
+            {/* 分支连线预览 */}
+            {isDraggingBranchConnection &&
+              branchConnectionPosition &&
+              !shouldHideViewportInteractionChrome &&
+              !isImageViewerOpen && (
+                <BranchConnectionPreview
+                  sourceNodes={branchConnectionSource}
+                  currentPosition={branchConnectionPosition}
+                />
+              )}
+
+            {/* 批量操作菜单 */}
+            {showBatchMenu &&
+              branchConnectionSource.length > 0 &&
+              !shouldHideSelectionChrome &&
+              !isImageViewerOpen && (
+                <BatchOperationMenu
+                  position={batchMenuPosition}
+                  sourceNodeIds={branchConnectionSource.map((n) => n.id)}
+                  sourceNodeType={branchConnectionSource[0]?.type || "default"}
+                  projectType={
+                    project?.projectType === "script" ? "script" : "storyboard"
+                  }
+                  onSelectNodeType={handleBatchOperationSelect}
+                  onClose={resetBranchConnectionState}
+                />
+              )}
+
+            {/* 右下角控制条 */}
+            {!isImageViewerOpen && <CanvasAssetDock />}
+
+            {!isImageViewerOpen && (
+              <div
+                className="absolute flex items-center gap-1 rounded-lg border border-border-dark bg-surface-dark px-2 py-1.5 shadow-lg"
+                style={{
+                  bottom: "16px",
+                  right: "16px",
+                  zIndex: 9999,
+                }}
+              >
+                {/* 网格吸附开关 */}
+                <button
+                  onClick={() => setSnapToGrid(!snapToGrid)}
+                  style={{
+                    color: snapToGrid
+                      ? "rgb(var(--accent-rgb))"
+                      : "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                  }}
+                  title={
+                    snapToGrid
+                      ? t("canvas.toolbar.gridSnapOff")
+                      : t("canvas.toolbar.gridSnapOn")
+                  }
+                >
+                  <Grid3x3 style={{ width: "16px", height: "16px" }} />
+                </button>
+
+                <div
+                  style={{
+                    width: "1px",
+                    height: "16px",
+                    backgroundColor: "rgb(var(--border-rgb))",
+                  }}
+                />
+
+                {/* 对齐辅助线开关 */}
+                <button
+                  onClick={() => setShowAlignmentGuides(!showAlignmentGuides)}
+                  style={{
+                    color: showAlignmentGuides
+                      ? "rgb(var(--accent-rgb))"
+                      : "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                  }}
+                  title={
+                    showAlignmentGuides
+                      ? t("canvas.toolbar.alignmentGuidesOff")
+                      : t("canvas.toolbar.alignmentGuidesOn")
+                  }
+                >
+                  <AlignCenter style={{ width: "16px", height: "16px" }} />
+                </button>
+
+                <div
+                  style={{
+                    width: "1px",
+                    height: "16px",
+                    backgroundColor: "rgb(var(--border-rgb))",
+                  }}
+                />
+
+                <button
+                  onClick={() => setShowJimengQueuePanel((value) => !value)}
+                  style={{
+                    color: showJimengQueuePanel
+                      ? "rgb(var(--accent-rgb))"
+                      : "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                    position: "relative",
+                  }}
+                  title={t("jimengQueue.panel.toggle")}
+                >
+                  <ListOrdered style={{ width: "16px", height: "16px" }} />
+                  {jimengQueuePendingCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">
+                      {jimengQueuePendingCount > 99
+                        ? "99+"
+                        : jimengQueuePendingCount}
+                    </span>
+                  ) : null}
+                </button>
+
+                {/* 小地图开关 */}
+                <button
+                  onClick={() => setShowMiniMap(!showMiniMap)}
+                  style={{
+                    color: showMiniMap
+                      ? "rgb(var(--accent-rgb))"
+                      : "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                  }}
+                  title={
+                    showMiniMap
+                      ? t("canvas.toolbar.miniMapOff")
+                      : t("canvas.toolbar.miniMapOn")
+                  }
+                >
+                  <MapIcon style={{ width: "16px", height: "16px" }} />
+                </button>
+
+                <button
+                  onClick={() => setShowCanvasEdges(!showCanvasEdges)}
+                  aria-pressed={showCanvasEdges}
+                  style={{
+                    color: showCanvasEdges
+                      ? "rgb(var(--accent-rgb))"
+                      : "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                  }}
+                  title={
+                    showCanvasEdges
+                      ? t("canvas.toolbar.connectionLinesOn")
+                      : t("canvas.toolbar.connectionLinesOff")
+                  }
+                >
+                  <Link2 style={{ width: "16px", height: "16px" }} />
+                </button>
+
+                <div
+                  style={{
+                    width: "1px",
+                    height: "16px",
+                    backgroundColor: "rgb(var(--border-rgb))",
+                  }}
+                />
+
+                {/* 缩小 */}
+                <button
+                  onClick={() => zoomOut()}
+                  style={{
+                    color: "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                  }}
+                  title="缩小"
+                >
+                  <Minus style={{ width: "16px", height: "16px" }} />
+                </button>
+
+                {/* 缩放百分比 */}
+                <CanvasZoomIndicator />
+
+                {/* 放大 */}
+                <button
+                  onClick={() => zoomIn()}
+                  style={{
+                    color: "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                  }}
+                  title="放大"
+                >
+                  <Plus style={{ width: "16px", height: "16px" }} />
+                </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            )}
 
-      {nodes.length === 0 && emptyHint}
-      {(showNodeMenu || showSceneCatalogMenu || showEpisodeCatalogMenu) && previewConnectionVisual && (
-        <svg
-          className="pointer-events-none absolute z-40 overflow-visible"
-          style={{
-            left: previewConnectionVisual.left,
-            top: previewConnectionVisual.top,
-            width: previewConnectionVisual.width,
-            height: previewConnectionVisual.height,
-          }}
-          width={previewConnectionVisual.width}
-          height={previewConnectionVisual.height}
-        >
-          <path
-            className="pointer-events-none"
-            d={previewConnectionVisual.d}
-            fill="none"
-            stroke={previewConnectionVisual.stroke}
-            strokeWidth={previewConnectionVisual.strokeWidth}
-            strokeLinecap={previewConnectionVisual.strokeLinecap}
-          />
-        </svg>
-      )}
-
-      {showNodeMenu && (
-        <NodeSelectionMenu
-          position={menuPosition}
-          allowedTypes={menuAllowedTypes}
-          projectType={project?.projectType as 'storyboard' | 'script' | undefined}
-          showBranchOption={(() => {
-            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
-            return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
-          })()}
-          onlyBranchOption={(() => {
-            if (project?.projectType !== 'script' || !pendingConnectStart?.nodeId) return false;
-            const sourceNode = nodes.find(n => n.id === pendingConnectStart.nodeId);
-            return sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter || sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot;
-          })()}
-          onSelect={handleNodeSelect}
-          onSpecialAction={handleCreateBranch}
-          onClose={closeConnectMenus}
-        />
-      )}
-
-      {showSceneCatalogMenu && sceneCatalogChapterNode && (
-        <SceneCatalogMenu
-          position={menuPosition}
-          chapterNumber={(sceneCatalogChapterNode.data as ScriptChapterNodeData).chapterNumber || 1}
-          chapterTitle={(sceneCatalogChapterNode.data as ScriptChapterNodeData).title || ''}
-          scenes={sceneCatalogItems}
-          onSelect={handleSceneCatalogSelect}
-          onClose={closeConnectMenus}
-        />
-      )}
-
-      {showEpisodeCatalogMenu && episodeCatalogSceneNode && (
-        <EpisodeCatalogMenu
-          position={menuPosition}
-          chapterNumber={(episodeCatalogSceneNode.data as ScriptSceneNodeData).chapterNumber || 1}
-          sceneOrder={(episodeCatalogSceneNode.data as ScriptSceneNodeData).sourceSceneOrder}
-          sceneTitle={(episodeCatalogSceneNode.data as ScriptSceneNodeData).title || ''}
-          episodes={episodeCatalogItems}
-          onSelect={handleEpisodeCatalogSelect}
-          onClose={closeConnectMenus}
-        />
-      )}
-
-      {hasMountedToolDialog && (
-        <Suspense fallback={null}>
-          <NodeToolDialog />
-        </Suspense>
-      )}
-
-      {hasMountedImageViewer && (
-        <Suspense fallback={null}>
-          {imageViewer.mode === 'compare' ? (
-            activeCompareViewerNode ? (
-              <ImageViewerModal
-                open={imageViewer.isOpen}
-                mode="compare"
-                compareNodeId={activeCompareViewerNode.id}
-                compareData={activeCompareViewerNode.data}
-                onClose={closeImageViewer}
-                onNavigate={navigateImageViewer}
-              />
-            ) : null
-          ) : (
-            <ImageViewerModal
-              open={imageViewer.isOpen}
-              mode="single"
-              imageUrl={imageViewer.currentImageUrl || ''}
-              imageList={imageViewer.imageList}
-              currentIndex={imageViewer.currentIndex}
-              metadata={imageViewer.metadata}
-              onClose={closeImageViewer}
-              onNavigate={navigateImageViewer}
+            <JimengVideoQueuePanel
+              isOpen={showJimengQueuePanel && !isImageViewerOpen}
+              onClose={() => setShowJimengQueuePanel(false)}
             />
+
+            {dragOverlayKind && (
+              <div className="absolute inset-0 z-50 pointer-events-none">
+                <div
+                  className={`absolute inset-0 m-4 flex items-center justify-center rounded-lg border-2 border-dashed ${
+                    dragOverlayKind === "files"
+                      ? "border-amber-500/50 bg-amber-500/10"
+                      : "border-accent/40 bg-accent/10"
+                  }`}
+                >
+                  <div
+                    className={`rounded-xl px-6 py-4 shadow-lg ${
+                      dragOverlayKind === "files"
+                        ? "border border-amber-500/30 bg-surface-dark/90"
+                        : "border border-accent/30 bg-surface-dark/92"
+                    }`}
+                  >
+                    <div
+                      className={`flex items-center gap-3 ${
+                        dragOverlayKind === "files"
+                          ? "text-amber-400"
+                          : "text-accent"
+                      }`}
+                    >
+                      {dragOverlayKind === "files" ? (
+                        <Upload className="h-6 w-6" />
+                      ) : (
+                        <ImagePlus className="h-6 w-6" />
+                      )}
+                      <span className="text-lg font-medium">
+                        {dragOverlayKind === "files"
+                          ? t("canvas.dropFilesHint")
+                          : t("assets.dropToCanvas")}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {nodes.length === 0 && emptyHint}
+            {(showNodeMenu || showSceneCatalogMenu || showEpisodeCatalogMenu) &&
+              previewConnectionVisual && (
+                <svg
+                  className="pointer-events-none absolute z-40 overflow-visible"
+                  style={{
+                    left: previewConnectionVisual.left,
+                    top: previewConnectionVisual.top,
+                    width: previewConnectionVisual.width,
+                    height: previewConnectionVisual.height,
+                  }}
+                  width={previewConnectionVisual.width}
+                  height={previewConnectionVisual.height}
+                >
+                  <path
+                    className="pointer-events-none"
+                    d={previewConnectionVisual.d}
+                    fill="none"
+                    stroke={previewConnectionVisual.stroke}
+                    strokeWidth={previewConnectionVisual.strokeWidth}
+                    strokeLinecap={previewConnectionVisual.strokeLinecap}
+                  />
+                </svg>
+              )}
+
+            {showNodeMenu && (
+              <NodeSelectionMenu
+                position={menuPosition}
+                allowedTypes={menuAllowedTypes}
+                projectType={
+                  project?.projectType as "storyboard" | "script" | undefined
+                }
+                showBranchOption={(() => {
+                  if (
+                    project?.projectType !== "script" ||
+                    !pendingConnectStart?.nodeId
+                  )
+                    return false;
+                  const sourceNode = nodes.find(
+                    (n) => n.id === pendingConnectStart.nodeId,
+                  );
+                  return (
+                    sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter ||
+                    sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot
+                  );
+                })()}
+                onlyBranchOption={(() => {
+                  if (
+                    project?.projectType !== "script" ||
+                    !pendingConnectStart?.nodeId
+                  )
+                    return false;
+                  const sourceNode = nodes.find(
+                    (n) => n.id === pendingConnectStart.nodeId,
+                  );
+                  return (
+                    sourceNode?.type === CANVAS_NODE_TYPES.scriptChapter ||
+                    sourceNode?.type === CANVAS_NODE_TYPES.scriptRoot
+                  );
+                })()}
+                onSelect={handleNodeSelect}
+                onSpecialAction={handleCreateBranch}
+                onClose={closeConnectMenus}
+              />
+            )}
+
+            {showSceneCatalogMenu && sceneCatalogChapterNode && (
+              <SceneCatalogMenu
+                position={menuPosition}
+                chapterNumber={
+                  (sceneCatalogChapterNode.data as ScriptChapterNodeData)
+                    .chapterNumber || 1
+                }
+                chapterTitle={
+                  (sceneCatalogChapterNode.data as ScriptChapterNodeData)
+                    .title || ""
+                }
+                scenes={sceneCatalogItems}
+                onSelect={handleSceneCatalogSelect}
+                onClose={closeConnectMenus}
+              />
+            )}
+
+            {showEpisodeCatalogMenu && episodeCatalogSceneNode && (
+              <EpisodeCatalogMenu
+                position={menuPosition}
+                chapterNumber={
+                  (episodeCatalogSceneNode.data as ScriptSceneNodeData)
+                    .chapterNumber || 1
+                }
+                sceneOrder={
+                  (episodeCatalogSceneNode.data as ScriptSceneNodeData)
+                    .sourceSceneOrder
+                }
+                sceneTitle={
+                  (episodeCatalogSceneNode.data as ScriptSceneNodeData).title ||
+                  ""
+                }
+                episodes={episodeCatalogItems}
+                onSelect={handleEpisodeCatalogSelect}
+                onClose={closeConnectMenus}
+              />
+            )}
+
+            {hasMountedToolDialog && (
+              <Suspense fallback={null}>
+                <NodeToolDialog />
+              </Suspense>
+            )}
+
+            {hasMountedImageViewer && (
+              <Suspense fallback={null}>
+                {imageViewer.mode === "compare" ? (
+                  activeCompareViewerNode ? (
+                    <ImageViewerModal
+                      open={imageViewer.isOpen}
+                      mode="compare"
+                      compareNodeId={activeCompareViewerNode.id}
+                      compareData={activeCompareViewerNode.data}
+                      onClose={closeImageViewer}
+                      onNavigate={navigateImageViewer}
+                    />
+                  ) : null
+                ) : (
+                  <ImageViewerModal
+                    open={imageViewer.isOpen}
+                    mode="single"
+                    imageUrl={imageViewer.currentImageUrl || ""}
+                    imageList={imageViewer.imageList}
+                    currentIndex={imageViewer.currentIndex}
+                    metadata={imageViewer.metadata}
+                    onClose={closeImageViewer}
+                    onNavigate={navigateImageViewer}
+                  />
+                )}
+              </Suspense>
+            )}
+            {activeDirectorStageNode && (
+              <Suspense fallback={null}>
+                <DirectorStageWorkspace
+                  nodeId={activeDirectorStageNode.id}
+                  data={activeDirectorStageNode.data as DirectorStageNodeData}
+                  connectedEnvironments={connectedDirectorStageEnvironments}
+                  onClose={closeDirectorStage}
+                />
+              </Suspense>
+            )}
+          </div>
+          {isScriptProject && (
+            <Suspense fallback={null}>
+              <SceneStudioPanel />
+            </Suspense>
           )}
-        </Suspense>
-      )}
-      {activeDirectorStageNode && (
-        <Suspense fallback={null}>
-          <DirectorStageWorkspace
-            nodeId={activeDirectorStageNode.id}
-            data={activeDirectorStageNode.data as DirectorStageNodeData}
-            connectedEnvironments={connectedDirectorStageEnvironments}
-            onClose={closeDirectorStage}
-          />
-        </Suspense>
-      )}
-      </div>
-      {isScriptProject && (
-        <Suspense fallback={null}>
-          <SceneStudioPanel />
-        </Suspense>
-      )}
-    </div>
-    </CanvasEdgePerformanceContext.Provider>
+        </div>
+      </CanvasEdgePerformanceContext.Provider>
     </CanvasMediaPerformanceContext.Provider>
   );
 }

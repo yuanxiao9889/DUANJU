@@ -42,7 +42,7 @@ export const STORYBOARD_PRODUCTION_CARD_TOP_PADDING = 300;
 export const STORYBOARD_PRODUCTION_CARD_BOTTOM_PADDING = 28;
 export const STORYBOARD_PRODUCTION_CARD_GAP_X = 24;
 export const STORYBOARD_PRODUCTION_CARD_GAP_Y = 24;
-export const STORYBOARD_PRODUCTION_CARD_MIN_WIDTH = 2440;
+export const STORYBOARD_PRODUCTION_CARD_MIN_WIDTH = 1648;
 export const STORYBOARD_PRODUCTION_CARD_MIN_HEIGHT = 820;
 
 const DEFAULT_GROUP_LAYOUT_GAP_X = 28;
@@ -95,23 +95,28 @@ function normalizeTimestamp(value: unknown): number | null {
 }
 
 function getNodeSize(node: CanvasNode): { width: number; height: number } {
+  const explicitWidth =
+    typeof node.width === 'number'
+      ? node.width
+      : typeof node.style?.width === 'number'
+        ? node.style.width
+        : null;
+  const explicitHeight =
+    typeof node.height === 'number'
+      ? node.height
+      : typeof node.style?.height === 'number'
+        ? node.style.height
+        : null;
+
   return {
     width:
-      typeof node.measured?.width === 'number'
-        ? node.measured.width
-        : typeof node.width === 'number'
-          ? node.width
-          : typeof node.style?.width === 'number'
-            ? node.style.width
-            : DEFAULT_NODE_WIDTH,
+      explicitWidth
+      ?? (typeof node.measured?.width === 'number' ? node.measured.width : null)
+      ?? DEFAULT_NODE_WIDTH,
     height:
-      typeof node.measured?.height === 'number'
-        ? node.measured.height
-        : typeof node.height === 'number'
-          ? node.height
-          : typeof node.style?.height === 'number'
-            ? node.style.height
-            : 200,
+      explicitHeight
+      ?? (typeof node.measured?.height === 'number' ? node.measured.height : null)
+      ?? 200,
   };
 }
 

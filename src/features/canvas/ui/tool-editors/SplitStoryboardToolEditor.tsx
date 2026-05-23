@@ -18,6 +18,8 @@ const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
 const MIN_PREVIEW_LINE_THICKNESS_PX = 2;
 const MIN_PREVIEW_LINE_HIT_SIZE_PX = 10;
+const FALLBACK_PREVIEW_VIEWPORT_WIDTH_PX = 720;
+const FALLBACK_PREVIEW_VIEWPORT_HEIGHT_PX = 420;
 
 interface OverlayRect {
   x: number;
@@ -372,22 +374,41 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
 
     const updateViewportSize = () => {
       const rect = element.getBoundingClientRect();
-      setViewportSize({
+      const nextViewportSize = {
         width: Math.max(0, Math.round(rect.width)),
         height: Math.max(0, Math.round(rect.height)),
-      });
+      };
+      setViewportSize((current) => (
+        current.width === nextViewportSize.width && current.height === nextViewportSize.height
+          ? current
+          : nextViewportSize
+      ));
     };
 
     updateViewportSize();
+    const frameIds = [
+      window.requestAnimationFrame(updateViewportSize),
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(updateViewportSize);
+      }),
+    ];
+    window.addEventListener('resize', updateViewportSize);
 
     if (typeof ResizeObserver === 'undefined') {
-      return;
+      return () => {
+        frameIds.forEach((frameId) => window.cancelAnimationFrame(frameId));
+        window.removeEventListener('resize', updateViewportSize);
+      };
     }
 
     const observer = new ResizeObserver(updateViewportSize);
     observer.observe(element);
 
-    return () => observer.disconnect();
+    return () => {
+      frameIds.forEach((frameId) => window.cancelAnimationFrame(frameId));
+      window.removeEventListener('resize', updateViewportSize);
+      observer.disconnect();
+    };
   }, []);
 
   const rows = clampInteger(toFiniteNumber(options.rows, 3), MIN_GRID_SIZE, MAX_GRID_SIZE);
@@ -450,16 +471,14 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       return null;
     }
 
-    if (viewportSize.width <= 0 || viewportSize.height <= 0) {
-      return {
-        width: naturalSize.width,
-        height: naturalSize.height,
-        fitScale: 1,
-      };
-    }
-
-    const maxWidth = Math.max(1, viewportSize.width - PREVIEW_VIEWPORT_PADDING_PX);
-    const maxHeight = Math.max(1, viewportSize.height - PREVIEW_VIEWPORT_PADDING_PX);
+    const resolvedViewportWidth = viewportSize.width > 0
+      ? viewportSize.width
+      : FALLBACK_PREVIEW_VIEWPORT_WIDTH_PX;
+    const resolvedViewportHeight = viewportSize.height > 0
+      ? viewportSize.height
+      : FALLBACK_PREVIEW_VIEWPORT_HEIGHT_PX;
+    const maxWidth = Math.max(1, resolvedViewportWidth - PREVIEW_VIEWPORT_PADDING_PX);
+    const maxHeight = Math.max(1, resolvedViewportHeight - PREVIEW_VIEWPORT_PADDING_PX);
     const fitScale = Math.min(
       maxWidth / naturalSize.width,
       maxHeight / naturalSize.height,
@@ -802,6 +821,21 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
                 setNaturalSize({
                   width: Math.max(1, target.naturalWidth),
                   height: Math.max(1, target.naturalHeight),
+                });
+                window.requestAnimationFrame(() => {
+                  const rect = previewContainerRef.current?.getBoundingClientRect();
+                  if (!rect) {
+                    return;
+                  }
+                  setViewportSize((current) => {
+                    const nextViewportSize = {
+                      width: Math.max(0, Math.round(rect.width)),
+                      height: Math.max(0, Math.round(rect.height)),
+                    };
+                    return current.width === nextViewportSize.width && current.height === nextViewportSize.height
+                      ? current
+                      : nextViewportSize;
+                  });
                 });
               }}
               draggable={false}

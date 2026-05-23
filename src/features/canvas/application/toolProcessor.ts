@@ -9,6 +9,7 @@ import {
   loadImageElement,
   parseAspectRatio,
   persistImageLocally,
+  resolveLocalFileSourcePath,
 } from './imageData';
 import { prepareNodeAudioFromFile } from './audioData';
 import { trimMediaSource } from './mediaTrim';
@@ -380,12 +381,15 @@ export class CanvasToolProcessor implements ToolProcessor {
         colRatios,
         rowRatios
       );
+      if (this.hasUnexpectedDuplicateSplitOutputs(outputs, safeRows * safeCols)) {
+        outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness, colRatios, rowRatios);
+      }
     } catch {
       outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness, colRatios, rowRatios);
     }
 
     const persistedFrameImages = await Promise.all(
-      outputs.map(async (imageUrl) => await persistImageLocally(imageUrl))
+      outputs.map(async (imageUrl) => await this.persistSplitOutput(imageUrl))
     );
 
     let frameAspectRatio: string | undefined;
@@ -414,6 +418,32 @@ export class CanvasToolProcessor implements ToolProcessor {
       cols: safeCols,
       frameAspectRatio: resolvedFrameAspectRatio,
     };
+  }
+
+  private hasUnexpectedDuplicateSplitOutputs(outputs: string[], expectedCount: number): boolean {
+    if (outputs.length !== expectedCount || outputs.length <= 1) {
+      return false;
+    }
+
+    const normalizedOutputs = outputs
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+
+    return normalizedOutputs.length === expectedCount
+      && new Set(normalizedOutputs).size === 1;
+  }
+
+  private async persistSplitOutput(imageUrl: string): Promise<string> {
+    const normalizedImageUrl = imageUrl.trim();
+    if (!normalizedImageUrl) {
+      return await persistImageLocally(normalizedImageUrl);
+    }
+
+    if (resolveLocalFileSourcePath(normalizedImageUrl)) {
+      return normalizedImageUrl;
+    }
+
+    return await persistImageLocally(normalizedImageUrl);
   }
 
   private resolveMaxAllowedLineThickness(

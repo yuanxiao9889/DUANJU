@@ -1,4 +1,5 @@
-import { NodeResizeControl } from '@xyflow/react';
+import { useCallback, useEffect, useRef } from 'react';
+import { NodeResizeControl, useNodeId, useUpdateNodeInternals } from '@xyflow/react';
 import type { ControlPosition } from '@xyflow/system';
 
 type NodeResizeHandleProps = {
@@ -32,6 +33,33 @@ export function NodeResizeHandle({
   position = 'bottom-right',
   className = '',
 }: NodeResizeHandleProps) {
+  const nodeId = useNodeId();
+  const updateNodeInternals = useUpdateNodeInternals();
+  const updateFrameRef = useRef<number | null>(null);
+
+  const scheduleNodeInternalsUpdate = useCallback(() => {
+    if (!nodeId) {
+      return;
+    }
+
+    if (updateFrameRef.current !== null) {
+      window.cancelAnimationFrame(updateFrameRef.current);
+    }
+
+    updateFrameRef.current = window.requestAnimationFrame(() => {
+      updateFrameRef.current = null;
+      updateNodeInternals(nodeId);
+    });
+  }, [nodeId, updateNodeInternals]);
+
+  useEffect(() => {
+    return () => {
+      if (updateFrameRef.current !== null) {
+        window.cancelAnimationFrame(updateFrameRef.current);
+      }
+    };
+  }, []);
+
   return (
     <NodeResizeControl
       minWidth={minWidth}
@@ -39,6 +67,8 @@ export function NodeResizeHandle({
       maxWidth={maxWidth}
       maxHeight={maxHeight}
       position={position}
+      onResize={scheduleNodeInternalsUpdate}
+      onResizeEnd={scheduleNodeInternalsUpdate}
       className={`!h-4 !w-4 !min-h-0 !min-w-0 !rounded-none !border-0 !bg-transparent !p-0 transition-opacity duration-150 ${isVisible ? '!opacity-100' : '!opacity-0'} hover:!opacity-100 focus-within:!opacity-100 group-hover:!opacity-70 ${className}`}
     >
       <div className={`pointer-events-none absolute h-2.5 w-2.5 border-[#222222]/70 dark:border-white/65 ${CORNER_STYLES[position]}`} />

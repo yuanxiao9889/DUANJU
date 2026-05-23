@@ -24,17 +24,19 @@ export function getCanvasNodeSize(
     typeof node.style?.width === "number" ? node.style.width : null;
   const styleHeight =
     typeof node.style?.height === "number" ? node.style.height : null;
+  const explicitWidth = typeof node.width === "number" ? node.width : null;
+  const explicitHeight = typeof node.height === "number" ? node.height : null;
 
   return {
     width:
-      node.measured?.width ??
-      (typeof node.width === "number" ? node.width : null) ??
+      explicitWidth ??
       styleWidth ??
+      node.measured?.width ??
       DEFAULT_NODE_WIDTH,
     height:
-      node.measured?.height ??
-      (typeof node.height === "number" ? node.height : null) ??
+      explicitHeight ??
       styleHeight ??
+      node.measured?.height ??
       200,
   };
 }

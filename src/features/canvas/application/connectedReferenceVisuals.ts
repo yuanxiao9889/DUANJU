@@ -1,6 +1,7 @@
 import {
   type CanvasEdge,
   type CanvasNode,
+  type ImageViewerMetadata,
 } from "../domain/canvasNodes";
 import { extractReferenceVisuals } from "./nodeReferenceExtraction";
 
@@ -14,6 +15,7 @@ export interface ConnectedReferenceVisual {
   assetId?: string | null;
   displayName?: string | null;
   tokenAlias?: string | null;
+  viewerMetadata?: ImageViewerMetadata | null;
 }
 
 export function collectConnectedReferenceVisuals(
@@ -53,6 +55,7 @@ export function collectConnectedReferenceVisuals(
         assetId: item.assetId ?? null,
         displayName: item.displayName ?? null,
         tokenAlias: item.tokenAlias ?? null,
+        viewerMetadata: item.viewerMetadata ?? null,
       });
     }
   }

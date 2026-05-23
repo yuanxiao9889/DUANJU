@@ -467,6 +467,8 @@ export interface StoryboardProductionImageResult {
   previewImageUrl?: string | null;
   thumbnailUrl?: string | null;
   thumbnailMaxDimension?: number | null;
+  imageWidth?: number;
+  imageHeight?: number;
   aspectRatio?: string | null;
   generationSummary?: ExportImageGenerationSummary | null;
   createdAt: number;
@@ -1520,6 +1522,8 @@ function normalizeStoryboardProductionImageResult(
     thumbnailMaxDimension: Number.isFinite(record.thumbnailMaxDimension)
       ? Number(record.thumbnailMaxDimension)
       : null,
+    imageWidth: Number.isFinite(record.imageWidth) ? Number(record.imageWidth) : undefined,
+    imageHeight: Number.isFinite(record.imageHeight) ? Number(record.imageHeight) : undefined,
     aspectRatio: normalizeString(record.aspectRatio).trim() || null,
     generationSummary: normalizeExportImageGenerationSummary(record.generationSummary),
     createdAt: Number.isFinite(record.createdAt) ? Number(record.createdAt) : Date.now(),

@@ -458,6 +458,75 @@ export const ImageNode = memo(
         ? ((data as ExportImageNodeData).selectedStoryboardProductionResultId ?? null)
         : null;
 
+    useEffect(() => {
+      if (!isStoryboardProductionPlaceholder || storyboardProductionResults.length === 0) {
+        return;
+      }
+
+      const missingDimensionResult = storyboardProductionResults.find((item) => {
+        const hasWidth =
+          typeof item.imageWidth === "number" &&
+          Number.isFinite(item.imageWidth) &&
+          item.imageWidth > 0;
+        const hasHeight =
+          typeof item.imageHeight === "number" &&
+          Number.isFinite(item.imageHeight) &&
+          item.imageHeight > 0;
+        return Boolean(item.imageUrl || item.previewImageUrl || item.thumbnailUrl) && (!hasWidth || !hasHeight);
+      });
+      if (!missingDimensionResult) {
+        return;
+      }
+
+      let disposed = false;
+      const source =
+        missingDimensionResult.imageUrl ||
+        missingDimensionResult.previewImageUrl ||
+        missingDimensionResult.thumbnailUrl ||
+        null;
+      if (!source) {
+        return;
+      }
+
+      const syncStoryboardResultDimensions = async () => {
+        const dimensions = await detectImageDimensions(source);
+        if (disposed) {
+          return;
+        }
+
+        const latestResults =
+          (useCanvasStore.getState().nodes.find((node) => node.id === id)
+            ?.data as ExportImageNodeData | undefined)
+            ?.storyboardProductionResults ?? storyboardProductionResults;
+        updateNodeData(
+          id,
+          {
+            storyboardProductionResults: latestResults.map((item) =>
+              item.id === missingDimensionResult.id
+                ? {
+                    ...item,
+                    imageWidth: dimensions.width,
+                    imageHeight: dimensions.height,
+                  }
+                : item,
+            ),
+          },
+          { historyMode: "skip" },
+        );
+      };
+
+      void syncStoryboardResultDimensions().catch(() => {});
+
+      return () => {
+        disposed = true;
+      };
+    }, [
+      id,
+      isStoryboardProductionPlaceholder,
+      storyboardProductionResults,
+      updateNodeData,
+    ]);
+
     const hasRenderableImage = Boolean(imageSource || fallbackImageSource);
     const nodeDescription =
       typeof data.nodeDescription === "string" ? data.nodeDescription : "";
@@ -594,6 +663,11 @@ export const ImageNode = memo(
                           viewerMetadata={item.generationSummary ?? undefined}
                           className="h-full w-full object-cover"
                         />
+                        <ImageResolutionBadge
+                          width={item.imageWidth}
+                          height={item.imageHeight}
+                          providerName={resolutionProviderName}
+                        />
                         <span className="absolute left-2 top-2 rounded-full bg-black/65 px-2 py-0.5 text-[11px] font-semibold text-white">
                           #{index + 1}
                         </span>
@@ -701,7 +775,7 @@ export const ImageNode = memo(
               <span className="sr-only">{t("common.loading")}</span>
             </div>
           )}
-          {(!isStoryboardProductionPlaceholder || storyboardProductionResults.length > 0 || hasRenderableImage) ? (
+          {!isStoryboardProductionPlaceholder ? (
             <ImageResolutionBadge
               width={imageWidth}
               height={imageHeight}

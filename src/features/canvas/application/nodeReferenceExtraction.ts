@@ -18,6 +18,7 @@ import {
   isVideoNode,
   getMjResultNodeActiveImages,
   type CanvasNode,
+  type ImageViewerMetadata,
 } from '../domain/canvasNodes';
 import { useAssetStore } from '@/stores/assetStore';
 
@@ -30,6 +31,7 @@ export interface ExtractedReferenceVisual {
   displayName?: string | null;
   tokenAlias?: string | null;
   sourceNodeId?: string | null;
+  viewerMetadata?: ImageViewerMetadata | null;
 }
 
 export interface ExtractedAudioReference {
@@ -52,6 +54,96 @@ function resolvePrimaryImageReferenceUrl(node: CanvasNode): string {
   }
 
   return '';
+}
+
+function normalizeText(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function buildJimengImageViewerRequestModel({
+  modelVersion,
+  resolutionType,
+  aspectRatio,
+  referenceImageCount,
+}: {
+  modelVersion?: string | null;
+  resolutionType?: string | null;
+  aspectRatio?: string | null;
+  referenceImageCount?: number | null;
+}): string {
+  const normalizedModelVersion = normalizeText(modelVersion) || 'image';
+  const parts = [`jimeng-image-${normalizedModelVersion}`];
+  const normalizedResolution = normalizeText(resolutionType).toUpperCase();
+  const normalizedAspectRatio = normalizeText(aspectRatio);
+  if (normalizedResolution) {
+    parts.push(normalizedResolution);
+  }
+  if (normalizedAspectRatio) {
+    parts.push(normalizedAspectRatio);
+  }
+  if (
+    typeof referenceImageCount === 'number'
+    && Number.isFinite(referenceImageCount)
+    && referenceImageCount > 0
+  ) {
+    parts.push(`refs ${Math.round(referenceImageCount)}`);
+  }
+
+  return parts.join(' / ');
+}
+
+function resolveReferenceVisualMetadata(node: CanvasNode): ImageViewerMetadata | null {
+  if (isExportImageNode(node)) {
+    return node.data.generationSummary ?? null;
+  }
+
+  if (isJimengImageNode(node) || isJimengImageResultNode(node)) {
+    const referenceImageCount =
+      isJimengImageResultNode(node)
+      &&
+      typeof node.data.referenceImageCount === 'number'
+      && Number.isFinite(node.data.referenceImageCount)
+        ? node.data.referenceImageCount
+        : null;
+
+    return {
+      sourceType: 'imageEdit',
+      providerId: 'jimeng',
+      requestModel: buildJimengImageViewerRequestModel({
+        modelVersion: node.data.modelVersion,
+        resolutionType: node.data.resolutionType,
+        aspectRatio: node.data.aspectRatio,
+        referenceImageCount,
+      }),
+      prompt: normalizeText(node.data.prompt),
+      generatedAt: node.data.lastGeneratedAt ?? null,
+    };
+  }
+
+  if (isMjResultNode(node)) {
+    const activeBatch =
+      node.data.batches.find((batch) => batch.id === node.data.activeBatchId)
+      ?? node.data.batches[0]
+      ?? null;
+    if (!activeBatch) {
+      return null;
+    }
+
+    return {
+      sourceType: 'imageEdit',
+      providerId: activeBatch.providerId,
+      requestModel: activeBatch.action?.trim() || activeBatch.providerId,
+      prompt: normalizeText(activeBatch.finalPrompt) || normalizeText(activeBatch.prompt),
+      generatedAt:
+        activeBatch.finishTime
+        ?? activeBatch.startTime
+        ?? activeBatch.submitTime
+        ?? node.data.lastGeneratedAt
+        ?? null,
+    };
+  }
+
+  return null;
 }
 
 export function extractReferenceImageUrls(node: CanvasNode): string[] {
@@ -148,17 +240,20 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
     }
 
     const previewImageUrl = node.data.previewImageUrl?.trim() || referenceUrl;
+    const viewerMetadata = resolveReferenceVisualMetadata(node);
 
     return [
       {
         kind: 'image',
         referenceUrl,
         previewImageUrl,
+        viewerMetadata,
       },
     ];
   }
 
   if (isJimengImageNode(node) || isJimengImageResultNode(node)) {
+    const viewerMetadata = resolveReferenceVisualMetadata(node);
     return (node.data.resultImages ?? [])
       .map((item) => {
         const previewImageUrl =
@@ -174,6 +269,7 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
           kind: 'image' as const,
           referenceUrl: previewImageUrl,
           previewImageUrl,
+          viewerMetadata,
         };
       })
       .filter(
@@ -183,11 +279,13 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
           kind: 'image';
           referenceUrl: string;
           previewImageUrl: string;
+          viewerMetadata: ImageViewerMetadata | null;
         } => Boolean(item)
       );
   }
 
   if (isMjResultNode(node)) {
+    const viewerMetadata = resolveReferenceVisualMetadata(node);
     return getMjResultNodeActiveImages(node.data)
       .map((item) => {
         const previewImageUrl =
@@ -203,6 +301,7 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
           kind: 'image' as const,
           referenceUrl: previewImageUrl,
           previewImageUrl,
+          viewerMetadata,
         };
       })
       .filter(
@@ -212,6 +311,7 @@ export function extractReferenceVisuals(node: CanvasNode): ExtractedReferenceVis
           kind: 'image';
           referenceUrl: string;
           previewImageUrl: string;
+          viewerMetadata: ImageViewerMetadata | null;
         } => Boolean(item)
       );
   }

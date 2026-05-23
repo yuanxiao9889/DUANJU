@@ -8,8 +8,13 @@ import {
   runAssetBatchPromptOptimization,
 } from '@/features/canvas/application/imageEditBatchActions';
 import {
+  normalizeStoryboardProductionVideoNodeSize,
   runStoryboardProductionGroupImageGeneration,
 } from '@/features/canvas/application/smartDirectorStoryboard';
+import {
+  ASSET_BATCH_GROUP_TOP_PADDING,
+  STORYBOARD_PRODUCTION_CARD_TOP_PADDING,
+} from '@/features/canvas/application/groupLayout';
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
@@ -41,6 +46,7 @@ type GroupNodeProps = {
 export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const updateNodeSize = useCanvasStore((state) => state.updateNodeSize);
   const layoutGroupNode = useCanvasStore((state) => state.layoutGroupNode);
   const childNodes = useCanvasChildNodes(id);
   const storyboardCompatibleModelConfig = useSettingsStore((state) => state.storyboardCompatibleModelConfig);
@@ -185,7 +191,10 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     }
 
     const minChildY = Math.min(...directChildNodes.map((node) => Math.round(node.position.y)));
-    if (minChildY >= 320) {
+    const expectedTopPadding = isStoryboardProductionGroup
+      ? STORYBOARD_PRODUCTION_CARD_TOP_PADDING
+      : ASSET_BATCH_GROUP_TOP_PADDING;
+    if (minChildY >= expectedTopPadding - 1) {
       autoRelayoutAttemptedRef.current = true;
       return;
     }
@@ -193,6 +202,31 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
     autoRelayoutAttemptedRef.current = true;
     layoutGroupNode(id);
   }, [directChildNodes, id, isProductionLikeGroup, layoutGroupNode]);
+
+  useEffect(() => {
+    if (!isStoryboardProductionGroup) {
+      return;
+    }
+
+    const oversizedVideoNode = directChildNodes.find((node) => {
+      const normalizedNode = normalizeStoryboardProductionVideoNodeSize(node);
+      return (
+        Math.round(normalizedNode.width ?? 0) !== Math.round(node.width ?? 0)
+        || Math.round(normalizedNode.height ?? 0) !== Math.round(node.height ?? 0)
+      );
+    });
+
+    if (!oversizedVideoNode) {
+      return;
+    }
+
+    const normalizedNode =
+      normalizeStoryboardProductionVideoNodeSize(oversizedVideoNode);
+    updateNodeSize(oversizedVideoNode.id, {
+      width: normalizedNode.width ?? oversizedVideoNode.width ?? 1,
+      height: normalizedNode.height ?? oversizedVideoNode.height ?? 1,
+    });
+  }, [directChildNodes, isStoryboardProductionGroup, updateNodeSize]);
 
   useEffect(() => {
     if (!isStoryboardProductionGroup || selected || hasMountedProductionDetails) {

@@ -6,6 +6,7 @@ import {
 import { Image as ImageIcon, Video, X } from 'lucide-react';
 
 import { CanvasNodeImage } from '@/features/canvas/ui/CanvasNodeImage';
+import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
 
 export interface ReferenceVisualChipProps {
   kind: 'image' | 'video';
@@ -13,7 +14,9 @@ export interface ReferenceVisualChipProps {
   label: string;
   tokenLabel: string;
   metaLabel?: string | null;
+  viewerSourceUrl?: string | null;
   viewerImageList?: string[];
+  viewerMetadata?: ImageViewerMetadata | null;
   isActive?: boolean;
   isDragging?: boolean;
   isDragTarget?: boolean;
@@ -36,7 +39,9 @@ export const ReferenceVisualChip = memo(({
   label,
   tokenLabel,
   metaLabel,
+  viewerSourceUrl,
   viewerImageList,
+  viewerMetadata,
   isActive = false,
   isDragging = false,
   isDragTarget = false,
@@ -109,8 +114,9 @@ export const ReferenceVisualChip = memo(({
             <CanvasNodeImage
               src={displayUrl}
               alt={label}
-              viewerSourceUrl={displayUrl}
+              viewerSourceUrl={viewerSourceUrl ?? displayUrl}
               viewerImageList={viewerImageList}
+              viewerMetadata={viewerMetadata}
               className="h-9 w-9 rounded-md object-cover"
               draggable={false}
             />

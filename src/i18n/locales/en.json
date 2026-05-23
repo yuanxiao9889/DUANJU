@@ -864,7 +864,8 @@
       "statusHint": "Select this node and enter a prompt below to generate or edit image",
       "resultTitle": "Result Image",
       "promptPlaceholder": "Describe anything you want to generate or edit",
-      "referenceImageLabel": "Image {{index}}"
+      "referenceImageLabel": "Image {{index}}",
+      "referenceEmpty": "Connect upstream images, then use @ to insert reference images into the prompt."
     },
     "multiAngleImage": {
       "apiKeyRequired": "Please set API key in Settings",
@@ -2641,6 +2642,13 @@
     "newProjectTitle": "New Project",
     "open": "Open Project",
     "save": "Save Project",
+    "exitSaving": {
+      "title": "Saving before leaving",
+      "description": "Saving the project and stopping canvas background work. The project page will open after cleanup finishes.",
+      "progressLabel": "Saving project before leaving the canvas",
+      "errorTitle": "Save failed",
+      "errorMessage": "The canvas was not closed because the latest project state could not be saved. Please try again."
+    },
     "name": "Project Name",
     "namePlaceholder": "Enter project name",
     "rename": "Rename",
@@ -3495,6 +3503,14 @@
     "canvasOverviewThumbnailSize": "Overview Thumbnail Size",
     "canvasOverviewThumbnailSizeDesc": "Larger thumbnails look clearer but use more disk, GPU memory, and decode time.",
     "canvasOverviewThumbnailSizeOption": "{{size}} px",
+    "canvasThumbnailRefreshNow": "Refresh Now",
+    "canvasThumbnailRefreshConfirmTitle": "Refresh thumbnails?",
+    "canvasThumbnailRefreshConfirmDesc": "Regenerating thumbnails may take a long time and will continue using disk and compute resources. Please proceed carefully.",
+    "canvasThumbnailRefreshConfirmSize": "Target size: {{size}} px",
+    "canvasThumbnailRefreshConfirmAction": "Start Refresh",
+    "canvasThumbnailRefreshProgress": "Refreshing {{done}} / {{total}}, failed {{failed}}",
+    "canvasThumbnailRefreshCompleted": "Refresh complete",
+    "canvasThumbnailRefreshEmpty": "No thumbnails to refresh in the current project",
     "canvasThumbnailMediaCountThreshold": "Large Project Thumbnail Threshold",
     "canvasThumbnailMediaCountThresholdDesc": "When image count exceeds this value, nodes prefer thumbnails to reduce rendering load.",
     "canvasThumbnailMediaCountThresholdOption": "{{count}} images",

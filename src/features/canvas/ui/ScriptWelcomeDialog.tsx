@@ -488,7 +488,7 @@ export function ScriptWelcomeDialog({
               </button>
               <button
                 type="button"
-                onClick={closeProject}
+                onClick={() => closeProject()}
                 className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-border-dark bg-bg-dark/25 px-4 py-3 text-sm text-text-muted transition-colors hover:bg-bg-dark hover:text-text-dark"
               >
                 <ArrowLeft className="h-4 w-4" />

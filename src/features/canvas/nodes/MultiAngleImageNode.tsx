@@ -1007,6 +1007,9 @@ function MultiAngleScene({
       });
       frontTexture?.dispose();
       renderer.dispose();
+      renderer.forceContextLoss();
+      renderer.domElement.width = 1;
+      renderer.domElement.height = 1;
       renderer.domElement.remove();
     };
   }, [fallbackImageUrl, sourceImageUrl]);

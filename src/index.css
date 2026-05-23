@@ -968,6 +968,20 @@ html[data-platform="macos"] #root {
   }
 }
 
+@keyframes canvas-exit-save {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  50% {
+    transform: translateX(60%);
+  }
+
+  100% {
+    transform: translateX(210%);
+  }
+}
+
 .canvas-processing-edge__flow {
   animation: canvas-edge-flow 0.9s linear infinite;
 }

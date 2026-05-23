@@ -171,7 +171,7 @@ const RESULT_NODE_Y_OFFSET = 48;
 const FALLBACK_VIEWPORT_WIDTH = 1440;
 const FALLBACK_VIEWPORT_HEIGHT = 900;
 const PRODUCTION_CARD_X_OFFSET = 96;
-const PRODUCTION_CARD_WIDTH = 2440;
+const PRODUCTION_CARD_WIDTH = 1648;
 const PRODUCTION_CARD_HEIGHT = 860;
 const PRODUCTION_CARD_GAP_X = 72;
 const PRODUCTION_CARD_GAP_Y = 72;
@@ -182,7 +182,7 @@ const PRODUCTION_IMAGE_NODE_WIDTH = 500;
 const PRODUCTION_IMAGE_NODE_HEIGHT = 520;
 const PRODUCTION_RESULT_NODE_WIDTH = 420;
 const PRODUCTION_RESULT_NODE_HEIGHT = 520;
-const PRODUCTION_VIDEO_NODE_WIDTH = 980;
+const PRODUCTION_VIDEO_NODE_WIDTH = 588;
 const PRODUCTION_VIDEO_NODE_HEIGHT = 520;
 const PRODUCTION_CHILD_TOP = 300;
 export type ScriptStoryboardProductionVideoKind = 'jimeng' | 'seedanceOfficial';
@@ -1998,6 +1998,62 @@ function sizeProductionChildNode<T extends CanvasNode>(
   };
 }
 
+export function isStoryboardProductionVideoNode(node: CanvasNode): boolean {
+  if (
+    node.type !== CANVAS_NODE_TYPES.jimeng
+    && node.type !== CANVAS_NODE_TYPES.seedance
+  ) {
+    return false;
+  }
+
+  const data = node.data as Partial<JimengNodeData & SeedanceNodeData>;
+  return Boolean(
+    typeof node.parentId === 'string'
+    && data.sourceStoryboardTableNodeId?.trim()
+    && data.sourceDurationGroupId?.trim()
+  );
+}
+
+export function normalizeStoryboardProductionVideoNodeSize<T extends CanvasNode>(
+  node: T
+): T {
+  if (!isStoryboardProductionVideoNode(node)) {
+    return node;
+  }
+
+  const parentId = node.parentId;
+  if (!parentId) {
+    return node;
+  }
+
+  const currentWidth =
+    typeof node.width === 'number'
+      ? Math.round(node.width)
+      : typeof node.style?.width === 'number'
+        ? Math.round(node.style.width)
+        : null;
+  const currentHeight =
+    typeof node.height === 'number'
+      ? Math.round(node.height)
+      : typeof node.style?.height === 'number'
+        ? Math.round(node.style.height)
+        : null;
+
+  if (
+    currentWidth === PRODUCTION_VIDEO_NODE_WIDTH
+    && currentHeight === PRODUCTION_VIDEO_NODE_HEIGHT
+  ) {
+    return node;
+  }
+
+  return sizeProductionChildNode(
+    node,
+    parentId,
+    PRODUCTION_VIDEO_NODE_WIDTH,
+    PRODUCTION_VIDEO_NODE_HEIGHT
+  );
+}
+
 function createProductionEdges(input: {
   assetNodeId: string;
   imageNodeId: string;
@@ -2096,6 +2152,8 @@ function resolveSelectedStoryboardProductionResult(
     imageUrl: fallbackImageUrl,
     previewImageUrl: imageResultNode.data.previewImageUrl?.trim() || fallbackImageUrl,
     thumbnailUrl: imageResultNode.data.thumbnailUrl?.trim() || null,
+    imageWidth: imageResultNode.data.imageWidth,
+    imageHeight: imageResultNode.data.imageHeight,
     aspectRatio: imageResultNode.data.aspectRatio ?? null,
     generationSummary: imageResultNode.data.generationSummary ?? null,
     createdAt: imageResultNode.data.generationSummary?.generatedAt ?? Date.now(),
@@ -2147,6 +2205,8 @@ export function selectStoryboardProductionImageResult(input: {
       imageUrl: nextResult?.imageUrl ?? null,
       previewImageUrl: nextResult?.previewImageUrl ?? null,
       thumbnailUrl: nextResult?.thumbnailUrl ?? null,
+      imageWidth: nextResult?.imageWidth,
+      imageHeight: nextResult?.imageHeight,
       aspectRatio: nextResult?.aspectRatio ?? resultNode.data.aspectRatio,
       generationSummary: nextResult?.generationSummary ?? resultNode.data.generationSummary,
     } satisfies Partial<ExportImageNodeData>,
@@ -2192,6 +2252,8 @@ export function deleteStoryboardProductionImageResult(input: {
       imageUrl: nextSelectedResult?.imageUrl ?? null,
       previewImageUrl: nextSelectedResult?.previewImageUrl ?? null,
       thumbnailUrl: nextSelectedResult?.thumbnailUrl ?? null,
+      imageWidth: nextSelectedResult?.imageWidth,
+      imageHeight: nextSelectedResult?.imageHeight,
       aspectRatio: nextSelectedResult?.aspectRatio ?? resultNode.data.aspectRatio,
       generationSummary: nextSelectedResult?.generationSummary ?? resultNode.data.generationSummary,
       ...(nextSelectedResult
@@ -2975,6 +3037,7 @@ function updateExistingProductionGroup(input: {
         type: typeof CANVAS_NODE_TYPES.jimeng | typeof CANVAS_NODE_TYPES.seedance;
         data: JimengNodeData | SeedanceNodeData;
       });
+  const sizedVideoNode = normalizeStoryboardProductionVideoNodeSize(videoNode);
 
   const updatedGroupNode: CanvasNode = {
     ...input.groupNode,
@@ -3077,7 +3140,7 @@ function updateExistingProductionGroup(input: {
       updatedAssetNode,
       updatedImageNode,
       updatedImageResultNode,
-      videoNode,
+      sizedVideoNode,
     ],
     edges: createProductionEdges({
       assetNodeId: children.assetNode.id,

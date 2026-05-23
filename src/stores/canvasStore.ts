@@ -201,6 +201,10 @@ import {
 import type { CanvasSemanticColor } from '@/features/canvas/domain/semanticColors';
 import { useScriptEditorStore } from '@/stores/scriptEditorStore';
 import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
+import {
+  applyCanvasThumbnailUpdatesToNodes,
+  type CanvasThumbnailUpdate,
+} from '@/features/canvas/application/canvasThumbnailRecords';
 
 export type {
   ActiveToolDialog,
@@ -755,6 +759,8 @@ interface CanvasState {
 
   setCanvasData: (nodes: CanvasNode[], edges: CanvasEdge[], history?: CanvasHistoryState) => void;
   setCanvasHistory: (history?: CanvasHistoryState) => void;
+  replaceThumbnailFieldsInNodesAndHistory: (updates: CanvasThumbnailUpdate[]) => void;
+  resetCanvasSession: () => void;
   addNode: (
     type: CanvasNodeType,
     position: { x: number; y: number },
@@ -3995,6 +4001,45 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     set({
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
+    });
+  },
+
+  replaceThumbnailFieldsInNodesAndHistory: (updates) => {
+    if (updates.length === 0) {
+      return;
+    }
+
+    set((state) => {
+      const nodesResult = applyCanvasThumbnailUpdatesToNodes(state.nodes, updates);
+      const historyResult = mapHistorySnapshots(state.history, (snapshotNodes) =>
+        applyCanvasThumbnailUpdatesToNodes(snapshotNodes, updates)
+      );
+
+      if (!nodesResult.changed && !historyResult.changed) {
+        return state;
+      }
+
+      return {
+        nodes: nodesResult.nodes,
+        history: historyResult.history,
+      };
+    });
+  },
+
+  resetCanvasSession: () => {
+    set({
+      nodes: [],
+      edges: [],
+      selectedNodeId: null,
+      highlightedReferenceSourceNodeId: null,
+      activeToolDialog: null,
+      activeShotParamsPanelNodeId: null,
+      activeDirectorStageNodeId: null,
+      nodeDescriptionPanelOpenById: {},
+      history: { past: [], future: [] },
+      dragHistorySnapshot: null,
+      currentViewport: { x: 0, y: 0, zoom: 1 },
+      imageViewer: createInitialImageViewerState(),
     });
   },
 
