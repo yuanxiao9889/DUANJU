@@ -133,6 +133,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.resolve.outputs.tag }}
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const tag = process.env.RELEASE_TAG;
             if (!tag) {
@@ -217,7 +218,7 @@ jobs:
         if: steps.mac-mode.outputs.mode == 'signed'
         env:
           CI: true
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
@@ -233,7 +234,7 @@ jobs:
         shell: bash
         env:
           CI: true
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
@@ -265,6 +266,7 @@ jobs:
       - name: Upload macOS DMG to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ needs.prepare-release.outputs.tag }}
           name: oopii无限画布 ${{ needs.prepare-release.outputs.tag }}
           body: ${{ needs.prepare-release.outputs.body }}
@@ -305,7 +307,7 @@ jobs:
       - name: Build Windows bundles
         env:
           CI: true
-          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --bundles nsis
@@ -370,6 +372,7 @@ jobs:
       - name: Upload Windows artifacts to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: ${{ needs.prepare-release.outputs.tag }}
           name: oopii无限画布 ${{ needs.prepare-release.outputs.tag }}
           body: ${{ needs.prepare-release.outputs.body }}
