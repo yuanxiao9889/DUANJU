@@ -372,6 +372,15 @@
     "emptyHintTitle": "Double-click to add a node",
     "emptyHintSubtitle": "Double-click to add a node",
     "dropFilesHint": "Release image, video, or audio files to upload",
+    "saveBubble": {
+      "manualSave": "Save",
+      "saving": "Saving...",
+      "saved": "Saved",
+      "failed": "Save failed",
+      "failedWithReason": "Save failed: {{reason}}",
+      "retry": "Save failed, click to retry",
+      "lastSavedAt": "Saved {{time}}"
+    },
     "edgeCutDisconnected": "Disconnected {{count}} edge(s)",
     "compare": {
       "mergeSuccess": "Created image compare node",
@@ -3517,6 +3526,9 @@
     "canvasViewportPreloadMargin": "Viewport Preload Range",
     "canvasViewportPreloadMarginDesc": "Preload extra screens around the current viewport. Larger ranges feel smoother but do more background work.",
     "canvasViewportPreloadMarginOption": "{{count}} screen margin",
+    "projectFullAutosaveInterval": "Full Autosave Interval",
+    "projectFullAutosaveIntervalDesc": "Periodically write the full current project to disk to reduce data-loss risk.",
+    "projectFullAutosaveIntervalOption": "{{count}} min",
     "accentColor": "Accent Color",
     "accentColorDesc": "Used by buttons, selected borders, and interaction highlights.",
     "resetAccentColor": "Reset",

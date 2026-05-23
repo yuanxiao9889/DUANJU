@@ -3,7 +3,6 @@ import {
   lazy,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,10 +20,6 @@ import { useThemeStore } from "./stores/themeStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useSettingsStore } from "./stores/settingsStore";
 import { useCanvasStore } from "./stores/canvasStore";
-import {
-  collectProjectViewportImagePreloadEntries,
-  preloadProjectImages,
-} from "./features/canvas/application/projectImagePreloader";
 import { stopCanvasThumbnailBackfill } from "./features/canvas/application/canvasThumbnailBackfill";
 import { CanvasProjectLoadingScreen } from "./features/canvas/ui/CanvasProjectLoadingScreen";
 import {
@@ -91,10 +86,6 @@ import { isTauriRuntime } from "./lib/tauriRuntime";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
-const MIN_CANVAS_ENTRY_LOADING_MS = 420;
-const MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS = 260;
-const DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH = 1280;
-const DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT = 720;
 const MAIN_WINDOW_CLOSE_REQUEST_EVENT = "app:request-main-close";
 
 function hasActiveGenerationFlag(data: unknown): boolean {
@@ -111,40 +102,6 @@ function isWindowsRuntime(): boolean {
 
 function isWindowsUpdaterRuntime(): boolean {
   return isWindowsRuntime();
-}
-
-function resolveCanvasEntryPreloadViewportSize(): {
-  width: number;
-  height: number;
-} {
-  if (typeof window === "undefined") {
-    return {
-      width: DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH,
-      height: DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT,
-    };
-  }
-
-  return {
-    width: Math.max(
-      1,
-      window.innerWidth || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_WIDTH,
-    ),
-    height: Math.max(
-      1,
-      window.innerHeight - 40 || DEFAULT_CANVAS_ENTRY_PRELOAD_VIEWPORT_HEIGHT,
-    ),
-  };
-}
-
-function logCanvasEntryTrace(
-  label: string,
-  payload: Record<string, unknown>,
-): void {
-  if (!import.meta.env.DEV) {
-    return;
-  }
-
-  console.debug(`[canvas-entry-trace] ${label}`, payload);
 }
 
 const CanvasScreen = lazy(() => {
@@ -289,14 +246,6 @@ function useApplyGlobalAppearance() {
   }, [accentColor, theme]);
 }
 
-interface CanvasEntryLoadingState {
-  projectId: string | null;
-  phase: "project" | "images";
-  totalCount: number;
-  loadedCount: number;
-  failedCount: number;
-}
-
 function CanvasExitSavingOverlay() {
   const { t } = useTranslation();
 
@@ -357,9 +306,6 @@ function MainApp() {
   const hasAcceptedApiPlatformNotice = useSettingsStore(
     (state) => state.hasAcceptedApiPlatformNotice,
   );
-  const canvasViewportPreloadMarginScreens = useSettingsStore(
-    (state) => state.canvasViewportPreloadMarginScreens,
-  );
   const setEnableUpdateDialog = useSettingsStore(
     (state) => state.setEnableUpdateDialog,
   );
@@ -370,6 +316,9 @@ function MainApp() {
     (state) => state.setHasAcceptedApiPlatformNotice,
   );
   const settingsHydrated = useSettingsStore((state) => state.isHydrated);
+  const projectFullAutosaveIntervalMinutes = useSettingsStore(
+    (state) => state.projectFullAutosaveIntervalMinutes,
+  );
   const [showSettings, setShowSettings] = useState(false);
   const [showExtensions, setShowExtensions] = useState(false);
   const [showApiPlatformNotice, setShowApiPlatformNotice] = useState(false);
@@ -438,11 +387,14 @@ function MainApp() {
     (state) => state.setCurrentProjectAssetLibrary,
   );
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
-  const flushCurrentProjectToDisk = useProjectStore(
-    (state) => state.flushCurrentProjectToDisk,
+  const saveCurrentProjectFully = useProjectStore(
+    (state) => state.saveCurrentProjectFully,
   );
   const waitForCurrentProjectPersistenceIdle = useProjectStore(
     (state) => state.waitForCurrentProjectPersistenceIdle,
+  );
+  const finalizeCurrentProjectBeforeClose = useProjectStore(
+    (state) => state.finalizeCurrentProjectBeforeClose,
   );
   const openJimengVideoQueueProject = useJimengVideoQueueStore(
     (state) => state.openProject,
@@ -454,17 +406,8 @@ function MainApp() {
     (state) => state.closeProject,
   );
   const allJimengQueueJobs = useJimengVideoQueueStore((state) => state.allJobs);
-  const [canvasEntryLoadingState, setCanvasEntryLoadingState] =
-    useState<CanvasEntryLoadingState>({
-      projectId: null,
-      phase: "project",
-      totalCount: 0,
-      loadedCount: 0,
-      failedCount: 0,
-    });
   const isWindowCloseInProgressRef = useRef(false);
   const hasAttemptedDreaminaAutoUpdateRef = useRef(false);
-  const canvasEntryPreloadRunRef = useRef(0);
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
@@ -524,176 +467,19 @@ function MainApp() {
     openJimengVideoQueueProject,
   ]);
 
-  useLayoutEffect(() => {
-    const currentProject = useProjectStore.getState().currentProject;
-
+  useEffect(() => {
     if (
       !currentProjectId ||
-      !currentProject ||
-      currentProject.id !== currentProjectId ||
-      currentProjectType === "ad"
+      currentProjectType === "ad" ||
+      currentProjectType === "commerceAd"
     ) {
-      canvasEntryPreloadRunRef.current += 1;
-      setCanvasEntryLoadingState({
-        projectId: null,
-        phase: "project",
-        totalCount: 0,
-        loadedCount: 0,
-        failedCount: 0,
-      });
       return;
     }
 
-    const runId = canvasEntryPreloadRunRef.current + 1;
-    canvasEntryPreloadRunRef.current = runId;
-    const imageUrls = collectProjectViewportImagePreloadEntries(
-      currentProject.nodes,
-      currentProject.viewport ?? { x: 0, y: 0, zoom: 1 },
-      resolveCanvasEntryPreloadViewportSize(),
-      { marginScreens: canvasViewportPreloadMarginScreens },
-    );
     void import("./features/canvas/CanvasScreen");
+  }, [currentProjectId, currentProjectType]);
 
-    if (imageUrls.length === 0) {
-      setCanvasEntryLoadingState({
-        projectId: null,
-        phase: "project",
-        totalCount: 0,
-        loadedCount: 0,
-        failedCount: 0,
-      });
-      return;
-    }
-
-    const startedAt = performance.now();
-
-    setCanvasEntryLoadingState({
-      projectId: currentProjectId,
-      phase: "images",
-      totalCount: imageUrls.length,
-      loadedCount: 0,
-      failedCount: 0,
-    });
-    logCanvasEntryTrace("entry-preload:start", {
-      projectId: currentProjectId,
-      imageCount: imageUrls.length,
-      marginScreens: canvasViewportPreloadMarginScreens,
-    });
-
-    let isEntryPreloadDisposed = false;
-    let entryPreloadTimeoutId: number | undefined;
-    const entryPreloadAbortController = new AbortController();
-
-    void (async () => {
-      try {
-        await Promise.race([
-          preloadProjectImages(imageUrls, {
-            concurrency: 2,
-            signal: entryPreloadAbortController.signal,
-            onProgress: ({ totalCount, loadedCount, failedCount }) => {
-              if (canvasEntryPreloadRunRef.current !== runId) {
-                return;
-              }
-
-              setCanvasEntryLoadingState({
-                projectId: currentProjectId,
-                phase: "images",
-                totalCount,
-                loadedCount,
-                failedCount,
-              });
-            },
-          }),
-          new Promise<void>((resolve) => {
-            entryPreloadTimeoutId = window.setTimeout(() => {
-              console.warn(
-                `Canvas entry image preload timed out after ${MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS}ms; continuing into project.`,
-              );
-              entryPreloadAbortController.abort();
-              resolve();
-            }, MAX_CANVAS_ENTRY_IMAGE_PRELOAD_MS);
-          }),
-        ]);
-      } catch (error) {
-        if (!entryPreloadAbortController.signal.aborted) {
-          console.debug("Skipped canvas entry image preload batch", error);
-        }
-      } finally {
-        entryPreloadAbortController.abort();
-        if (typeof entryPreloadTimeoutId === "number") {
-          window.clearTimeout(entryPreloadTimeoutId);
-        }
-        if (isEntryPreloadDisposed) {
-          return;
-        }
-
-        const elapsedMs = performance.now() - startedAt;
-        const remainingMs = Math.max(
-          0,
-          MIN_CANVAS_ENTRY_LOADING_MS - elapsedMs,
-        );
-        if (remainingMs > 0) {
-          await new Promise<void>((resolve) => {
-            window.setTimeout(resolve, remainingMs);
-          });
-        }
-
-        if (isEntryPreloadDisposed) {
-          return;
-        }
-
-        if (canvasEntryPreloadRunRef.current !== runId) {
-          return;
-        }
-
-        logCanvasEntryTrace("entry-preload:done", {
-          projectId: currentProjectId,
-          imageCount: imageUrls.length,
-          elapsedMs: Math.round(performance.now() - startedAt),
-        });
-        canvasEntryPreloadRunRef.current += 1;
-        setCanvasEntryLoadingState({
-          projectId: null,
-          phase: "project",
-          totalCount: 0,
-          loadedCount: 0,
-          failedCount: 0,
-        });
-      }
-    })();
-
-    return () => {
-      isEntryPreloadDisposed = true;
-      entryPreloadAbortController.abort();
-      if (typeof entryPreloadTimeoutId === "number") {
-        window.clearTimeout(entryPreloadTimeoutId);
-      }
-      if (canvasEntryPreloadRunRef.current === runId) {
-        canvasEntryPreloadRunRef.current += 1;
-      }
-      setCanvasEntryLoadingState((currentState) =>
-        currentState.projectId === currentProjectId
-          ? {
-              projectId: null,
-              phase: "project",
-              totalCount: 0,
-              loadedCount: 0,
-              failedCount: 0,
-            }
-          : currentState,
-      );
-    };
-  }, [
-    canvasViewportPreloadMarginScreens,
-    currentProjectId,
-    currentProjectType,
-  ]);
-
-  const isCanvasEntryLoading =
-    currentProjectType !== "ad" &&
-    currentProjectId != null &&
-    canvasEntryLoadingState.projectId === currentProjectId;
-  const shouldShowProjectLoader = isOpeningProject || isCanvasEntryLoading;
+  const shouldShowProjectLoader = isOpeningProject;
   const shouldRenderProjectWorkspace = Boolean(currentProjectId);
 
   const assetPanelProjectContext = useMemo<AssetPanelProjectContext>(
@@ -1123,6 +909,36 @@ function MainApp() {
       currentProjectType !== "ad" &&
       hasActiveCanvasGeneration);
 
+  useEffect(() => {
+    if (
+      !currentProjectId ||
+      isOpeningProject ||
+      isCanvasExitSaving ||
+      isWindowCloseInProgressRef.current
+    ) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      if (isWindowCloseInProgressRef.current) {
+        return;
+      }
+      void saveCurrentProjectFully({ reason: "interval" }).catch((error) => {
+        console.error("timed full project autosave failed", error);
+      });
+    }, projectFullAutosaveIntervalMinutes * 60 * 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [
+    currentProjectId,
+    isCanvasExitSaving,
+    isOpeningProject,
+    projectFullAutosaveIntervalMinutes,
+    saveCurrentProjectFully,
+  ]);
+
   const handleProjectBackClick = useCallback(async () => {
     if (!currentProjectId || isCanvasExitSaving) {
       return;
@@ -1131,8 +947,7 @@ function MainApp() {
     setIsCanvasExitSaving(true);
     try {
       await waitForNextPaint();
-      await flushCurrentProjectToDisk();
-      await waitForCurrentProjectPersistenceIdle();
+      await finalizeCurrentProjectBeforeClose();
       await stopCanvasThumbnailBackfill();
       closeProject({ skipPersist: true });
       await waitForPaints(2);
@@ -1153,7 +968,7 @@ function MainApp() {
   }, [
     closeProject,
     currentProjectId,
-    flushCurrentProjectToDisk,
+    finalizeCurrentProjectBeforeClose,
     isCanvasExitSaving,
     t,
     waitForCurrentProjectPersistenceIdle,
@@ -1166,11 +981,19 @@ function MainApp() {
 
     isWindowCloseInProgressRef.current = true;
 
-    await settleWithinTimeout(
-      flushCurrentProjectToDisk(),
+    const projectSaved = await settleWithinTimeout(
+      finalizeCurrentProjectBeforeClose(),
       WINDOW_CLOSE_FLUSH_TIMEOUT_MS,
       "Project flush before window close",
     );
+    if (!projectSaved) {
+      isWindowCloseInProgressRef.current = false;
+      setGlobalError({
+        title: t("project.exitSaving.errorTitle"),
+        message: t("project.exitSaving.errorMessage"),
+      });
+      return;
+    }
 
     const exitRequested = await settleWithinTimeout(
       invoke<void>("request_app_exit"),
@@ -1181,7 +1004,7 @@ function MainApp() {
     if (!exitRequested) {
       isWindowCloseInProgressRef.current = false;
     }
-  }, [flushCurrentProjectToDisk]);
+  }, [finalizeCurrentProjectBeforeClose, t]);
 
   const handleMainWindowCloseIntent = useCallback(async () => {
     if (isWindowCloseInProgressRef.current) {
@@ -1413,16 +1236,28 @@ function MainApp() {
 
       <main className="relative flex-1 min-h-0 overflow-hidden">
         {isHydrated ? (
-          <Suspense fallback={<AppContentLoader />}>
+          <Suspense
+            fallback={
+              currentProjectId ? (
+                <CanvasProjectLoadingScreen
+                  projectName={currentProjectName}
+                  phase="project"
+                  totalCount={0}
+                  loadedCount={0}
+                  failedCount={0}
+                />
+              ) : (
+                <AppContentLoader />
+              )
+            }
+          >
             {!shouldRenderProjectWorkspace && shouldShowProjectLoader ? (
               <CanvasProjectLoadingScreen
                 projectName={currentProjectName}
-                phase={
-                  currentProjectId ? canvasEntryLoadingState.phase : "project"
-                }
-                totalCount={canvasEntryLoadingState.totalCount}
-                loadedCount={canvasEntryLoadingState.loadedCount}
-                failedCount={canvasEntryLoadingState.failedCount}
+                phase="project"
+                totalCount={0}
+                loadedCount={0}
+                failedCount={0}
               />
             ) : shouldRenderProjectWorkspace ? (
               <div className="relative h-full w-full">
@@ -1437,14 +1272,10 @@ function MainApp() {
                   <div className="absolute inset-0 z-20">
                     <CanvasProjectLoadingScreen
                       projectName={currentProjectName}
-                      phase={
-                        currentProjectId
-                          ? canvasEntryLoadingState.phase
-                          : "project"
-                      }
-                      totalCount={canvasEntryLoadingState.totalCount}
-                      loadedCount={canvasEntryLoadingState.loadedCount}
-                      failedCount={canvasEntryLoadingState.failedCount}
+                      phase="project"
+                      totalCount={0}
+                      loadedCount={0}
+                      failedCount={0}
                     />
                   </div>
                 ) : null}

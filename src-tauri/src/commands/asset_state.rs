@@ -12,8 +12,9 @@ use uuid::Uuid;
 use super::{
     image::{ensure_local_image_preview_path, persist_image_source},
     project_state::{
-        normalize_image_ref_path, open_db, project_nodes_array_mut, prune_unreferenced_images,
-        replace_project_image_refs,
+        normalize_image_ref_path, open_db, project_ids_for_asset_ref, project_nodes_array_mut,
+        prune_unreferenced_images, replace_project_image_refs,
+        sync_project_graph_from_payload_in_tx,
     },
     storage,
 };
@@ -731,39 +732,112 @@ fn detach_deleted_asset_from_history(
     Ok((encoded, true))
 }
 
-fn sync_asset_item_to_projects(
-    app: &AppHandle,
-    conn: &mut Connection,
-    item: &AssetItemRecord,
-) -> Result<(), String> {
-    let project_rows: Vec<(String, String, String)> = {
-        let pattern = format!("%{}%", item.id);
+fn project_rows_for_asset_ref(
+    conn: &Connection,
+    asset_item_id: &str,
+    operation_label: &str,
+) -> Result<Vec<(String, String, String)>, String> {
+    let indexed_project_ids = project_ids_for_asset_ref(conn, asset_item_id)?;
+    let mut seen_project_ids = std::collections::HashSet::new();
+    let mut project_rows = Vec::new();
+
+    if !indexed_project_ids.is_empty() {
         let mut stmt = conn
             .prepare(
                 r#"
                 SELECT id, nodes_json, history_json
                 FROM projects
-                WHERE nodes_json LIKE ?1 OR history_json LIKE ?1
+                WHERE id = ?1
                 "#,
             )
-            .map_err(|e| format!("Failed to prepare project sync query: {}", e))?;
+            .map_err(|e| {
+                format!(
+                    "Failed to prepare indexed project {} query: {}",
+                    operation_label, e
+                )
+            })?;
 
-        let rows = stmt
-            .query_map(params![pattern], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(|e| format!("Failed to query projects for asset sync: {}", e))?;
-
-        let mut collected = Vec::new();
-        for row in rows {
-            collected.push(row.map_err(|e| format!("Failed to read project sync row: {}", e))?);
+        for project_id in indexed_project_ids {
+            if !seen_project_ids.insert(project_id.clone()) {
+                continue;
+            }
+            let row = stmt
+                .query_row(params![project_id], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                })
+                .optional()
+                .map_err(|e| {
+                    format!(
+                        "Failed to read indexed project {} row: {}",
+                        operation_label, e
+                    )
+                })?;
+            if let Some(row) = row {
+                project_rows.push(row);
+            }
         }
-        collected
-    };
+    }
+
+    if !project_rows.is_empty() {
+        return Ok(project_rows);
+    }
+
+    let pattern = format!("%{}%", asset_item_id);
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT id, nodes_json, history_json
+            FROM projects
+            WHERE nodes_json LIKE ?1 OR history_json LIKE ?1
+            "#,
+        )
+        .map_err(|e| {
+            format!(
+                "Failed to prepare legacy project {} query: {}",
+                operation_label, e
+            )
+        })?;
+
+    let rows = stmt
+        .query_map(params![pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| {
+            format!(
+                "Failed to query legacy projects for asset {}: {}",
+                operation_label, e
+            )
+        })?;
+
+    for row in rows {
+        let row = row.map_err(|e| {
+            format!(
+                "Failed to read legacy project {} row: {}",
+                operation_label, e
+            )
+        })?;
+        if seen_project_ids.insert(row.0.clone()) {
+            project_rows.push(row);
+        }
+    }
+
+    Ok(project_rows)
+}
+
+fn sync_asset_item_to_projects(
+    app: &AppHandle,
+    conn: &mut Connection,
+    item: &AssetItemRecord,
+) -> Result<(), String> {
+    let project_rows = project_rows_for_asset_ref(conn, &item.id, "sync")?;
 
     if project_rows.is_empty() {
         return Ok(());
@@ -797,6 +871,15 @@ fn sync_asset_item_to_projects(
         )
         .map_err(|e| format!("Failed to update synced project nodes: {}", e))?;
 
+        sync_project_graph_from_payload_in_tx(
+            app,
+            &tx,
+            &project_id,
+            &next_nodes_json,
+            None,
+            &next_history_json,
+            current_timestamp_ms(),
+        )?;
         replace_project_image_refs(&tx, &project_id, &next_nodes_json, &next_history_json)?;
     }
 
@@ -852,37 +935,11 @@ async fn migrate_asset_item_paths_if_needed(
 }
 
 fn detach_asset_item_from_projects(
+    app: &AppHandle,
     conn: &mut Connection,
     asset_item_id: &str,
 ) -> Result<(), String> {
-    let project_rows: Vec<(String, String, String)> = {
-        let pattern = format!("%{}%", asset_item_id);
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT id, nodes_json, history_json
-                FROM projects
-                WHERE nodes_json LIKE ?1 OR history_json LIKE ?1
-                "#,
-            )
-            .map_err(|e| format!("Failed to prepare project detach query: {}", e))?;
-
-        let rows = stmt
-            .query_map(params![pattern], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(|e| format!("Failed to query projects for asset detach: {}", e))?;
-
-        let mut collected = Vec::new();
-        for row in rows {
-            collected.push(row.map_err(|e| format!("Failed to read project detach row: {}", e))?);
-        }
-        collected
-    };
+    let project_rows = project_rows_for_asset_ref(conn, asset_item_id, "detach")?;
 
     if project_rows.is_empty() {
         return Ok(());
@@ -907,6 +964,15 @@ fn detach_asset_item_from_projects(
         )
         .map_err(|e| format!("Failed to update detached project nodes: {}", e))?;
 
+        sync_project_graph_from_payload_in_tx(
+            app,
+            &tx,
+            &project_id,
+            &next_nodes_json,
+            None,
+            &next_history_json,
+            current_timestamp_ms(),
+        )?;
         replace_project_image_refs(&tx, &project_id, &next_nodes_json, &next_history_json)?;
     }
 
@@ -1732,7 +1798,7 @@ pub fn delete_asset_item(app: AppHandle, asset_item_id: String) -> Result<(), St
         .map_err(|e| format!("Failed to commit asset item delete transaction: {}", e))?;
 
     let mut sync_conn = open_db(&app)?;
-    detach_asset_item_from_projects(&mut sync_conn, &asset_item_id)?;
+    detach_asset_item_from_projects(&app, &mut sync_conn, &asset_item_id)?;
     prune_unreferenced_images(&app)?;
     Ok(())
 }

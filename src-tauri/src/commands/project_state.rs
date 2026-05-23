@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
@@ -76,6 +76,108 @@ pub struct ProjectRecord {
 pub struct ProjectHistoryRecord {
     pub project_id: String,
     pub history_json: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphRecord {
+    pub record: ProjectRecord,
+    pub graph_revision: i64,
+    pub persistence_version: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphHistoryRecord {
+    pub project_id: String,
+    pub history_json: String,
+    pub graph_revision: i64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphNodePatch {
+    pub node_id: String,
+    #[serde(default)]
+    pub node_type: Option<String>,
+    pub node_json: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphEdgePatch {
+    pub edge_id: String,
+    #[serde(default)]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub target: Option<String>,
+    pub edge_json: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphHistoryPatch {
+    pub history_json: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphMetaPatch {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub project_type: Option<String>,
+    #[serde(default)]
+    pub asset_library_id: Option<Option<String>>,
+    #[serde(default)]
+    pub clip_library_id: Option<Option<String>>,
+    #[serde(default)]
+    pub clip_last_folder_id: Option<Option<String>>,
+    #[serde(default)]
+    pub linked_script_project_id: Option<Option<String>>,
+    #[serde(default)]
+    pub linked_ad_project_id: Option<Option<String>>,
+    #[serde(default)]
+    pub color_labels_json: Option<String>,
+    #[serde(default)]
+    pub script_welcome_skipped: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphPatch {
+    pub project_id: String,
+    #[serde(default)]
+    pub upsert_nodes: Vec<ProjectGraphNodePatch>,
+    #[serde(default)]
+    pub delete_node_ids: Vec<String>,
+    #[serde(default)]
+    pub upsert_edges: Vec<ProjectGraphEdgePatch>,
+    #[serde(default)]
+    pub delete_edge_ids: Vec<String>,
+    #[serde(default)]
+    pub viewport_json: Option<String>,
+    #[serde(default)]
+    pub history: Option<ProjectGraphHistoryPatch>,
+    #[serde(default)]
+    pub meta: Option<ProjectGraphMetaPatch>,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphPatchResult {
+    pub project_id: String,
+    pub graph_revision: i64,
+    pub node_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectGraphValidationResult {
+    pub checked_project_count: i64,
+    pub issue_count: i64,
+    pub issues: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -295,6 +397,224 @@ fn table_exists(conn: &Connection, table_name: &str) -> Result<bool, String> {
         )
         .map_err(|e| format!("Failed to inspect sqlite_master for {table_name}: {}", e))?;
     Ok(count > 0)
+}
+
+fn insert_project_asset_ref(
+    conn: &Connection,
+    project_id: &str,
+    asset_id: &str,
+) -> Result<(), String> {
+    let normalized_asset_id = asset_id.trim();
+    if normalized_asset_id.is_empty() {
+        return Ok(());
+    }
+
+    conn.execute(
+        "INSERT OR IGNORE INTO project_asset_refs (project_id, asset_id) VALUES (?1, ?2)",
+        params![project_id, normalized_asset_id],
+    )
+    .map_err(|e| format!("Failed to backfill project asset ref: {}", e))?;
+    Ok(())
+}
+
+fn insert_project_asset_ref_source(
+    conn: &Connection,
+    project_id: &str,
+    source_kind: &str,
+    source_id: &str,
+    asset_id: &str,
+) -> Result<(), String> {
+    let normalized_asset_id = asset_id.trim();
+    if normalized_asset_id.is_empty() {
+        return Ok(());
+    }
+
+    conn.execute(
+        r#"
+        INSERT OR IGNORE INTO project_asset_ref_sources (
+          project_id,
+          source_kind,
+          source_id,
+          asset_id
+        )
+        VALUES (?1, ?2, ?3, ?4)
+        "#,
+        params![project_id, source_kind, source_id, normalized_asset_id],
+    )
+    .map_err(|e| format!("Failed to backfill project asset ref source: {}", e))?;
+    insert_project_asset_ref(conn, project_id, normalized_asset_id)?;
+    Ok(())
+}
+
+fn backfill_project_asset_ref_index_if_needed(conn: &Connection) -> Result<(), String> {
+    const INDEX_KEY: &str = "project_asset_refs_v1";
+
+    let current_value = conn
+        .query_row(
+            "SELECT value FROM project_index_state WHERE key = ?1 LIMIT 1",
+            params![INDEX_KEY],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| format!("Failed to read project asset ref index state: {}", e))?;
+    if current_value.as_deref() == Some("complete") {
+        return Ok(());
+    }
+
+    conn.execute("DELETE FROM project_asset_refs", [])
+        .map_err(|e| format!("Failed to clear project asset refs for backfill: {}", e))?;
+    conn.execute("DELETE FROM project_asset_ref_sources", [])
+        .map_err(|e| {
+            format!(
+                "Failed to clear project asset ref sources for backfill: {}",
+                e
+            )
+        })?;
+
+    if table_exists(conn, "project_nodes")? {
+        let mut stmt = conn
+            .prepare("SELECT project_id, node_id, node_json FROM project_nodes")
+            .map_err(|e| format!("Failed to prepare project node asset ref backfill: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| {
+                format!(
+                    "Failed to query project nodes for asset ref backfill: {}",
+                    e
+                )
+            })?;
+        for row in rows {
+            let (project_id, node_id, node_json) =
+                row.map_err(|e| format!("Failed to read project node asset ref row: {}", e))?;
+            let parsed = serde_json::from_str::<Value>(&node_json).ok();
+            for asset_id in parsed
+                .as_ref()
+                .map(collect_asset_ids_from_json_value)
+                .unwrap_or_default()
+            {
+                insert_project_asset_ref_source(conn, &project_id, "node", &node_id, &asset_id)?;
+            }
+        }
+    }
+
+    if table_exists(conn, "project_edges")? {
+        let mut stmt = conn
+            .prepare("SELECT project_id, edge_id, edge_json FROM project_edges")
+            .map_err(|e| format!("Failed to prepare project edge asset ref backfill: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .map_err(|e| {
+                format!(
+                    "Failed to query project edges for asset ref backfill: {}",
+                    e
+                )
+            })?;
+        for row in rows {
+            let (project_id, edge_id, edge_json) =
+                row.map_err(|e| format!("Failed to read project edge asset ref row: {}", e))?;
+            let parsed = serde_json::from_str::<Value>(&edge_json).ok();
+            for asset_id in parsed
+                .as_ref()
+                .map(collect_asset_ids_from_json_value)
+                .unwrap_or_default()
+            {
+                insert_project_asset_ref_source(conn, &project_id, "edge", &edge_id, &asset_id)?;
+            }
+        }
+    }
+
+    if table_exists(conn, "project_history_steps")? {
+        let mut stmt = conn
+            .prepare(
+                "SELECT project_id, timeline, step_index, snapshot_json FROM project_history_steps",
+            )
+            .map_err(|e| {
+                format!(
+                    "Failed to prepare project history asset ref backfill: {}",
+                    e
+                )
+            })?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .map_err(|e| {
+                format!(
+                    "Failed to query project history for asset ref backfill: {}",
+                    e
+                )
+            })?;
+        for row in rows {
+            let (project_id, timeline, step_index, snapshot_json) =
+                row.map_err(|e| format!("Failed to read project history asset ref row: {}", e))?;
+            let parsed = serde_json::from_str::<Value>(&snapshot_json).ok();
+            let source_id = source_id_for_history_step(&timeline, step_index as usize);
+            for asset_id in parsed
+                .as_ref()
+                .map(collect_asset_ids_from_json_value)
+                .unwrap_or_default()
+            {
+                insert_project_asset_ref_source(
+                    conn,
+                    &project_id,
+                    "history",
+                    &source_id,
+                    &asset_id,
+                )?;
+            }
+        }
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT id, nodes_json, history_json FROM projects")
+        .map_err(|e| format!("Failed to prepare legacy project asset ref backfill: {}", e))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to query projects for asset ref backfill: {}", e))?;
+    for row in rows {
+        let (project_id, nodes_json, history_json) =
+            row.map_err(|e| format!("Failed to read legacy project asset ref row: {}", e))?;
+        for asset_id in extract_project_asset_ids(&nodes_json, &history_json) {
+            insert_project_asset_ref(conn, &project_id, &asset_id)?;
+        }
+    }
+
+    conn.execute(
+        r#"
+        INSERT INTO project_index_state (key, value, updated_at)
+        VALUES (?1, 'complete', ?2)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+        "#,
+        params![INDEX_KEY, now_timestamp_ms()],
+    )
+    .map_err(|e| format!("Failed to mark project asset ref index complete: {}", e))?;
+
+    Ok(())
 }
 
 fn clear_clip_binding_data(data: &mut serde_json::Map<String, Value>) -> bool {
@@ -568,6 +888,78 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           PRIMARY KEY(project_id, path)
         );
         CREATE INDEX IF NOT EXISTS idx_project_image_refs_path ON project_image_refs(path);
+        CREATE TABLE IF NOT EXISTS project_nodes (
+          project_id TEXT NOT NULL,
+          node_id TEXT NOT NULL,
+          node_type TEXT,
+          sort_index INTEGER NOT NULL DEFAULT 0,
+          node_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(project_id, node_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_nodes_project_sort
+          ON project_nodes(project_id, sort_index);
+        CREATE TABLE IF NOT EXISTS project_edges (
+          project_id TEXT NOT NULL,
+          edge_id TEXT NOT NULL,
+          source TEXT,
+          target TEXT,
+          sort_index INTEGER NOT NULL DEFAULT 0,
+          edge_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(project_id, edge_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_edges_project_sort
+          ON project_edges(project_id, sort_index);
+        CREATE INDEX IF NOT EXISTS idx_project_edges_project_source
+          ON project_edges(project_id, source);
+        CREATE INDEX IF NOT EXISTS idx_project_edges_project_target
+          ON project_edges(project_id, target);
+        CREATE TABLE IF NOT EXISTS project_history_steps (
+          project_id TEXT NOT NULL,
+          timeline TEXT NOT NULL,
+          step_index INTEGER NOT NULL,
+          snapshot_kind TEXT,
+          snapshot_json TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY(project_id, timeline, step_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_history_steps_project_timeline
+          ON project_history_steps(project_id, timeline, step_index);
+        CREATE TABLE IF NOT EXISTS project_image_ref_sources (
+          project_id TEXT NOT NULL,
+          source_kind TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          path TEXT NOT NULL,
+          PRIMARY KEY(project_id, source_kind, source_id, path)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_image_ref_sources_path
+          ON project_image_ref_sources(path);
+        CREATE INDEX IF NOT EXISTS idx_project_image_ref_sources_project
+          ON project_image_ref_sources(project_id);
+        CREATE TABLE IF NOT EXISTS project_asset_refs (
+          project_id TEXT NOT NULL,
+          asset_id TEXT NOT NULL,
+          PRIMARY KEY(project_id, asset_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_asset_refs_asset
+          ON project_asset_refs(asset_id);
+        CREATE TABLE IF NOT EXISTS project_asset_ref_sources (
+          project_id TEXT NOT NULL,
+          source_kind TEXT NOT NULL,
+          source_id TEXT NOT NULL,
+          asset_id TEXT NOT NULL,
+          PRIMARY KEY(project_id, source_kind, source_id, asset_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_project_asset_ref_sources_asset
+          ON project_asset_ref_sources(asset_id);
+        CREATE INDEX IF NOT EXISTS idx_project_asset_ref_sources_project
+          ON project_asset_ref_sources(project_id);
+        CREATE TABLE IF NOT EXISTS project_index_state (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          updated_at INTEGER NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS style_template_state (
           id TEXT PRIMARY KEY,
           categories_json TEXT NOT NULL DEFAULT '[]',
@@ -675,6 +1067,36 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         conn,
         "style_template_state",
         "updated_at",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "projects",
+        "persistence_version",
+        "INTEGER NOT NULL DEFAULT 1",
+    )?;
+    ensure_table_column(
+        conn,
+        "projects",
+        "graph_revision",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "projects",
+        "graph_updated_at",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "projects",
+        "graph_backup_updated_at",
+        "INTEGER NOT NULL DEFAULT 0",
+    )?;
+    ensure_table_column(
+        conn,
+        "projects",
+        "graph_backup_dirty",
         "INTEGER NOT NULL DEFAULT 0",
     )?;
 
@@ -1097,6 +1519,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|e| format!("Failed to initialize clip library indexes: {}", e))?;
 
+    backfill_project_asset_ref_index_if_needed(conn)?;
+
     Ok(())
 }
 
@@ -1440,6 +1864,72 @@ where
         .map_err(|e| format!("Failed to serialize rewritten project history json: {}", e))
 }
 
+fn resolve_project_image_pool_ref(value: &str, image_pool: &[String]) -> Option<String> {
+    const IMAGE_REF_PREFIX: &str = "__img_ref__:";
+    let index_text = value.strip_prefix(IMAGE_REF_PREFIX)?;
+    let index = index_text.parse::<usize>().ok()?;
+    image_pool.get(index).cloned()
+}
+
+fn expand_image_pool_refs_in_nodes_payload(nodes_json: &str) -> Result<Vec<Value>, String> {
+    let mut parsed_nodes = serde_json::from_str::<Value>(nodes_json).map_err(|e| {
+        format!(
+            "Failed to parse project nodes json for graph storage: {}",
+            e
+        )
+    })?;
+    let image_pool = collect_string_array(parsed_nodes.get("imagePool"));
+    if let Some(nodes) = project_nodes_array_mut(&mut parsed_nodes) {
+        if !image_pool.is_empty() {
+            rewrite_nodes_media_paths(nodes, &|value| {
+                resolve_project_image_pool_ref(value, &image_pool)
+            });
+        }
+        return Ok(nodes.clone());
+    }
+    Ok(Vec::new())
+}
+
+fn expand_image_pool_refs_in_history_payload(history_json: &str) -> Result<String, String> {
+    let mut parsed_history = serde_json::from_str::<Value>(history_json).map_err(|e| {
+        format!(
+            "Failed to parse project history json for graph storage: {}",
+            e
+        )
+    })?;
+    let image_pool = collect_string_array(parsed_history.get("imagePool"));
+    if !image_pool.is_empty() {
+        for timeline_key in ["past", "future"] {
+            let Some(timeline) = parsed_history
+                .get_mut(timeline_key)
+                .and_then(Value::as_array_mut)
+            else {
+                continue;
+            };
+
+            for snapshot in timeline {
+                rewrite_history_snapshot_media_paths(snapshot, &|value| {
+                    resolve_project_image_pool_ref(value, &image_pool)
+                });
+            }
+        }
+    }
+
+    serde_json::to_string(&serde_json::json!({
+        "past": parsed_history
+            .get("past")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        "future": parsed_history
+            .get("future")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+    }))
+    .map_err(|e| format!("Failed to serialize expanded graph history: {}", e))
+}
+
 fn encode_project_payload_storage_refs(
     app: &AppHandle,
     nodes_json: &str,
@@ -1479,10 +1969,12 @@ fn decode_project_record_nodes_storage_refs(
     app: &AppHandle,
     record: &mut ProjectRecord,
 ) -> Result<(), String> {
-    if let Some(next_nodes_json) = rewrite_project_nodes_media_paths(&record.nodes_json, &|value| {
-        let next = storage::decode_storage_media_ref(app, value);
-        (next != value).then_some(next)
-    })? {
+    if let Some(next_nodes_json) =
+        rewrite_project_nodes_media_paths(&record.nodes_json, &|value| {
+            let next = storage::decode_storage_media_ref(app, value);
+            (next != value).then_some(next)
+        })?
+    {
         record.nodes_json = next_nodes_json;
     }
     Ok(())
@@ -1499,6 +1991,20 @@ fn decode_project_history_storage_refs(
         *history_json = next_history_json;
     }
     Ok(())
+}
+
+fn decode_graph_json_storage_refs(app: &AppHandle, json: &str) -> Result<String, String> {
+    storage::rewrite_media_refs_in_json_string(json, &|value| {
+        storage::decode_storage_media_ref(app, value)
+    })
+    .map(|rewritten| rewritten.unwrap_or_else(|| json.to_string()))
+}
+
+fn encode_graph_json_storage_refs(app: &AppHandle, json: &str) -> Result<String, String> {
+    storage::rewrite_media_refs_in_json_string(json, &|value| {
+        storage::encode_storage_media_ref(app, value)
+    })
+    .map(|rewritten| rewritten.unwrap_or_else(|| json.to_string()))
 }
 
 fn encode_project_record_storage_refs(
@@ -1571,6 +2077,41 @@ fn collect_image_paths_from_nodes(
     }
 }
 
+fn collect_image_paths_from_json_value(value: &Value) -> HashSet<String> {
+    let mut paths = HashSet::new();
+    collect_image_paths_from_value(value, &[], &mut paths);
+    paths
+}
+
+fn collect_asset_ids_from_value(value: &Value, asset_ids: &mut HashSet<String>) {
+    match value {
+        Value::Object(object) => {
+            if let Some(asset_id) = object.get("assetId").and_then(Value::as_str) {
+                let trimmed = asset_id.trim();
+                if !trimmed.is_empty() {
+                    asset_ids.insert(trimmed.to_string());
+                }
+            }
+
+            for nested in object.values() {
+                collect_asset_ids_from_value(nested, asset_ids);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_asset_ids_from_value(item, asset_ids);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_asset_ids_from_json_value(value: &Value) -> HashSet<String> {
+    let mut asset_ids = HashSet::new();
+    collect_asset_ids_from_value(value, &mut asset_ids);
+    asset_ids
+}
+
 fn collect_image_paths_from_history_snapshot(
     snapshot: &Value,
     image_pool: &[String],
@@ -1622,6 +2163,20 @@ fn extract_project_image_paths(nodes_json: &str, history_json: &str) -> HashSet<
     }
 
     paths
+}
+
+fn extract_project_asset_ids(nodes_json: &str, history_json: &str) -> HashSet<String> {
+    let mut asset_ids = HashSet::new();
+
+    if let Ok(parsed_nodes) = serde_json::from_str::<Value>(nodes_json) {
+        collect_asset_ids_from_value(&parsed_nodes, &mut asset_ids);
+    }
+
+    if let Ok(parsed_history) = serde_json::from_str::<Value>(history_json) {
+        collect_asset_ids_from_value(&parsed_history, &mut asset_ids);
+    }
+
+    asset_ids
 }
 
 fn read_existing_project_media_snapshot(
@@ -1722,6 +2277,540 @@ fn guard_project_media_refs_before_upsert(
     ))
 }
 
+fn source_id_for_history_step(timeline: &str, step_index: usize) -> String {
+    format!("{timeline}:{step_index}")
+}
+
+fn refresh_project_image_refs_from_sources(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM project_image_refs WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to clear project image refs: {}", e))?;
+    tx.execute(
+        r#"
+        INSERT OR IGNORE INTO project_image_refs (project_id, path)
+        SELECT DISTINCT project_id, path
+        FROM project_image_ref_sources
+        WHERE project_id = ?1
+        "#,
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to rebuild project image refs: {}", e))?;
+    Ok(())
+}
+
+fn refresh_project_asset_refs_from_sources(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM project_asset_refs WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to clear project asset refs: {}", e))?;
+    tx.execute(
+        r#"
+        INSERT OR IGNORE INTO project_asset_refs (project_id, asset_id)
+        SELECT DISTINCT project_id, asset_id
+        FROM project_asset_ref_sources
+        WHERE project_id = ?1
+        "#,
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to rebuild project asset refs: {}", e))?;
+    Ok(())
+}
+
+fn refresh_project_ref_indexes_from_sources(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+) -> Result<(), String> {
+    refresh_project_image_refs_from_sources(tx, project_id)?;
+    refresh_project_asset_refs_from_sources(tx, project_id)?;
+    Ok(())
+}
+
+fn replace_project_image_ref_source_paths(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    source_kind: &str,
+    source_id: &str,
+    paths: HashSet<String>,
+) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM project_image_ref_sources WHERE project_id = ?1 AND source_kind = ?2 AND source_id = ?3",
+        params![project_id, source_kind, source_id],
+    )
+    .map_err(|e| format!("Failed to clear project image ref source: {}", e))?;
+
+    for path in paths {
+        let Some(normalized_path) = normalize_image_ref_path(&path) else {
+            continue;
+        };
+        tx.execute(
+            r#"
+            INSERT OR IGNORE INTO project_image_ref_sources (
+              project_id,
+              source_kind,
+              source_id,
+              path
+            )
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+            params![project_id, source_kind, source_id, normalized_path],
+        )
+        .map_err(|e| format!("Failed to upsert project image ref source: {}", e))?;
+    }
+
+    Ok(())
+}
+
+fn replace_project_asset_ref_source_ids(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    source_kind: &str,
+    source_id: &str,
+    asset_ids: HashSet<String>,
+) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM project_asset_ref_sources WHERE project_id = ?1 AND source_kind = ?2 AND source_id = ?3",
+        params![project_id, source_kind, source_id],
+    )
+    .map_err(|e| format!("Failed to clear project asset ref source: {}", e))?;
+
+    for asset_id in asset_ids {
+        let normalized_asset_id = asset_id.trim();
+        if normalized_asset_id.is_empty() {
+            continue;
+        }
+        tx.execute(
+            r#"
+            INSERT OR IGNORE INTO project_asset_ref_sources (
+              project_id,
+              source_kind,
+              source_id,
+              asset_id
+            )
+            VALUES (?1, ?2, ?3, ?4)
+            "#,
+            params![project_id, source_kind, source_id, normalized_asset_id],
+        )
+        .map_err(|e| format!("Failed to upsert project asset ref source: {}", e))?;
+    }
+
+    Ok(())
+}
+
+fn replace_project_ref_sources_from_json(
+    app: &AppHandle,
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    source_kind: &str,
+    source_id: &str,
+    json: &str,
+) -> Result<(), String> {
+    let decoded_json = decode_graph_json_storage_refs(app, json)?;
+    let parsed = serde_json::from_str::<Value>(&decoded_json)
+        .map_err(|e| format!("Failed to parse graph json for refs: {}", e))?;
+    replace_project_image_ref_source_paths(
+        tx,
+        project_id,
+        source_kind,
+        source_id,
+        collect_image_paths_from_json_value(&parsed),
+    )?;
+    replace_project_asset_ref_source_ids(
+        tx,
+        project_id,
+        source_kind,
+        source_id,
+        collect_asset_ids_from_json_value(&parsed),
+    )?;
+    Ok(())
+}
+
+fn replace_project_image_ref_source_from_json(
+    app: &AppHandle,
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    source_kind: &str,
+    source_id: &str,
+    json: &str,
+) -> Result<(), String> {
+    replace_project_ref_sources_from_json(app, tx, project_id, source_kind, source_id, json)
+}
+
+fn clear_project_image_ref_source(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    source_kind: &str,
+    source_id: &str,
+) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM project_image_ref_sources WHERE project_id = ?1 AND source_kind = ?2 AND source_id = ?3",
+        params![project_id, source_kind, source_id],
+    )
+    .map_err(|e| format!("Failed to clear project image ref source: {}", e))?;
+    Ok(())
+}
+
+fn clear_project_ref_source(
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    source_kind: &str,
+    source_id: &str,
+) -> Result<(), String> {
+    clear_project_image_ref_source(tx, project_id, source_kind, source_id)?;
+    tx.execute(
+        "DELETE FROM project_asset_ref_sources WHERE project_id = ?1 AND source_kind = ?2 AND source_id = ?3",
+        params![project_id, source_kind, source_id],
+    )
+    .map_err(|e| format!("Failed to clear project asset ref source: {}", e))?;
+    Ok(())
+}
+
+fn split_history_steps(history_json: &str) -> Result<(Vec<Value>, Vec<Value>), String> {
+    let parsed = serde_json::from_str::<Value>(history_json)
+        .map_err(|e| format!("Failed to parse project history json: {}", e))?;
+    let past = parsed
+        .get("past")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let future = parsed
+        .get("future")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    Ok((past, future))
+}
+
+fn snapshot_kind(snapshot: &Value) -> Option<String> {
+    snapshot
+        .get("kind")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+}
+
+fn upsert_project_graph_node_in_tx(
+    app: &AppHandle,
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    node: &Value,
+    sort_index: i64,
+    updated_at: i64,
+) -> Result<(), String> {
+    let node_id = node
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Project graph node is missing id".to_string())?;
+    let node_type = node.get("type").and_then(Value::as_str);
+    let node_json = serde_json::to_string(node)
+        .map_err(|e| format!("Failed to serialize project graph node: {}", e))?;
+
+    tx.execute(
+        r#"
+        INSERT INTO project_nodes (
+          project_id,
+          node_id,
+          node_type,
+          sort_index,
+          node_json,
+          updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ON CONFLICT(project_id, node_id) DO UPDATE SET
+          node_type = excluded.node_type,
+          sort_index = excluded.sort_index,
+          node_json = excluded.node_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![project_id, node_id, node_type, sort_index, node_json, updated_at],
+    )
+    .map_err(|e| format!("Failed to upsert project graph node: {}", e))?;
+    replace_project_image_ref_source_from_json(app, tx, project_id, "node", node_id, &node_json)?;
+    Ok(())
+}
+
+fn upsert_project_graph_edge_in_tx(
+    app: &AppHandle,
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    edge: &Value,
+    sort_index: i64,
+    updated_at: i64,
+) -> Result<(), String> {
+    let edge_id = edge
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Project graph edge is missing id".to_string())?;
+    let source = edge.get("source").and_then(Value::as_str);
+    let target = edge.get("target").and_then(Value::as_str);
+    let edge_json = serde_json::to_string(edge)
+        .map_err(|e| format!("Failed to serialize project graph edge: {}", e))?;
+
+    tx.execute(
+        r#"
+        INSERT INTO project_edges (
+          project_id,
+          edge_id,
+          source,
+          target,
+          sort_index,
+          edge_json,
+          updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(project_id, edge_id) DO UPDATE SET
+          source = excluded.source,
+          target = excluded.target,
+          sort_index = excluded.sort_index,
+          edge_json = excluded.edge_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![project_id, edge_id, source, target, sort_index, edge_json, updated_at],
+    )
+    .map_err(|e| format!("Failed to upsert project graph edge: {}", e))?;
+    replace_project_image_ref_source_from_json(app, tx, project_id, "edge", edge_id, &edge_json)?;
+    Ok(())
+}
+
+fn replace_project_graph_history_in_tx(
+    app: &AppHandle,
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    history_json: &str,
+    updated_at: i64,
+) -> Result<(), String> {
+    let (past, future) = split_history_steps(history_json)?;
+    tx.execute(
+        "DELETE FROM project_history_steps WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to clear project graph history: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_image_ref_sources WHERE project_id = ?1 AND source_kind = 'history'",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to clear project history image ref sources: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_asset_ref_sources WHERE project_id = ?1 AND source_kind = 'history'",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to clear project history asset ref sources: {}", e))?;
+
+    for (timeline, snapshots) in [("past", past), ("future", future)] {
+        for (index, snapshot) in snapshots.iter().enumerate() {
+            let snapshot_json = serde_json::to_string(snapshot)
+                .map_err(|e| format!("Failed to serialize project history step: {}", e))?;
+            let snapshot_kind = snapshot_kind(snapshot);
+            tx.execute(
+                r#"
+                INSERT INTO project_history_steps (
+                  project_id,
+                  timeline,
+                  step_index,
+                  snapshot_kind,
+                  snapshot_json,
+                  updated_at
+                )
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                "#,
+                params![
+                    project_id,
+                    timeline,
+                    index as i64,
+                    snapshot_kind,
+                    snapshot_json,
+                    updated_at
+                ],
+            )
+            .map_err(|e| format!("Failed to insert project history step: {}", e))?;
+            replace_project_image_ref_source_from_json(
+                app,
+                tx,
+                project_id,
+                "history",
+                &source_id_for_history_step(timeline, index),
+                &snapshot_json,
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn project_graph_node_count(conn: &Connection, project_id: &str) -> Result<i64, String> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM project_nodes WHERE project_id = ?1",
+        params![project_id],
+        |row| row.get(0),
+    )
+    .map_err(|e| format!("Failed to count project graph nodes: {}", e))
+}
+
+fn read_project_graph_payload_json(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<(String, String, String), String> {
+    let (nodes_json, edges_json) = read_project_graph_nodes_edges_json(conn, project_id)?;
+    let history_json = read_project_graph_history_json(conn, project_id)?;
+    Ok((nodes_json, edges_json, history_json))
+}
+
+fn read_project_graph_nodes_edges_json(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<(String, String), String> {
+    let mut nodes = Vec::<Value>::new();
+    let mut node_stmt = conn
+        .prepare(
+            "SELECT node_json FROM project_nodes WHERE project_id = ?1 ORDER BY sort_index, node_id",
+        )
+        .map_err(|e| format!("Failed to prepare project graph node query: {}", e))?;
+    let node_rows = node_stmt
+        .query_map(params![project_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("Failed to query project graph nodes: {}", e))?;
+    for row in node_rows {
+        let json = row.map_err(|e| format!("Failed to read project graph node row: {}", e))?;
+        let parsed = serde_json::from_str::<Value>(&json)
+            .map_err(|e| format!("Failed to parse project graph node json: {}", e))?;
+        nodes.push(parsed);
+    }
+
+    let mut edges = Vec::<Value>::new();
+    let mut edge_stmt = conn
+        .prepare(
+            "SELECT edge_json FROM project_edges WHERE project_id = ?1 ORDER BY sort_index, edge_id",
+        )
+        .map_err(|e| format!("Failed to prepare project graph edge query: {}", e))?;
+    let edge_rows = edge_stmt
+        .query_map(params![project_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("Failed to query project graph edges: {}", e))?;
+    for row in edge_rows {
+        let json = row.map_err(|e| format!("Failed to read project graph edge row: {}", e))?;
+        let parsed = serde_json::from_str::<Value>(&json)
+            .map_err(|e| format!("Failed to parse project graph edge json: {}", e))?;
+        edges.push(parsed);
+    }
+
+    let nodes_json = serde_json::to_string(&nodes)
+        .map_err(|e| format!("Failed to serialize project graph nodes: {}", e))?;
+    let edges_json = serde_json::to_string(&edges)
+        .map_err(|e| format!("Failed to serialize project graph edges: {}", e))?;
+    Ok((nodes_json, edges_json))
+}
+
+fn read_project_graph_history_json(conn: &Connection, project_id: &str) -> Result<String, String> {
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT timeline, step_index, snapshot_json
+            FROM project_history_steps
+            WHERE project_id = ?1
+            ORDER BY timeline, step_index
+            "#,
+        )
+        .map_err(|e| format!("Failed to prepare project graph history query: {}", e))?;
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .map_err(|e| format!("Failed to query project graph history: {}", e))?;
+
+    let mut past = Vec::<Value>::new();
+    let mut future = Vec::<Value>::new();
+    for row in rows {
+        let (timeline, _step_index, snapshot_json) =
+            row.map_err(|e| format!("Failed to read project history row: {}", e))?;
+        let parsed = serde_json::from_str::<Value>(&snapshot_json)
+            .map_err(|e| format!("Failed to parse project history snapshot: {}", e))?;
+        if timeline == "future" {
+            future.push(parsed);
+        } else {
+            past.push(parsed);
+        }
+    }
+
+    serde_json::to_string(&serde_json::json!({
+        "past": past,
+        "future": future,
+    }))
+    .map_err(|e| format!("Failed to serialize project graph history: {}", e))
+}
+
+fn migrate_project_record_to_graph_in_tx(
+    app: &AppHandle,
+    tx: &rusqlite::Transaction<'_>,
+    record: &ProjectRecord,
+    updated_at: i64,
+) -> Result<(), String> {
+    tx.execute(
+        "DELETE FROM project_nodes WHERE project_id = ?1",
+        params![&record.id],
+    )
+    .map_err(|e| format!("Failed to clear project graph nodes: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_edges WHERE project_id = ?1",
+        params![&record.id],
+    )
+    .map_err(|e| format!("Failed to clear project graph edges: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_history_steps WHERE project_id = ?1",
+        params![&record.id],
+    )
+    .map_err(|e| format!("Failed to clear project graph history: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_image_ref_sources WHERE project_id = ?1",
+        params![&record.id],
+    )
+    .map_err(|e| format!("Failed to clear project graph image refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_asset_ref_sources WHERE project_id = ?1",
+        params![&record.id],
+    )
+    .map_err(|e| format!("Failed to clear project graph asset refs: {}", e))?;
+
+    let nodes = expand_image_pool_refs_in_nodes_payload(&record.nodes_json)?;
+    for (index, node) in nodes.iter().enumerate() {
+        upsert_project_graph_node_in_tx(app, tx, &record.id, node, index as i64, updated_at)?;
+    }
+
+    let edges = serde_json::from_str::<Vec<Value>>(&record.edges_json)
+        .map_err(|e| format!("Failed to parse project edges for graph migration: {}", e))?;
+    for (index, edge) in edges.iter().enumerate() {
+        upsert_project_graph_edge_in_tx(app, tx, &record.id, edge, index as i64, updated_at)?;
+    }
+
+    let expanded_history_json = expand_image_pool_refs_in_history_payload(&record.history_json)?;
+    replace_project_graph_history_in_tx(app, tx, &record.id, &expanded_history_json, updated_at)?;
+    refresh_project_ref_indexes_from_sources(tx, &record.id)?;
+    tx.execute(
+        r#"
+        UPDATE projects
+        SET
+          persistence_version = 2,
+          graph_revision = graph_revision + 1,
+          graph_updated_at = ?2,
+          graph_backup_updated_at = ?2,
+          graph_backup_dirty = 0,
+          node_count = ?3
+        WHERE id = ?1
+        "#,
+        params![&record.id, updated_at, nodes.len() as i64],
+    )
+    .map_err(|e| format!("Failed to mark project graph migration complete: {}", e))?;
+    Ok(())
+}
+
 fn update_project_payload_in_tx(
     tx: &rusqlite::Transaction<'_>,
     project_id: &str,
@@ -1736,6 +2825,47 @@ fn update_project_payload_in_tx(
 
     replace_project_image_refs(tx, project_id, nodes_json, history_json)?;
     Ok(())
+}
+
+pub(crate) fn sync_project_graph_from_payload_in_tx(
+    app: &AppHandle,
+    tx: &rusqlite::Transaction<'_>,
+    project_id: &str,
+    nodes_json: &str,
+    edges_json: Option<&str>,
+    history_json: &str,
+    updated_at: i64,
+) -> Result<(), String> {
+    let edges_json = match edges_json {
+        Some(value) => value.to_string(),
+        None => tx
+            .query_row(
+                "SELECT edges_json FROM projects WHERE id = ?1 LIMIT 1",
+                params![project_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| format!("Failed to read project edges for graph sync: {}", e))?,
+    };
+    let record = ProjectRecord {
+        id: project_id.to_string(),
+        name: String::new(),
+        project_type: "storyboard".to_string(),
+        asset_library_id: None,
+        clip_library_id: None,
+        clip_last_folder_id: None,
+        linked_script_project_id: None,
+        linked_ad_project_id: None,
+        created_at: 0,
+        updated_at,
+        node_count: 0,
+        nodes_json: nodes_json.to_string(),
+        edges_json,
+        viewport_json: "{}".to_string(),
+        history_json: history_json.to_string(),
+        color_labels_json: "{}".to_string(),
+        script_welcome_skipped: false,
+    };
+    migrate_project_record_to_graph_in_tx(app, tx, &record, updated_at)
 }
 
 fn replace_asset_image_refs_in_tx(
@@ -2457,6 +3587,15 @@ pub(crate) fn normalize_storage_media_refs_in_connection(
             params![next_nodes_json, next_history_json, project_id],
         )
         .map_err(|e| format!("Failed to update normalized project media refs: {}", e))?;
+        sync_project_graph_from_payload_in_tx(
+            app,
+            &tx,
+            &project_id,
+            &nodes_json,
+            None,
+            &history_json,
+            now_timestamp_ms(),
+        )?;
         replace_project_image_refs(&tx, &project_id, &nodes_json, &history_json)?;
         stats.project_payloads_rewritten += 1;
     }
@@ -2608,6 +3747,15 @@ pub(crate) fn rebuild_media_ref_indexes(
     for (project_id, nodes_json, history_json) in project_rows {
         let decoded_payload = decode_project_payload_storage_refs(app, &nodes_json, &history_json)?
             .unwrap_or((nodes_json, history_json));
+        sync_project_graph_from_payload_in_tx(
+            app,
+            &tx,
+            &project_id,
+            &decoded_payload.0,
+            None,
+            &decoded_payload.1,
+            now_timestamp_ms(),
+        )?;
         replace_project_image_refs(&tx, &project_id, &decoded_payload.0, &decoded_payload.1)?;
     }
 
@@ -2641,11 +3789,17 @@ pub(crate) fn replace_project_image_refs(
     history_json: &str,
 ) -> Result<(), String> {
     let image_paths = extract_project_image_paths(nodes_json, history_json);
+    let asset_ids = extract_project_asset_ids(nodes_json, history_json);
     tx.execute(
         "DELETE FROM project_image_refs WHERE project_id = ?1",
         params![project_id],
     )
     .map_err(|e| format!("Failed to clear project image refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_asset_refs WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to clear project asset refs: {}", e))?;
 
     for path in image_paths {
         let Some(normalized_path) = normalize_image_ref_path(&path) else {
@@ -2658,7 +3812,49 @@ pub(crate) fn replace_project_image_refs(
         .map_err(|e| format!("Failed to upsert project image ref: {}", e))?;
     }
 
+    for asset_id in asset_ids {
+        let normalized_asset_id = asset_id.trim();
+        if normalized_asset_id.is_empty() {
+            continue;
+        }
+        tx.execute(
+            "INSERT OR IGNORE INTO project_asset_refs (project_id, asset_id) VALUES (?1, ?2)",
+            params![project_id, normalized_asset_id],
+        )
+        .map_err(|e| format!("Failed to upsert project asset ref: {}", e))?;
+    }
+
     Ok(())
+}
+
+pub(crate) fn project_ids_for_asset_ref(
+    conn: &Connection,
+    asset_id: &str,
+) -> Result<Vec<String>, String> {
+    let normalized_asset_id = asset_id.trim();
+    if normalized_asset_id.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT DISTINCT project_id
+            FROM project_asset_refs
+            WHERE asset_id = ?1
+            ORDER BY project_id
+            "#,
+        )
+        .map_err(|e| format!("Failed to prepare project asset ref query: {}", e))?;
+    let rows = stmt
+        .query_map(params![normalized_asset_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("Failed to query project asset refs: {}", e))?;
+
+    let mut project_ids = Vec::new();
+    for row in rows {
+        project_ids.push(row.map_err(|e| format!("Failed to read project asset ref row: {}", e))?);
+    }
+    Ok(project_ids)
 }
 
 fn empty_style_template_state_record() -> StyleTemplateStateRecord {
@@ -2855,6 +4051,262 @@ pub(crate) fn open_db(app: &AppHandle) -> Result<Connection, String> {
     Ok(conn)
 }
 
+fn read_project_record_from_connection(
+    conn: &Connection,
+    project_id: &str,
+    include_history: bool,
+) -> Result<Option<ProjectRecord>, String> {
+    let history_select = if include_history {
+        "history_json"
+    } else {
+        r#"'{"past":[],"future":[]}'"#
+    };
+    let query = format!(
+        r#"
+        SELECT
+            id,
+            name,
+            COALESCE(project_type, 'storyboard') as project_type,
+            asset_library_id,
+            clip_library_id,
+            clip_last_folder_id,
+            linked_script_project_id,
+            linked_ad_project_id,
+            created_at,
+            updated_at,
+            node_count,
+            nodes_json,
+            edges_json,
+            viewport_json,
+            {history_select},
+            color_labels_json,
+            script_welcome_skipped
+        FROM projects
+        WHERE id = ?1
+        LIMIT 1
+        "#,
+    );
+    let result = {
+        let mut stmt = conn
+            .prepare(&query)
+            .map_err(|e| format!("Failed to prepare get project query: {}", e))?;
+
+        stmt.query_row(params![project_id], |row| {
+            Ok(ProjectRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                project_type: row.get(2)?,
+                asset_library_id: row.get(3)?,
+                clip_library_id: row.get(4)?,
+                clip_last_folder_id: row.get(5)?,
+                linked_script_project_id: row.get(6)?,
+                linked_ad_project_id: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                node_count: row.get(10)?,
+                nodes_json: row.get(11)?,
+                edges_json: row.get(12)?,
+                viewport_json: row.get(13)?,
+                history_json: row.get(14)?,
+                color_labels_json: row.get(15)?,
+                script_welcome_skipped: row.get(16)?,
+            })
+        })
+    };
+
+    match result {
+        Ok(record) => Ok(Some(record)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("Failed to load project: {}", error)),
+    }
+}
+
+fn read_project_record_meta_from_connection(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Option<ProjectRecord>, String> {
+    let result = {
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT
+                    id,
+                    name,
+                    COALESCE(project_type, 'storyboard') as project_type,
+                    asset_library_id,
+                    clip_library_id,
+                    clip_last_folder_id,
+                    linked_script_project_id,
+                    linked_ad_project_id,
+                    created_at,
+                    updated_at,
+                    node_count,
+                    viewport_json,
+                    color_labels_json,
+                    script_welcome_skipped
+                FROM projects
+                WHERE id = ?1
+                LIMIT 1
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare get project meta query: {}", e))?;
+
+        stmt.query_row(params![project_id], |row| {
+            Ok(ProjectRecord {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                project_type: row.get(2)?,
+                asset_library_id: row.get(3)?,
+                clip_library_id: row.get(4)?,
+                clip_last_folder_id: row.get(5)?,
+                linked_script_project_id: row.get(6)?,
+                linked_ad_project_id: row.get(7)?,
+                created_at: row.get(8)?,
+                updated_at: row.get(9)?,
+                node_count: row.get(10)?,
+                nodes_json: "[]".to_string(),
+                edges_json: "[]".to_string(),
+                viewport_json: row.get(11)?,
+                history_json: r#"{"past":[],"future":[]}"#.to_string(),
+                color_labels_json: row.get(12)?,
+                script_welcome_skipped: row.get(13)?,
+            })
+        })
+    };
+
+    match result {
+        Ok(record) => Ok(Some(record)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("Failed to load project meta: {}", error)),
+    }
+}
+
+fn read_project_graph_meta(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Option<(i64, i64)>, String> {
+    let result = conn.query_row(
+        "SELECT persistence_version, graph_revision FROM projects WHERE id = ?1 LIMIT 1",
+        params![project_id],
+        |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+    );
+    match result {
+        Ok(meta) => Ok(Some(meta)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(error) => Err(format!("Failed to load project graph metadata: {}", error)),
+    }
+}
+
+fn ensure_project_graph_migrated(
+    app: &AppHandle,
+    conn: &mut Connection,
+    project_id: &str,
+) -> Result<bool, String> {
+    let Some((persistence_version, _graph_revision)) = read_project_graph_meta(conn, project_id)?
+    else {
+        return Ok(false);
+    };
+    if persistence_version >= 2 {
+        return Ok(true);
+    }
+
+    if let Err(error) = storage::create_pre_persist_database_backup(app) {
+        tracing::warn!("failed to create pre-migration database backup: {}", error);
+    }
+
+    let Some(mut record) = read_project_record_from_connection(conn, project_id, true)? else {
+        return Ok(false);
+    };
+    repair_project_record_storage_aliases_if_needed(conn, app, &mut record)?;
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin project graph migration transaction: {}", e))?;
+    migrate_project_record_to_graph_in_tx(&app, &tx, &record, now_timestamp_ms())?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit project graph migration: {}", e))?;
+    Ok(true)
+}
+
+fn read_project_graph_record_from_connection(
+    app: &AppHandle,
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Option<ProjectGraphRecord>, String> {
+    let Some(mut record) = read_project_record_meta_from_connection(conn, project_id)? else {
+        return Ok(None);
+    };
+    let Some((persistence_version, graph_revision)) = read_project_graph_meta(conn, project_id)?
+    else {
+        return Ok(None);
+    };
+    let (nodes_json, edges_json) = read_project_graph_nodes_edges_json(conn, project_id)?;
+    record.nodes_json = decode_graph_json_storage_refs(app, &nodes_json)?;
+    record.edges_json = decode_graph_json_storage_refs(app, &edges_json)?;
+    record.history_json = r#"{"past":[],"future":[]}"#.to_string();
+    decode_project_record_nodes_storage_refs(app, &mut record)?;
+    Ok(Some(ProjectGraphRecord {
+        record,
+        graph_revision,
+        persistence_version,
+    }))
+}
+
+fn project_graph_storage_consistency_error(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<Option<String>, String> {
+    let expected_node_count: Option<i64> = conn
+        .query_row(
+            "SELECT node_count FROM projects WHERE id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| format!("Failed to read project node count: {}", e))?;
+    let Some(expected_node_count) = expected_node_count else {
+        return Ok(Some(format!("Project {} was not found", project_id)));
+    };
+    let graph_node_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM project_nodes WHERE project_id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to count graph nodes: {}", e))?;
+    if expected_node_count != graph_node_count {
+        return Ok(Some(format!(
+            "Project graph node_count mismatch: projects.node_count={} graph_nodes={}",
+            expected_node_count, graph_node_count
+        )));
+    }
+
+    let orphan_edge_count: i64 = conn
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM project_edges e
+            LEFT JOIN project_nodes s
+              ON s.project_id = e.project_id AND s.node_id = e.source
+            LEFT JOIN project_nodes t
+              ON t.project_id = e.project_id AND t.node_id = e.target
+            WHERE e.project_id = ?1
+              AND (s.node_id IS NULL OR t.node_id IS NULL)
+            "#,
+            params![project_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to count orphan graph edges: {}", e))?;
+    if orphan_edge_count > 0 {
+        return Ok(Some(format!(
+            "Project graph has {} orphan edge(s)",
+            orphan_edge_count
+        )));
+    }
+
+    Ok(None)
+}
+
 #[tauri::command]
 pub fn list_project_summaries(app: AppHandle) -> Result<Vec<ProjectSummaryRecord>, String> {
     let conn = open_db(&app)?;
@@ -2910,66 +4362,13 @@ pub fn get_project_record(
     project_id: String,
 ) -> Result<Option<ProjectRecord>, String> {
     let mut conn = open_db(&app)?;
-    let result = {
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT
-                    id,
-                    name,
-                    COALESCE(project_type, 'storyboard') as project_type,
-                    asset_library_id,
-                    clip_library_id,
-                    clip_last_folder_id,
-                    linked_script_project_id,
-                    linked_ad_project_id,
-                    created_at,
-                    updated_at,
-                    node_count,
-                    nodes_json,
-                    edges_json,
-                    viewport_json,
-                    history_json,
-                    color_labels_json,
-                    script_welcome_skipped
-                FROM projects
-                WHERE id = ?1
-                LIMIT 1
-                "#,
-            )
-            .map_err(|e| format!("Failed to prepare get project query: {}", e))?;
-
-        stmt.query_row(params![project_id], |row| {
-            Ok(ProjectRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                project_type: row.get(2)?,
-                asset_library_id: row.get(3)?,
-                clip_library_id: row.get(4)?,
-                clip_last_folder_id: row.get(5)?,
-                linked_script_project_id: row.get(6)?,
-                linked_ad_project_id: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                node_count: row.get(10)?,
-                nodes_json: row.get(11)?,
-                edges_json: row.get(12)?,
-                viewport_json: row.get(13)?,
-                history_json: row.get(14)?,
-                color_labels_json: row.get(15)?,
-                script_welcome_skipped: row.get(16)?,
-            })
-        })
-    };
-
-    match result {
-        Ok(mut record) => {
+    match read_project_record_from_connection(&conn, &project_id, true)? {
+        Some(mut record) => {
             repair_project_record_storage_aliases_if_needed(&mut conn, &app, &mut record)?;
             decode_project_record_storage_refs(&app, &mut record)?;
             Ok(Some(record))
         }
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(error) => Err(format!("Failed to load project: {}", error)),
+        None => Ok(None),
     }
 }
 
@@ -2979,65 +4378,13 @@ pub fn get_project_record_without_history(
     project_id: String,
 ) -> Result<Option<ProjectRecord>, String> {
     let mut conn = open_db(&app)?;
-    let result = {
-        let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT
-                    id,
-                    name,
-                    COALESCE(project_type, 'storyboard') as project_type,
-                    asset_library_id,
-                    clip_library_id,
-                    clip_last_folder_id,
-                    linked_script_project_id,
-                    linked_ad_project_id,
-                    created_at,
-                    updated_at,
-                    node_count,
-                    nodes_json,
-                    edges_json,
-                    viewport_json,
-                    color_labels_json,
-                    script_welcome_skipped
-                FROM projects
-                WHERE id = ?1
-                LIMIT 1
-                "#,
-            )
-            .map_err(|e| format!("Failed to prepare get project query: {}", e))?;
-
-        stmt.query_row(params![project_id], |row| {
-            Ok(ProjectRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                project_type: row.get(2)?,
-                asset_library_id: row.get(3)?,
-                clip_library_id: row.get(4)?,
-                clip_last_folder_id: row.get(5)?,
-                linked_script_project_id: row.get(6)?,
-                linked_ad_project_id: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                node_count: row.get(10)?,
-                nodes_json: row.get(11)?,
-                edges_json: row.get(12)?,
-                viewport_json: row.get(13)?,
-                history_json: r#"{"past":[],"future":[]}"#.to_string(),
-                color_labels_json: row.get(14)?,
-                script_welcome_skipped: row.get(15)?,
-            })
-        })
-    };
-
-    match result {
-        Ok(mut record) => {
+    match read_project_record_from_connection(&conn, &project_id, false)? {
+        Some(mut record) => {
             repair_project_record_storage_aliases_if_needed(&mut conn, &app, &mut record)?;
             decode_project_record_nodes_storage_refs(&app, &mut record)?;
             Ok(Some(record))
         }
-        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(error) => Err(format!("Failed to load project: {}", error)),
+        None => Ok(None),
     }
 }
 
@@ -3067,7 +4414,71 @@ pub fn get_project_history_record(
 }
 
 #[tauri::command]
-pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Result<(), String> {
+pub fn get_project_graph_record(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Option<ProjectGraphRecord>, String> {
+    let mut conn = open_db(&app)?;
+    if !ensure_project_graph_migrated(&app, &mut conn, &project_id)? {
+        return Ok(None);
+    }
+    if let Some(error) = project_graph_storage_consistency_error(&conn, &project_id)? {
+        return Err(error);
+    }
+    read_project_graph_record_from_connection(&app, &conn, &project_id)
+}
+
+#[tauri::command]
+pub fn get_project_graph_record_if_ready(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Option<ProjectGraphRecord>, String> {
+    let conn = open_db(&app)?;
+    let Some((persistence_version, _graph_revision)) = read_project_graph_meta(&conn, &project_id)?
+    else {
+        return Ok(None);
+    };
+    if persistence_version < 2 {
+        return Ok(None);
+    }
+    if let Some(error) = project_graph_storage_consistency_error(&conn, &project_id)? {
+        tracing::warn!(
+            project_id = %project_id,
+            "project graph is inconsistent; falling back to legacy record: {}",
+            error
+        );
+        return Ok(None);
+    }
+    read_project_graph_record_from_connection(&app, &conn, &project_id)
+}
+
+#[tauri::command]
+pub fn get_project_graph_history(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Option<ProjectGraphHistoryRecord>, String> {
+    let mut conn = open_db(&app)?;
+    if !ensure_project_graph_migrated(&app, &mut conn, &project_id)? {
+        return Ok(None);
+    }
+    let Some((_persistence_version, graph_revision)) = read_project_graph_meta(&conn, &project_id)?
+    else {
+        return Ok(None);
+    };
+    let history_json = read_project_graph_history_json(&conn, &project_id)?;
+    let decoded_history_json = decode_graph_json_storage_refs(&app, &history_json)?;
+    Ok(Some(ProjectGraphHistoryRecord {
+        project_id,
+        history_json: decoded_history_json,
+        graph_revision,
+    }))
+}
+
+#[tauri::command]
+pub fn upsert_project_graph_snapshot(
+    app: AppHandle,
+    mut record: ProjectRecord,
+) -> Result<ProjectGraphPatchResult, String> {
     storage::ensure_storage_session_write_allowed(&app)?;
     if let Some((next_nodes_json, next_history_json)) =
         rewrite_project_payload_media_paths_to_known_storage(
@@ -3080,16 +4491,40 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
         record.history_json = next_history_json;
     }
 
+    let mut persisted_record = record.clone();
+    encode_project_record_storage_refs(&app, &mut persisted_record)?;
+    let updated_at = persisted_record.updated_at;
     let mut conn = open_db(&app)?;
     guard_project_media_refs_before_upsert(&app, &conn, &record)?;
-    let refs_nodes_json = record.nodes_json.clone();
-    let refs_history_json = record.history_json.clone();
-    encode_project_record_storage_refs(&app, &mut record)?;
-
     let tx = conn
         .transaction()
-        .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+        .map_err(|e| format!("Failed to begin graph snapshot transaction: {}", e))?;
 
+    upsert_project_record_in_tx(&tx, &persisted_record)?;
+    migrate_project_record_to_graph_in_tx(&app, &tx, &persisted_record, updated_at)?;
+    refresh_project_ref_indexes_from_sources(&tx, &persisted_record.id)?;
+    let graph_revision: i64 = tx
+        .query_row(
+            "SELECT graph_revision FROM projects WHERE id = ?1",
+            params![&persisted_record.id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to read graph revision: {}", e))?;
+    let node_count = project_graph_node_count(&tx, &persisted_record.id)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit graph snapshot transaction: {}", e))?;
+
+    Ok(ProjectGraphPatchResult {
+        project_id: persisted_record.id,
+        graph_revision,
+        node_count,
+    })
+}
+
+fn upsert_project_record_in_tx(
+    tx: &rusqlite::Transaction<'_>,
+    record: &ProjectRecord,
+) -> Result<(), String> {
     tx.execute(
         r#"
         INSERT INTO projects (
@@ -3151,6 +4586,449 @@ pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Resul
         ],
     )
     .map_err(|e| format!("Failed to upsert project: {}", e))?;
+    Ok(())
+}
+
+fn max_project_graph_sort_index(
+    tx: &rusqlite::Transaction<'_>,
+    table_name: &str,
+    project_id: &str,
+) -> Result<i64, String> {
+    let query =
+        format!("SELECT COALESCE(MAX(sort_index), -1) FROM {table_name} WHERE project_id = ?1");
+    tx.query_row(&query, params![project_id], |row| row.get::<_, i64>(0))
+        .map_err(|e| format!("Failed to read project graph sort index: {}", e))
+}
+
+#[tauri::command]
+pub fn apply_project_graph_patch(
+    app: AppHandle,
+    patch: ProjectGraphPatch,
+) -> Result<ProjectGraphPatchResult, String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
+    let mut conn = open_db(&app)?;
+    if !ensure_project_graph_migrated(&app, &mut conn, &patch.project_id)? {
+        return Err(format!("Project {} was not found", patch.project_id));
+    }
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin graph patch transaction: {}", e))?;
+
+    for node_id in &patch.delete_node_ids {
+        let deleted_edge_ids: Vec<String> = {
+            let mut stmt = tx
+                .prepare(
+                    "SELECT edge_id FROM project_edges WHERE project_id = ?1 AND (source = ?2 OR target = ?2)",
+                )
+                .map_err(|e| format!("Failed to prepare deleted node edge ref query: {}", e))?;
+            let rows = stmt
+                .query_map(params![&patch.project_id, node_id], |row| {
+                    row.get::<_, String>(0)
+                })
+                .map_err(|e| format!("Failed to query deleted node edge refs: {}", e))?;
+            let mut ids = Vec::new();
+            for row in rows {
+                ids.push(row.map_err(|e| format!("Failed to read deleted edge ref row: {}", e))?);
+            }
+            ids
+        };
+        tx.execute(
+            "DELETE FROM project_nodes WHERE project_id = ?1 AND node_id = ?2",
+            params![&patch.project_id, node_id],
+        )
+        .map_err(|e| format!("Failed to delete project graph node: {}", e))?;
+        tx.execute(
+            "DELETE FROM project_edges WHERE project_id = ?1 AND (source = ?2 OR target = ?2)",
+            params![&patch.project_id, node_id],
+        )
+        .map_err(|e| format!("Failed to delete project graph node edges: {}", e))?;
+        clear_project_ref_source(&tx, &patch.project_id, "node", node_id)?;
+        for edge_id in deleted_edge_ids {
+            clear_project_ref_source(&tx, &patch.project_id, "edge", &edge_id)?;
+        }
+    }
+
+    for edge_id in &patch.delete_edge_ids {
+        tx.execute(
+            "DELETE FROM project_edges WHERE project_id = ?1 AND edge_id = ?2",
+            params![&patch.project_id, edge_id],
+        )
+        .map_err(|e| format!("Failed to delete project graph edge: {}", e))?;
+        clear_project_ref_source(&tx, &patch.project_id, "edge", edge_id)?;
+    }
+
+    let mut next_node_sort =
+        max_project_graph_sort_index(&tx, "project_nodes", &patch.project_id)? + 1;
+    for node_patch in &patch.upsert_nodes {
+        let mut node_json = encode_graph_json_storage_refs(&app, &node_patch.node_json)?;
+        if let Some((rewritten, _history)) = rewrite_project_payload_media_paths_to_known_storage(
+            &app,
+            &format!(r#"[{}]"#, node_json),
+            r#"{"past":[],"future":[]}"#,
+        )? {
+            if let Ok(nodes) = serde_json::from_str::<Vec<Value>>(&rewritten) {
+                if let Some(node) = nodes.first() {
+                    node_json = serde_json::to_string(node)
+                        .map_err(|e| format!("Failed to serialize relocated graph node: {}", e))?;
+                }
+            }
+        }
+        let parsed_node = serde_json::from_str::<Value>(&node_json)
+            .map_err(|e| format!("Failed to parse graph node patch: {}", e))?;
+        let existing_sort: Option<i64> = tx
+            .query_row(
+                "SELECT sort_index FROM project_nodes WHERE project_id = ?1 AND node_id = ?2",
+                params![&patch.project_id, &node_patch.node_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to read existing node sort index: {}", e))?;
+        let sort_index = existing_sort.unwrap_or_else(|| {
+            let value = next_node_sort;
+            next_node_sort += 1;
+            value
+        });
+        upsert_project_graph_node_in_tx(
+            &app,
+            &tx,
+            &patch.project_id,
+            &parsed_node,
+            sort_index,
+            patch.updated_at,
+        )?;
+    }
+
+    let mut next_edge_sort =
+        max_project_graph_sort_index(&tx, "project_edges", &patch.project_id)? + 1;
+    for edge_patch in &patch.upsert_edges {
+        let edge_json = encode_graph_json_storage_refs(&app, &edge_patch.edge_json)?;
+        let parsed_edge = serde_json::from_str::<Value>(&edge_json)
+            .map_err(|e| format!("Failed to parse graph edge patch: {}", e))?;
+        let existing_sort: Option<i64> = tx
+            .query_row(
+                "SELECT sort_index FROM project_edges WHERE project_id = ?1 AND edge_id = ?2",
+                params![&patch.project_id, &edge_patch.edge_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to read existing edge sort index: {}", e))?;
+        let sort_index = existing_sort.unwrap_or_else(|| {
+            let value = next_edge_sort;
+            next_edge_sort += 1;
+            value
+        });
+        upsert_project_graph_edge_in_tx(
+            &app,
+            &tx,
+            &patch.project_id,
+            &parsed_edge,
+            sort_index,
+            patch.updated_at,
+        )?;
+    }
+
+    if let Some(history_patch) = &patch.history {
+        let history_json = encode_graph_json_storage_refs(&app, &history_patch.history_json)?;
+        replace_project_graph_history_in_tx(
+            &app,
+            &tx,
+            &patch.project_id,
+            &history_json,
+            patch.updated_at,
+        )?;
+    }
+
+    if let Some(viewport_json) = &patch.viewport_json {
+        tx.execute(
+            "UPDATE projects SET viewport_json = ?2 WHERE id = ?1",
+            params![&patch.project_id, viewport_json],
+        )
+        .map_err(|e| format!("Failed to update graph project viewport: {}", e))?;
+    }
+
+    if let Some(meta) = &patch.meta {
+        if let Some(name) = &meta.name {
+            tx.execute(
+                "UPDATE projects SET name = ?2 WHERE id = ?1",
+                params![&patch.project_id, name],
+            )
+            .map_err(|e| format!("Failed to update graph project name: {}", e))?;
+        }
+        if let Some(project_type) = &meta.project_type {
+            tx.execute(
+                "UPDATE projects SET project_type = ?2 WHERE id = ?1",
+                params![&patch.project_id, project_type],
+            )
+            .map_err(|e| format!("Failed to update graph project type: {}", e))?;
+        }
+        if let Some(asset_library_id) = &meta.asset_library_id {
+            tx.execute(
+                "UPDATE projects SET asset_library_id = ?2 WHERE id = ?1",
+                params![&patch.project_id, asset_library_id],
+            )
+            .map_err(|e| format!("Failed to update graph project asset library: {}", e))?;
+        }
+        if let Some(clip_library_id) = &meta.clip_library_id {
+            tx.execute(
+                "UPDATE projects SET clip_library_id = ?2 WHERE id = ?1",
+                params![&patch.project_id, clip_library_id],
+            )
+            .map_err(|e| format!("Failed to update graph project clip library: {}", e))?;
+        }
+        if let Some(clip_last_folder_id) = &meta.clip_last_folder_id {
+            tx.execute(
+                "UPDATE projects SET clip_last_folder_id = ?2 WHERE id = ?1",
+                params![&patch.project_id, clip_last_folder_id],
+            )
+            .map_err(|e| format!("Failed to update graph project clip folder: {}", e))?;
+        }
+        if let Some(linked_script_project_id) = &meta.linked_script_project_id {
+            tx.execute(
+                "UPDATE projects SET linked_script_project_id = ?2 WHERE id = ?1",
+                params![&patch.project_id, linked_script_project_id],
+            )
+            .map_err(|e| format!("Failed to update graph linked script project: {}", e))?;
+        }
+        if let Some(linked_ad_project_id) = &meta.linked_ad_project_id {
+            tx.execute(
+                "UPDATE projects SET linked_ad_project_id = ?2 WHERE id = ?1",
+                params![&patch.project_id, linked_ad_project_id],
+            )
+            .map_err(|e| format!("Failed to update graph linked ad project: {}", e))?;
+        }
+        if let Some(color_labels_json) = &meta.color_labels_json {
+            tx.execute(
+                "UPDATE projects SET color_labels_json = ?2 WHERE id = ?1",
+                params![&patch.project_id, color_labels_json],
+            )
+            .map_err(|e| format!("Failed to update graph color labels: {}", e))?;
+        }
+        if let Some(script_welcome_skipped) = meta.script_welcome_skipped {
+            tx.execute(
+                "UPDATE projects SET script_welcome_skipped = ?2 WHERE id = ?1",
+                params![&patch.project_id, script_welcome_skipped],
+            )
+            .map_err(|e| format!("Failed to update graph script welcome state: {}", e))?;
+        }
+    }
+
+    let orphan_edge_count: i64 = tx
+        .query_row(
+            r#"
+            SELECT COUNT(*)
+            FROM project_edges e
+            LEFT JOIN project_nodes s
+              ON s.project_id = e.project_id AND s.node_id = e.source
+            LEFT JOIN project_nodes t
+              ON t.project_id = e.project_id AND t.node_id = e.target
+            WHERE e.project_id = ?1
+              AND (s.node_id IS NULL OR t.node_id IS NULL)
+            "#,
+            params![&patch.project_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to validate graph edge endpoints: {}", e))?;
+    if orphan_edge_count > 0 {
+        return Err(format!(
+            "Refusing to commit project graph patch with {} orphan edge(s)",
+            orphan_edge_count
+        ));
+    }
+
+    refresh_project_ref_indexes_from_sources(&tx, &patch.project_id)?;
+    let node_count = project_graph_node_count(&tx, &patch.project_id)?;
+    tx.execute(
+        r#"
+        UPDATE projects
+        SET
+          updated_at = ?2,
+          node_count = ?3,
+          persistence_version = 2,
+          graph_revision = graph_revision + 1,
+          graph_updated_at = ?2,
+          graph_backup_dirty = 1
+        WHERE id = ?1
+        "#,
+        params![&patch.project_id, patch.updated_at, node_count],
+    )
+    .map_err(|e| format!("Failed to update graph project revision: {}", e))?;
+    let graph_revision: i64 = tx
+        .query_row(
+            "SELECT graph_revision FROM projects WHERE id = ?1",
+            params![&patch.project_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to read graph revision: {}", e))?;
+
+    tx.commit()
+        .map_err(|e| format!("Failed to commit graph patch transaction: {}", e))?;
+
+    Ok(ProjectGraphPatchResult {
+        project_id: patch.project_id,
+        graph_revision,
+        node_count,
+    })
+}
+
+#[tauri::command]
+pub fn compact_project_graph_backup(app: AppHandle, project_id: String) -> Result<bool, String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
+    let mut conn = open_db(&app)?;
+    if !ensure_project_graph_migrated(&app, &mut conn, &project_id)? {
+        return Ok(false);
+    }
+    let (nodes_json, edges_json, history_json) =
+        read_project_graph_payload_json(&conn, &project_id)?;
+    let persisted_nodes_json = encode_graph_json_storage_refs(&app, &nodes_json)?;
+    let persisted_edges_json = encode_graph_json_storage_refs(&app, &edges_json)?;
+    let persisted_history_json = encode_graph_json_storage_refs(&app, &history_json)?;
+    let now = now_timestamp_ms();
+    conn.execute(
+        r#"
+        UPDATE projects
+        SET
+          nodes_json = ?2,
+          edges_json = ?3,
+          history_json = ?4,
+          graph_backup_updated_at = ?5,
+          graph_backup_dirty = 0
+        WHERE id = ?1
+        "#,
+        params![
+            project_id,
+            persisted_nodes_json,
+            persisted_edges_json,
+            persisted_history_json,
+            now
+        ],
+    )
+    .map_err(|e| format!("Failed to compact project graph backup: {}", e))?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn validate_project_graph_storage(
+    app: AppHandle,
+    project_id: Option<String>,
+) -> Result<ProjectGraphValidationResult, String> {
+    let conn = open_db(&app)?;
+    let project_ids: Vec<String> = if let Some(project_id) = project_id {
+        vec![project_id]
+    } else {
+        let mut stmt = conn
+            .prepare("SELECT id FROM projects WHERE persistence_version >= 2")
+            .map_err(|e| format!("Failed to prepare graph validation query: {}", e))?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query graph validation projects: {}", e))?;
+        let mut ids = Vec::new();
+        for row in rows {
+            ids.push(row.map_err(|e| format!("Failed to read validation project id: {}", e))?);
+        }
+        ids
+    };
+
+    let mut issues = Vec::new();
+    for id in &project_ids {
+        let project_node_count: i64 = conn
+            .query_row(
+                "SELECT node_count FROM projects WHERE id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to read project node count: {}", e))?
+            .unwrap_or(0);
+        let graph_node_count = project_graph_node_count(&conn, id)?;
+        if project_node_count != graph_node_count {
+            issues.push(format!(
+                "Project {id} node_count mismatch: projects={project_node_count}, graph={graph_node_count}"
+            ));
+        }
+
+        let orphan_edges: i64 = conn
+            .query_row(
+                r#"
+                SELECT COUNT(*)
+                FROM project_edges e
+                WHERE e.project_id = ?1
+                  AND (
+                    (e.source IS NOT NULL AND NOT EXISTS (
+                      SELECT 1 FROM project_nodes n
+                      WHERE n.project_id = e.project_id AND n.node_id = e.source
+                    ))
+                    OR
+                    (e.target IS NOT NULL AND NOT EXISTS (
+                      SELECT 1 FROM project_nodes n
+                      WHERE n.project_id = e.project_id AND n.node_id = e.target
+                    ))
+                  )
+                "#,
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to count orphan graph edges: {}", e))?;
+        if orphan_edges > 0 {
+            issues.push(format!(
+                "Project {id} has {orphan_edges} orphan graph edges"
+            ));
+        }
+
+        let aggregate_ref_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM project_image_refs WHERE project_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to count aggregate project refs: {}", e))?;
+        let source_ref_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(DISTINCT path) FROM project_image_ref_sources WHERE project_id = ?1",
+                params![id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to count source project refs: {}", e))?;
+        if aggregate_ref_count != source_ref_count {
+            issues.push(format!(
+                "Project {id} media ref mismatch: aggregate={aggregate_ref_count}, sources={source_ref_count}"
+            ));
+        }
+    }
+
+    Ok(ProjectGraphValidationResult {
+        checked_project_count: project_ids.len() as i64,
+        issue_count: issues.len() as i64,
+        issues,
+    })
+}
+
+#[tauri::command]
+pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
+    if let Some((next_nodes_json, next_history_json)) =
+        rewrite_project_payload_media_paths_to_known_storage(
+            &app,
+            &record.nodes_json,
+            &record.history_json,
+        )?
+    {
+        record.nodes_json = next_nodes_json;
+        record.history_json = next_history_json;
+    }
+
+    let mut conn = open_db(&app)?;
+    guard_project_media_refs_before_upsert(&app, &conn, &record)?;
+    let refs_nodes_json = record.nodes_json.clone();
+    let refs_history_json = record.history_json.clone();
+    encode_project_record_storage_refs(&app, &mut record)?;
+
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to begin transaction: {}", e))?;
+
+    upsert_project_record_in_tx(&tx, &record)?;
+    migrate_project_record_to_graph_in_tx(&app, &tx, &record, record.updated_at)?;
 
     replace_project_image_refs(&tx, &record.id, &refs_nodes_json, &refs_history_json)?;
 
@@ -3169,9 +5047,28 @@ pub fn update_project_viewport_record(
 ) -> Result<(), String> {
     storage::ensure_storage_session_write_allowed(&app)?;
     let conn = open_db(&app)?;
+    let updated_at = now_timestamp_ms();
     conn.execute(
-        "UPDATE projects SET viewport_json = ?1 WHERE id = ?2",
-        params![viewport_json, project_id],
+        r#"
+        UPDATE projects
+        SET
+          viewport_json = ?1,
+          updated_at = ?3,
+          graph_revision = CASE
+            WHEN persistence_version >= 2 THEN graph_revision + 1
+            ELSE graph_revision
+          END,
+          graph_updated_at = CASE
+            WHEN persistence_version >= 2 THEN ?3
+            ELSE graph_updated_at
+          END,
+          graph_backup_dirty = CASE
+            WHEN persistence_version >= 2 THEN 1
+            ELSE graph_backup_dirty
+          END
+        WHERE id = ?2
+        "#,
+        params![viewport_json, project_id, updated_at],
     )
     .map_err(|e| format!("Failed to update project viewport: {}", e))?;
     Ok(())
@@ -3210,6 +5107,36 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
         params![project_id],
     )
     .map_err(|e| format!("Failed to delete project image refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_asset_refs WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete project asset refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_image_ref_sources WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete project graph image refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_asset_ref_sources WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete project graph asset refs: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_history_steps WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete project graph history: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_edges WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete project graph edges: {}", e))?;
+    tx.execute(
+        "DELETE FROM project_nodes WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete project graph nodes: {}", e))?;
     tx.execute(
         "DELETE FROM jimeng_video_queue_jobs WHERE project_id = ?1",
         params![project_id],
@@ -3323,6 +5250,15 @@ pub fn organize_project_media(
         &normalized_project_id,
         &persisted_nodes_json,
         &persisted_history_json,
+    )?;
+    sync_project_graph_from_payload_in_tx(
+        &app,
+        &tx,
+        &normalized_project_id,
+        &next_nodes_json,
+        None,
+        &next_history_json,
+        now_timestamp_ms(),
     )?;
     replace_project_image_refs(
         &tx,

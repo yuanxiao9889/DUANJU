@@ -34,6 +34,7 @@ const OOPII_GPT_IMAGE_2_ASPECT_RATIOS = [
   '9:16',
   '16:9',
   '21:9',
+  '9:21',
 ] as const;
 
 const OOPII_GPT_IMAGE_2_RESOLUTIONS: ResolutionOption[] = [

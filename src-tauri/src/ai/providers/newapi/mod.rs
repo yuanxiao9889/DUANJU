@@ -651,6 +651,7 @@ impl NewApiProvider {
             ("1K", "5:4") => Some("1120x896"),
             ("1K", "9:16") => Some("720x1280"),
             ("1K", "21:9") => Some("1456x624"),
+            ("1K", "9:21") => Some("624x1456"),
             ("1K", "16:9") => Some("1280x720"),
             ("1K", "4:3") => Some("1152x864"),
             ("1K", "3:2") => Some("1248x832"),
@@ -661,6 +662,7 @@ impl NewApiProvider {
             ("2K", "5:4") => Some("2240x1792"),
             ("2K", "9:16") => Some("1440x2560"),
             ("2K", "21:9") => Some("3024x1296"),
+            ("2K", "9:21") => Some("1296x3024"),
             ("2K", "16:9") => Some("2560x1440"),
             ("2K", "4:3") => Some("2304x1728"),
             ("2K", "3:2") => Some("2496x1664"),
@@ -671,6 +673,7 @@ impl NewApiProvider {
             ("4K", "5:4") => Some("3200x2560"),
             ("4K", "9:16") => Some("2160x3840"),
             ("4K", "21:9") => Some("3696x1584"),
+            ("4K", "9:21") => Some("1584x3696"),
             ("4K", "16:9") => Some("3840x2160"),
             ("4K", "4:3") => Some("3264x2448"),
             ("4K", "3:2") => Some("3504x2336"),
@@ -703,7 +706,7 @@ impl NewApiProvider {
                 request_model: Self::resolve_gpt2api_transport_model(config_request_model)
                     .to_string(),
                 size: Some(image_size.to_string()),
-                aspect_ratio: None,
+                aspect_ratio: Some(request.aspect_ratio.trim().to_string()),
                 image_size: None,
                 image_backend: Some("auto".to_string()),
                 quality: Self::resolve_gpt2api_quality(request, config_request_model),
@@ -825,16 +828,49 @@ impl NewApiProvider {
 
     fn build_openai_edits_prompt_text(
         request: &GenerateRequest,
-        _fields: &OpenAiRequestFields,
+        fields: &OpenAiRequestFields,
     ) -> String {
-        request.prompt.clone()
+        Self::build_gpt2api_prompt_text(request, fields, request.prompt.trim())
     }
 
     fn build_openai_generations_prompt_text(
         request: &GenerateRequest,
-        _fields: &OpenAiRequestFields,
+        fields: &OpenAiRequestFields,
     ) -> String {
-        request.prompt.trim().to_string()
+        Self::build_gpt2api_prompt_text(request, fields, request.prompt.trim())
+    }
+
+    fn build_gpt2api_prompt_text(
+        request: &GenerateRequest,
+        fields: &OpenAiRequestFields,
+        prompt: &str,
+    ) -> String {
+        if fields.image_backend.as_deref() != Some("auto") {
+            return prompt.to_string();
+        }
+
+        let aspect_ratio = request.aspect_ratio.trim();
+        if aspect_ratio.is_empty() {
+            return prompt.to_string();
+        }
+
+        let mut lines = vec![prompt.to_string()];
+        lines.push(format!(
+            "Strict output canvas requirement: final image aspect ratio must be exactly {}. Do not crop, pad, or resize to any other aspect ratio.",
+            aspect_ratio
+        ));
+        if let Some(size) = fields.size.as_ref() {
+            lines.push(format!(
+                "Use the requested output size {} for this {} aspect ratio.",
+                size, aspect_ratio
+            ));
+        }
+
+        lines
+            .into_iter()
+            .filter(|line| !line.trim().is_empty())
+            .collect::<Vec<String>>()
+            .join("\n\n")
     }
 
     fn build_openai_chat_body(
@@ -2636,6 +2672,7 @@ impl NewApiProvider {
 #[cfg(test)]
 mod tests {
     use super::NewApiProvider;
+    use crate::ai::AIError;
     use crate::ai::AIProvider;
     use serde_json::{json, Value};
     use std::collections::HashMap;
@@ -2646,6 +2683,7 @@ mod tests {
             ("1K", "5:4", "1120x896"),
             ("1K", "9:16", "720x1280"),
             ("1K", "21:9", "1456x624"),
+            ("1K", "9:21", "624x1456"),
             ("1K", "16:9", "1280x720"),
             ("1K", "4:3", "1152x864"),
             ("1K", "3:2", "1248x832"),
@@ -2656,6 +2694,7 @@ mod tests {
             ("2K", "5:4", "2240x1792"),
             ("2K", "9:16", "1440x2560"),
             ("2K", "21:9", "3024x1296"),
+            ("2K", "9:21", "1296x3024"),
             ("2K", "16:9", "2560x1440"),
             ("2K", "4:3", "2304x1728"),
             ("2K", "3:2", "2496x1664"),
@@ -2666,6 +2705,7 @@ mod tests {
             ("4K", "5:4", "3200x2560"),
             ("4K", "9:16", "2160x3840"),
             ("4K", "21:9", "3696x1584"),
+            ("4K", "9:21", "1584x3696"),
             ("4K", "16:9", "3840x2160"),
             ("4K", "4:3", "3264x2448"),
             ("4K", "3:2", "3504x2336"),
@@ -2931,7 +2971,10 @@ mod tests {
             body.get("size"),
             Some(&Value::String("2560x1440".to_string()))
         );
-        assert!(!body.contains_key("aspect_ratio"));
+        assert_eq!(
+            body.get("aspect_ratio"),
+            Some(&Value::String("16:9".to_string()))
+        );
         assert!(!body.contains_key("image_size"));
         assert_eq!(
             body.get("image_backend"),
@@ -2945,6 +2988,7 @@ mod tests {
             body.get("quality"),
             Some(&Value::String("medium".to_string()))
         );
+        assert!(prompt.contains("final image aspect ratio must be exactly 16:9"));
         assert!(!prompt.contains("__gpt2api_image_size"));
     }
 
@@ -3012,15 +3056,20 @@ mod tests {
             body.get("quality"),
             Some(&Value::String("medium".to_string()))
         );
-        assert_eq!(
-            body.get("prompt"),
-            Some(&Value::String("make it cinematic".to_string()))
-        );
+        let prompt = body
+            .get("prompt")
+            .and_then(Value::as_str)
+            .expect("expected prompt");
+        assert!(prompt.starts_with("make it cinematic"));
+        assert!(prompt.contains("final image aspect ratio must be exactly 16:9"));
         assert_eq!(
             body.get("size"),
             Some(&Value::String("2560x1440".to_string()))
         );
-        assert!(!body.contains_key("aspect_ratio"));
+        assert_eq!(
+            body.get("aspect_ratio"),
+            Some(&Value::String("16:9".to_string()))
+        );
         assert!(!body.contains_key("image_size"));
     }
 
@@ -3105,7 +3154,10 @@ mod tests {
             body.get("size"),
             Some(&Value::String("1728x2304".to_string()))
         );
-        assert!(!body.contains_key("aspect_ratio"));
+        assert_eq!(
+            body.get("aspect_ratio"),
+            Some(&Value::String("3:4".to_string()))
+        );
     }
 
     #[test]
@@ -3140,9 +3192,10 @@ mod tests {
                 resolution,
                 aspect_ratio
             );
-            assert!(
-                fields.aspect_ratio.is_none(),
-                "aspect_ratio field should be omitted for resolution={} aspect_ratio={}",
+            assert_eq!(
+                fields.aspect_ratio.as_deref(),
+                Some(aspect_ratio),
+                "aspect_ratio field should be preserved for resolution={} aspect_ratio={}",
                 resolution,
                 aspect_ratio
             );
@@ -3189,9 +3242,10 @@ mod tests {
                 resolution,
                 aspect_ratio
             );
-            assert!(
-                !body.contains_key("aspect_ratio"),
-                "aspect_ratio field should be omitted for resolution={} aspect_ratio={}",
+            assert_eq!(
+                body.get("aspect_ratio"),
+                Some(&Value::String(aspect_ratio.to_string())),
+                "unexpected body aspect_ratio for resolution={} aspect_ratio={}",
                 resolution,
                 aspect_ratio
             );
@@ -3214,16 +3268,21 @@ mod tests {
         let text_fields = NewApiProvider::build_openai_images_edits_text_fields(&request, &fields);
 
         assert_eq!(
-            text_fields,
-            vec![
-                ("model".to_string(), "gpt-image-2".to_string()),
-                ("prompt".to_string(), "make it cinematic".to_string()),
-                ("n".to_string(), "1".to_string()),
-                ("size".to_string(), "2160x3840".to_string()),
-                ("image_backend".to_string(), "auto".to_string()),
-                ("quality".to_string(), "high".to_string()),
-            ]
+            text_fields.first(),
+            Some(&("model".to_string(), "gpt-image-2".to_string()))
         );
+        let prompt = text_fields
+            .iter()
+            .find(|(key, _)| key == "prompt")
+            .map(|(_, value)| value.as_str())
+            .expect("expected prompt text field");
+        assert!(prompt.starts_with("make it cinematic"));
+        assert!(prompt.contains("final image aspect ratio must be exactly 9:16"));
+        assert!(text_fields.contains(&("n".to_string(), "1".to_string())));
+        assert!(text_fields.contains(&("size".to_string(), "2160x3840".to_string())));
+        assert!(text_fields.contains(&("aspect_ratio".to_string(), "9:16".to_string())));
+        assert!(text_fields.contains(&("image_backend".to_string(), "auto".to_string())));
+        assert!(text_fields.contains(&("quality".to_string(), "high".to_string())));
     }
 
     #[test]

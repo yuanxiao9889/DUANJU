@@ -4,7 +4,7 @@ export const KIE_GPT_IMAGE_2_MODEL_ID = 'kie/gpt-image-2';
 export const KIE_GPT_IMAGE_2_TEXT_TO_IMAGE_MODEL_ID = 'kie/gpt-image-2-text-to-image';
 export const KIE_GPT_IMAGE_2_IMAGE_TO_IMAGE_MODEL_ID = 'kie/gpt-image-2-image-to-image';
 
-const ASPECT_RATIOS = ['1:1', '9:16', '16:9', '4:3', '3:4'] as const;
+const ASPECT_RATIOS = ['1:1', '9:16', '16:9', '4:3', '3:4', '9:21'] as const;
 
 const RESOLUTION_OPTIONS: ResolutionOption[] = [
   { value: '1K', label: '1K' },

@@ -33,6 +33,7 @@ interface StoryboardNewApiRequestContext {
 }
 
 const STORYBOARD_NEWAPI_GPT_IMAGE_2_REQUEST_MODEL = 'gpt-image-2';
+const STORYBOARD_NEWAPI_ALL_IMAGE_2_REQUEST_MODEL = 'all-image-2';
 
 const STORYBOARD_NEWAPI_GPT_IMAGE_2_ASPECT_RATIOS = [
   '1:1',
@@ -45,6 +46,7 @@ const STORYBOARD_NEWAPI_GPT_IMAGE_2_ASPECT_RATIOS = [
   '9:16',
   '16:9',
   '21:9',
+  '9:21',
 ] as const;
 
 const STORYBOARD_NEWAPI_GPT_IMAGE_2_RESOLUTIONS: ResolutionOption[] = [
@@ -117,9 +119,11 @@ function stripNewApiProviderPrefix(model: string | null | undefined): string {
 function isStoryboardNewApiGptImage2RequestModel(
   requestModel: string | null | undefined
 ): boolean {
-  return stripNewApiProviderPrefix(requestModel)
-    .toLowerCase()
-    .startsWith(STORYBOARD_NEWAPI_GPT_IMAGE_2_REQUEST_MODEL);
+  const normalizedRequestModel = stripNewApiProviderPrefix(requestModel).toLowerCase();
+  return (
+    normalizedRequestModel.startsWith(STORYBOARD_NEWAPI_GPT_IMAGE_2_REQUEST_MODEL)
+    || normalizedRequestModel === STORYBOARD_NEWAPI_ALL_IMAGE_2_REQUEST_MODEL
+  );
 }
 
 function resolveStoryboardNewApiRequestModelVariant(
@@ -131,7 +135,9 @@ function resolveStoryboardNewApiRequestModelVariant(
     return normalizedRequestModel;
   }
 
-  return STORYBOARD_NEWAPI_GPT_IMAGE_2_REQUEST_MODEL;
+  return normalizedRequestModel.toLowerCase() === STORYBOARD_NEWAPI_ALL_IMAGE_2_REQUEST_MODEL
+    ? STORYBOARD_NEWAPI_ALL_IMAGE_2_REQUEST_MODEL
+    : STORYBOARD_NEWAPI_GPT_IMAGE_2_REQUEST_MODEL;
 }
 
 function resolveStoryboardNewApiApiFormatVariant(
@@ -250,6 +256,7 @@ export function createStoryboardNewApiImageModel(
       { value: '9:16', label: '9:16' },
       { value: '16:9', label: '16:9' },
       { value: '21:9', label: '21:9' },
+      { value: '9:21', label: '9:21' },
     ],
     resolutions: isGptImage2Model ? STORYBOARD_NEWAPI_GPT_IMAGE_2_RESOLUTIONS : [
       { value: '1K', label: '1K' },

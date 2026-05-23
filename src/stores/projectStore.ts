@@ -11,14 +11,22 @@ import {
   type CanvasNodeData,
 } from "./canvasStore";
 import {
+  compactProjectGraphBackup,
   deleteProjectRecord,
+  applyProjectGraphPatch,
+  getProjectGraphHistory,
+  getProjectGraphRecord,
+  getProjectGraphRecordIfReady,
   getProjectHistoryRecord,
   getProjectRecord,
   getProjectRecordWithoutHistory,
   listProjectSummaries,
   renameProjectRecord,
   updateProjectViewportRecord,
+  upsertProjectGraphSnapshot,
   upsertProjectRecord,
+  type ProjectGraphPatch,
+  type ProjectGraphRecord,
   type ProjectRecord,
   type ProjectSummaryRecord,
 } from "@/commands/projectState";
@@ -79,17 +87,30 @@ const DELETE_RETRY_DELAY_MS = 80;
 const MAX_DELETE_RETRIES = 10;
 const FLUSH_WAIT_INTERVAL_MS = 16;
 const MAX_PERSIST_DRAIN_WAIT_MS = 8_000;
+const PROJECT_PERSIST_RETRY_DELAYS_MS = [2_000, 5_000, 15_000, 30_000] as const;
 const PROJECT_HISTORY_BACKGROUND_LOAD_DELAY_MS = 1800;
+const PROJECT_GRAPH_BACKGROUND_WARMUP_DELAY_MS = 6000;
 
-const queuedProjectUpserts = new Map<string, Project>();
+interface QueuedGraphPersist {
+  project: Project;
+  patch: ProjectGraphPatch | null;
+}
+
+const queuedProjectUpserts = new Map<string, QueuedGraphPersist>();
 const projectUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const projectPersistRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const projectPersistRetryAttempts = new Map<string, number>();
 const projectUpsertsInFlight = new Set<string>();
+const graphBackupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const graphBackupInFlight = new Set<string>();
+const graphWarmupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const queuedViewportUpserts = new Map<string, string>();
 const viewportUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const viewportUpsertsInFlight = new Set<string>();
 const deletingProjectIds = new Set<string>();
 const historyBudgetWarnedProjectIds = new Set<string>();
 const projectOpenTraceCounts = new Map<string, number>();
+const recentClosedProjectCache = new Map<string, Project>();
 
 function logProjectTrace(
   label: string,
@@ -99,10 +120,12 @@ function logProjectTrace(
     return;
   }
 
-  console.debug(`[canvas-entry-trace] ${label}`, payload);
+  console.debug(`[project-trace] ${label}`, payload);
 }
 
 export type ProjectType = "storyboard" | "script" | "ad" | "commerceAd";
+export type ProjectSaveStatus = "idle" | "saving" | "saved" | "error" | "retrying";
+export type ProjectSaveReason = "auto" | "manual" | "interval" | "close" | "critical";
 
 export interface ProjectSummary {
   id: string;
@@ -129,6 +152,8 @@ export interface Project extends ProjectSummary {
 
 type PersistedProject = Project & {
   imagePool?: string[];
+  graphRevision?: number;
+  persistenceVersion?: number;
 };
 
 interface PersistedNodesPayload {
@@ -816,9 +841,20 @@ export function fromProjectRecord(record: ProjectRecord): Project {
   return project;
 }
 
+function fromProjectGraphRecord(graphRecord: ProjectGraphRecord): Project {
+  const project = fromProjectRecord(graphRecord.record) as PersistedProject;
+  const persistedProject: PersistedProject = {
+    ...project,
+    graphRevision: graphRecord.graphRevision,
+    persistenceVersion: graphRecord.persistenceVersion,
+  };
+  return persistedProject;
+}
+
 interface PersistProjectOptions {
   immediate?: boolean;
   debounceMs?: number;
+  previousProject?: Project | null;
 }
 
 interface PersistViewportOptions {
@@ -966,6 +1002,179 @@ function areCanvasEdgesEqualForPersistence(
   return true;
 }
 
+function buildProjectGraphPatch(
+  previousProject: Project | null | undefined,
+  nextProject: Project,
+): ProjectGraphPatch | null {
+  if (!previousProject || previousProject.id !== nextProject.id) {
+    return null;
+  }
+
+  const previousNodesById = new Map(
+    previousProject.nodes.map((node) => [node.id, node] as const),
+  );
+  const nextNodesById = new Map(
+    nextProject.nodes.map((node) => [node.id, node] as const),
+  );
+  const upsertNodes = nextProject.nodes
+    .filter((node) => {
+      const previousNode = previousNodesById.get(node.id);
+      return (
+        !previousNode ||
+        !areCanvasNodeRecordsEqualForPersistence(previousNode, node)
+      );
+    })
+    .map((node) => ({
+      nodeId: node.id,
+      nodeType: node.type ?? null,
+      nodeJson: JSON.stringify(node),
+    }));
+  const deleteNodeIds = previousProject.nodes
+    .filter((node) => !nextNodesById.has(node.id))
+    .map((node) => node.id);
+
+  const previousEdgesById = new Map(
+    previousProject.edges.map((edge) => [edge.id, edge] as const),
+  );
+  const nextEdgesById = new Map(
+    nextProject.edges.map((edge) => [edge.id, edge] as const),
+  );
+  const upsertEdges = nextProject.edges
+    .filter((edge) => {
+      const previousEdge = previousEdgesById.get(edge.id);
+      return (
+        !previousEdge ||
+        !areCanvasEdgeRecordsEqualForPersistence(previousEdge, edge)
+      );
+    })
+    .map((edge) => ({
+      edgeId: edge.id,
+      source: edge.source,
+      target: edge.target,
+      edgeJson: JSON.stringify(edge),
+    }));
+  const deleteEdgeIds = previousProject.edges
+    .filter((edge) => !nextEdgesById.has(edge.id))
+    .map((edge) => edge.id);
+
+  const historyChanged = !areCanvasHistoriesEquivalentForPersistence(
+    previousProject.history ?? createEmptyHistory(),
+    nextProject.history ?? createEmptyHistory(),
+  );
+  const viewportChanged = hasViewportMeaningfulDelta(
+    previousProject.viewport ?? DEFAULT_VIEWPORT,
+    nextProject.viewport ?? DEFAULT_VIEWPORT,
+  );
+  const metaChanged =
+    previousProject.name !== nextProject.name ||
+    previousProject.projectType !== nextProject.projectType ||
+    (previousProject.assetLibraryId ?? null) !==
+      (nextProject.assetLibraryId ?? null) ||
+    (previousProject.clipLibraryId ?? null) !==
+      (nextProject.clipLibraryId ?? null) ||
+    (previousProject.clipLastFolderId ?? null) !==
+      (nextProject.clipLastFolderId ?? null) ||
+    (previousProject.linkedScriptProjectId ?? null) !==
+      (nextProject.linkedScriptProjectId ?? null) ||
+    (previousProject.linkedAdProjectId ?? null) !==
+      (nextProject.linkedAdProjectId ?? null) ||
+    previousProject.scriptWelcomeSkipped !== nextProject.scriptWelcomeSkipped ||
+    !areValuesEqualForPersistence(
+      previousProject.colorLabels,
+      nextProject.colorLabels,
+    );
+
+  if (
+    upsertNodes.length === 0 &&
+    deleteNodeIds.length === 0 &&
+    upsertEdges.length === 0 &&
+    deleteEdgeIds.length === 0 &&
+    !historyChanged &&
+    !viewportChanged &&
+    !metaChanged
+  ) {
+    return null;
+  }
+
+  return {
+    projectId: nextProject.id,
+    upsertNodes,
+    deleteNodeIds,
+    upsertEdges,
+    deleteEdgeIds,
+    viewportJson: viewportChanged
+      ? JSON.stringify(nextProject.viewport ?? DEFAULT_VIEWPORT)
+      : undefined,
+    history: historyChanged
+      ? { historyJson: JSON.stringify(nextProject.history ?? createEmptyHistory()) }
+      : undefined,
+    meta: metaChanged
+      ? {
+          name: nextProject.name,
+          projectType: nextProject.projectType,
+          assetLibraryId: nextProject.assetLibraryId ?? null,
+          clipLibraryId: nextProject.clipLibraryId ?? null,
+          clipLastFolderId: nextProject.clipLastFolderId ?? null,
+          linkedScriptProjectId: nextProject.linkedScriptProjectId ?? null,
+          linkedAdProjectId: nextProject.linkedAdProjectId ?? null,
+          colorLabelsJson: JSON.stringify(nextProject.colorLabels),
+          scriptWelcomeSkipped: nextProject.scriptWelcomeSkipped,
+        }
+      : undefined,
+    updatedAt: nextProject.updatedAt,
+  };
+}
+
+function mergeGraphPatches(
+  current: ProjectGraphPatch | null,
+  incoming: ProjectGraphPatch | null,
+): ProjectGraphPatch | null {
+  if (!current) {
+    return incoming;
+  }
+  if (!incoming) {
+    return current;
+  }
+
+  const upsertNodesById = new Map(
+    (current.upsertNodes ?? []).map((node) => [node.nodeId, node] as const),
+  );
+  const deleteNodeIds = new Set(current.deleteNodeIds ?? []);
+  for (const nodeId of incoming.deleteNodeIds ?? []) {
+    upsertNodesById.delete(nodeId);
+    deleteNodeIds.add(nodeId);
+  }
+  for (const node of incoming.upsertNodes ?? []) {
+    deleteNodeIds.delete(node.nodeId);
+    upsertNodesById.set(node.nodeId, node);
+  }
+
+  const upsertEdgesById = new Map(
+    (current.upsertEdges ?? []).map((edge) => [edge.edgeId, edge] as const),
+  );
+  const deleteEdgeIds = new Set(current.deleteEdgeIds ?? []);
+  for (const edgeId of incoming.deleteEdgeIds ?? []) {
+    upsertEdgesById.delete(edgeId);
+    deleteEdgeIds.add(edgeId);
+  }
+  for (const edge of incoming.upsertEdges ?? []) {
+    deleteEdgeIds.delete(edge.edgeId);
+    upsertEdgesById.set(edge.edgeId, edge);
+  }
+
+  return {
+    projectId: incoming.projectId,
+    upsertNodes: Array.from(upsertNodesById.values()),
+    deleteNodeIds: Array.from(deleteNodeIds),
+    upsertEdges: Array.from(upsertEdgesById.values()),
+    deleteEdgeIds: Array.from(deleteEdgeIds),
+    viewportJson: incoming.viewportJson ?? current.viewportJson,
+    history: incoming.history ?? current.history,
+    meta: incoming.meta ?? current.meta,
+    updatedAt: Math.max(current.updatedAt, incoming.updatedAt),
+  };
+}
+
 function getHistorySnapshotSignature(snapshot: CanvasHistorySnapshot): string {
   if ("kind" in snapshot && snapshot.kind === "nodePatch") {
     return `patch:${snapshot.entries.length}:${snapshot.edges?.length ?? 0}`;
@@ -1035,12 +1244,38 @@ function delay(ms: number): Promise<void> {
   });
 }
 
+function formatSaveError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function updateProjectSaveState(
+  projectId: string,
+  patch: Partial<
+    Pick<
+      ProjectState,
+      "saveStatus" | "lastSuccessfulSaveAt" | "lastSaveError" | "lastSaveReason"
+    >
+  >,
+): void {
+  const store = useProjectStore.getState();
+  if (store.currentProjectId !== projectId) {
+    return;
+  }
+  useProjectStore.setState(patch);
+}
+
 function clearQueuedProjectUpsert(projectId: string): void {
   const timer = projectUpsertTimers.get(projectId);
   if (timer) {
     clearTimeout(timer);
     projectUpsertTimers.delete(projectId);
   }
+  const retryTimer = projectPersistRetryTimers.get(projectId);
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    projectPersistRetryTimers.delete(projectId);
+  }
+  projectPersistRetryAttempts.delete(projectId);
   queuedProjectUpserts.delete(projectId);
 }
 
@@ -1053,8 +1288,126 @@ function clearQueuedViewportUpsert(projectId: string): void {
   queuedViewportUpserts.delete(projectId);
 }
 
+function scheduleGraphBackupCompact(projectId: string): void {
+  if (!isTauriRuntime()) {
+    return;
+  }
+
+  const existingTimer = graphBackupTimers.get(projectId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    graphBackupTimers.delete(projectId);
+  }
+
+  const timer = setTimeout(() => {
+    graphBackupTimers.delete(projectId);
+    if (graphBackupInFlight.has(projectId)) {
+      scheduleGraphBackupCompact(projectId);
+      return;
+    }
+
+    graphBackupInFlight.add(projectId);
+    void compactProjectGraphBackup(projectId)
+      .catch((error) => {
+        console.warn("Failed to compact project graph backup", error);
+      })
+      .finally(() => {
+        graphBackupInFlight.delete(projectId);
+      });
+  }, 1500);
+  graphBackupTimers.set(projectId, timer);
+}
+
+function cancelGraphBackupCompact(projectId: string): void {
+  const timer = graphBackupTimers.get(projectId);
+  if (timer) {
+    clearTimeout(timer);
+    graphBackupTimers.delete(projectId);
+  }
+}
+
+async function compactProjectGraphBackupNow(projectId: string): Promise<void> {
+  cancelGraphBackupCompact(projectId);
+  while (graphBackupInFlight.has(projectId)) {
+    await delay(FLUSH_WAIT_INTERVAL_MS);
+  }
+
+  graphBackupInFlight.add(projectId);
+  try {
+    await compactProjectGraphBackup(projectId);
+  } finally {
+    graphBackupInFlight.delete(projectId);
+  }
+}
+
+function rememberRecentlyClosedProject(project: Project): void {
+  recentClosedProjectCache.set(project.id, {
+    ...project,
+    history: createEmptyHistory(),
+  });
+  if (recentClosedProjectCache.size <= 3) {
+    return;
+  }
+
+  const oldestProjectId = recentClosedProjectCache.keys().next().value;
+  if (typeof oldestProjectId === "string") {
+    recentClosedProjectCache.delete(oldestProjectId);
+  }
+}
+
+function projectFromSummary(summary: ProjectSummary): Project {
+  return {
+    ...summary,
+    nodes: [],
+    edges: [],
+    viewport: DEFAULT_VIEWPORT,
+    history: createEmptyHistory(),
+    colorLabels: createDefaultCanvasColorLabelMap(),
+    scriptWelcomeSkipped: false,
+  };
+}
+
 interface FlushProjectUpsertOptions {
   bypassIdle?: boolean;
+  isRetry?: boolean;
+}
+
+function scheduleProjectPersistRetry(
+  projectId: string,
+  queuedPersist: QueuedGraphPersist,
+  error: unknown,
+): void {
+  if (deletingProjectIds.has(projectId)) {
+    return;
+  }
+
+  if (!queuedProjectUpserts.has(projectId)) {
+    queuedProjectUpserts.set(projectId, queuedPersist);
+  }
+
+  const previousTimer = projectPersistRetryTimers.get(projectId);
+  if (previousTimer) {
+    clearTimeout(previousTimer);
+    projectPersistRetryTimers.delete(projectId);
+  }
+
+  const attempt = (projectPersistRetryAttempts.get(projectId) ?? 0) + 1;
+  projectPersistRetryAttempts.set(projectId, attempt);
+  const delayMs =
+    PROJECT_PERSIST_RETRY_DELAYS_MS[
+      Math.min(attempt - 1, PROJECT_PERSIST_RETRY_DELAYS_MS.length - 1)
+    ];
+
+  updateProjectSaveState(projectId, {
+    saveStatus: "error",
+    lastSaveError: formatSaveError(error),
+  });
+
+  const retryTimer = setTimeout(() => {
+    projectPersistRetryTimers.delete(projectId);
+    flushProjectUpsert(projectId, { bypassIdle: true, isRetry: true });
+  }, delayMs);
+  projectPersistRetryTimers.set(projectId, retryTimer);
 }
 
 function flushProjectUpsert(
@@ -1074,6 +1427,11 @@ function flushProjectUpsert(
   }
 
   queuedProjectUpserts.delete(projectId);
+  const retryTimer = projectPersistRetryTimers.get(projectId);
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    projectPersistRetryTimers.delete(projectId);
+  }
   projectUpsertsInFlight.add(projectId);
   const flushStartedAt = performance.now();
   logProjectTrace("persist:flush-start", {
@@ -1106,10 +1464,22 @@ function flushProjectUpsert(
       return;
     }
 
-    const record = toProjectRecord(project);
-    void upsertProjectRecord(record)
+    const buildFallbackRecord = () => toProjectRecord(project.project);
+    const graphPersist = project.patch
+      ? applyProjectGraphPatch(project.patch)
+      : upsertProjectGraphSnapshot(buildFallbackRecord());
+    void graphPersist
+      .catch((error) => {
+        console.warn("Failed to persist project graph snapshot; falling back to legacy record", error);
+        return upsertProjectRecord(buildFallbackRecord());
+      })
+      .then(() => {
+        projectPersistRetryAttempts.delete(projectId);
+        scheduleGraphBackupCompact(projectId);
+      })
       .catch((error) => {
         console.error("Failed to persist project record", error);
+        scheduleProjectPersistRetry(projectId, project, error);
       })
       .finally(settle);
   };
@@ -1128,7 +1498,16 @@ function queueProjectUpsert(
 ): void {
   const projectId = project.id;
   deletingProjectIds.delete(projectId);
-  queuedProjectUpserts.set(projectId, project);
+  const previousProject =
+    options?.previousProject ?? useProjectStore.getState().currentProject;
+  const patch = buildProjectGraphPatch(previousProject, project);
+  const existingPersist = queuedProjectUpserts.get(projectId);
+  queuedProjectUpserts.set(projectId, {
+    project,
+    patch: existingPersist
+      ? mergeGraphPatches(existingPersist.patch, patch)
+      : patch,
+  });
 
   const existingTimer = projectUpsertTimers.get(projectId);
   if (existingTimer) {
@@ -1144,6 +1523,17 @@ function queueProjectUpsert(
     nodeCount: project.nodes.length,
     edgeCount: project.edges.length,
     historyPastCount: project.history?.past?.length ?? 0,
+    graphPatch:
+      patch != null
+        ? {
+            upsertNodes: patch.upsertNodes?.length ?? 0,
+            deleteNodes: patch.deleteNodeIds?.length ?? 0,
+            upsertEdges: patch.upsertEdges?.length ?? 0,
+            deleteEdges: patch.deleteEdgeIds?.length ?? 0,
+            history: Boolean(patch.history),
+            viewport: Boolean(patch.viewportJson),
+          }
+        : null,
     immediate: options?.immediate === true,
     debounceMs,
     inFlight: projectUpsertsInFlight.has(projectId),
@@ -1168,7 +1558,10 @@ function persistProject(
   queueProjectUpsert(project, options);
 }
 
-async function persistProjectImmediately(project: Project): Promise<void> {
+async function persistProjectImmediatelyWithPrevious(
+  project: Project,
+  previousProject?: Project | null,
+): Promise<void> {
   const projectId = project.id;
   deletingProjectIds.delete(projectId);
   clearQueuedProjectUpsert(projectId);
@@ -1181,7 +1574,30 @@ async function persistProjectImmediately(project: Project): Promise<void> {
     await delay(FLUSH_WAIT_INTERVAL_MS);
   }
 
-  await upsertProjectRecord(toProjectRecord(project));
+  const patch = buildProjectGraphPatch(previousProject, project);
+  try {
+    if (patch) {
+      await applyProjectGraphPatch(patch);
+    } else {
+      const record = toProjectRecord(project);
+      await upsertProjectGraphSnapshot(record);
+    }
+    scheduleGraphBackupCompact(projectId);
+    projectPersistRetryAttempts.delete(projectId);
+  } catch (error) {
+    console.warn("Failed to persist project graph; falling back to legacy record", error);
+    const record = toProjectRecord(project);
+    try {
+      await upsertProjectRecord(record);
+      projectPersistRetryAttempts.delete(projectId);
+    } catch (fallbackError) {
+      updateProjectSaveState(projectId, {
+        saveStatus: "error",
+        lastSaveError: formatSaveError(fallbackError),
+      });
+      throw fallbackError;
+    }
+  }
 }
 
 async function waitForProjectPersistenceIdle(
@@ -1224,15 +1640,31 @@ function flushViewportUpsert(projectId: string): void {
 
   queuedViewportUpserts.delete(projectId);
   viewportUpsertsInFlight.add(projectId);
+  let shouldRetryViewportLater = false;
 
   void updateProjectViewportRecord(projectId, viewportJson)
     .catch((error) => {
       console.error("Failed to persist project viewport", error);
+      queuedViewportUpserts.set(projectId, viewportJson);
+      shouldRetryViewportLater = true;
+      updateProjectSaveState(projectId, {
+        saveStatus: "error",
+        lastSaveError: formatSaveError(error),
+      });
     })
     .finally(() => {
       viewportUpsertsInFlight.delete(projectId);
 
       if (deletingProjectIds.has(projectId)) {
+        return;
+      }
+
+      if (shouldRetryViewportLater && queuedViewportUpserts.has(projectId)) {
+        const retryTimer = setTimeout(() => {
+          viewportUpsertTimers.delete(projectId);
+          flushViewportUpsert(projectId);
+        }, PROJECT_PERSIST_RETRY_DELAYS_MS[0]);
+        viewportUpsertTimers.set(projectId, retryTimer);
         return;
       }
 
@@ -1372,10 +1804,17 @@ function scheduleBackgroundHistoryLoad(
   setTimeout(() => {
     void (async () => {
       try {
-        const record = await getProjectHistoryRecord(projectId);
+        const graphHistoryRecord = await getProjectGraphHistory(projectId)
+          .catch((error) => {
+            console.warn("Failed to load graph project history; falling back to legacy history", error);
+            return null;
+          });
+        const record = graphHistoryRecord
+          ? null
+          : await getProjectHistoryRecord(projectId);
         if (
-          !record ||
-          record.projectId !== projectId ||
+          (!graphHistoryRecord && !record) ||
+          (graphHistoryRecord?.projectId ?? record?.projectId) !== projectId ||
           requestSeq !== openProjectRequestSeq ||
           historySeq !== projectHistoryLoadSeq
         ) {
@@ -1383,11 +1822,17 @@ function scheduleBackgroundHistoryLoad(
         }
 
         const currentProject = useProjectStore.getState().currentProject;
-        const restoredHistory = parseHistoryFromRecord(
-          projectId,
-          record.historyJson,
-          (currentProject as PersistedProject | null)?.imagePool,
-        );
+        const restoredHistory = graphHistoryRecord
+          ? parseHistoryFromRecord(
+              projectId,
+              graphHistoryRecord.historyJson,
+              (currentProject as PersistedProject | null)?.imagePool,
+            )
+          : parseHistoryFromRecord(
+              projectId,
+              record?.historyJson ?? '{"past":[],"future":[]}',
+              (currentProject as PersistedProject | null)?.imagePool,
+            );
         if (
           restoredHistory.past.length === 0 &&
           restoredHistory.future.length === 0
@@ -1409,7 +1854,9 @@ function scheduleBackgroundHistoryLoad(
         });
 
         if (useProjectStore.getState().currentProjectId === projectId) {
-          useCanvasStore.getState().setCanvasHistory(restoredHistory);
+          useCanvasStore
+            .getState()
+            .setCanvasHistory(restoredHistory, { source: "restore" });
         }
       } catch (error) {
         console.error("Failed to load project history in background", error);
@@ -1418,12 +1865,51 @@ function scheduleBackgroundHistoryLoad(
   }, PROJECT_HISTORY_BACKGROUND_LOAD_DELAY_MS);
 }
 
+function scheduleBackgroundGraphWarmup(
+  projectId: string,
+  requestSeq: number,
+): void {
+  const existingTimer = graphWarmupTimers.get(projectId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    graphWarmupTimers.delete(projectId);
+  }
+
+  const timer = setTimeout(() => {
+    graphWarmupTimers.delete(projectId);
+    if (
+      requestSeq !== openProjectRequestSeq ||
+      useProjectStore.getState().currentProjectId !== projectId
+    ) {
+      return;
+    }
+
+    void getProjectGraphRecord(projectId).catch((error) => {
+      console.warn("Skipped background project graph warmup", error);
+      return null;
+    });
+  }, PROJECT_GRAPH_BACKGROUND_WARMUP_DELAY_MS);
+  graphWarmupTimers.set(projectId, timer);
+}
+
+function cancelBackgroundGraphWarmup(projectId: string): void {
+  const timer = graphWarmupTimers.get(projectId);
+  if (timer) {
+    clearTimeout(timer);
+    graphWarmupTimers.delete(projectId);
+  }
+}
+
 interface ProjectState {
   projects: ProjectSummary[];
   currentProjectId: string | null;
   currentProject: Project | null;
   isHydrated: boolean;
   isOpeningProject: boolean;
+  saveStatus: ProjectSaveStatus;
+  lastSuccessfulSaveAt: number | null;
+  lastSaveError: string | null;
+  lastSaveReason: ProjectSaveReason | null;
 
   hydrate: () => Promise<void>;
   refreshProjectSummaries: () => Promise<void>;
@@ -1467,6 +1953,8 @@ interface ProjectState {
   cancelPendingViewportPersist: () => void;
   waitForCurrentProjectPersistenceIdle: () => Promise<void>;
   flushCurrentProjectToDisk: () => Promise<void>;
+  saveCurrentProjectFully: (options?: { reason?: ProjectSaveReason }) => Promise<void>;
+  finalizeCurrentProjectBeforeClose: () => Promise<void>;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => ({
@@ -1475,6 +1963,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   currentProject: null,
   isHydrated: false,
   isOpeningProject: false,
+  saveStatus: "idle",
+  lastSuccessfulSaveAt: null,
+  lastSaveError: null,
+  lastSaveReason: null,
 
   hydrate: async () => {
     if (get().isHydrated) {
@@ -1487,6 +1979,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProjectId: null,
         currentProject: null,
         isHydrated: true,
+        saveStatus: "idle",
+        lastSaveError: null,
+        lastSaveReason: null,
       });
       setActiveMediaProjectId(null);
       return;
@@ -1502,6 +1997,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProjectId: null,
         currentProject: null,
         isHydrated: true,
+        saveStatus: "idle",
+        lastSaveError: null,
+        lastSaveReason: null,
       });
       setActiveMediaProjectId(null);
     } catch (error) {
@@ -1511,6 +2009,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProjectId: null,
         currentProject: null,
         isHydrated: true,
+        saveStatus: "idle",
+        lastSaveError: null,
+        lastSaveReason: null,
       });
       setActiveMediaProjectId(null);
     }
@@ -1591,7 +2092,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       isOpeningProject: false,
     }));
     setActiveMediaProjectId(id);
-    persistProject(project, { immediate: true });
+    persistProject(project, { immediate: true, previousProject: null });
     return id;
   },
 
@@ -1636,6 +2137,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   renameProject: (id, name) => {
     const now = Date.now();
+    const previousCurrentProject = get().currentProject;
 
     set((state) => {
       const projects = state.projects.map((summary) =>
@@ -1664,7 +2166,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const nextCurrentProject =
       get().currentProject?.id === id ? get().currentProject : null;
     if (nextCurrentProject) {
-      persistProject(nextCurrentProject, { immediate: true });
+      persistProject(nextCurrentProject, {
+        immediate: true,
+        previousProject: previousCurrentProject,
+      });
       return;
     }
 
@@ -1702,7 +2207,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      persistProject(nextProject, { debounceMs: 0 });
+      persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
       return;
     }
 
@@ -1734,7 +2239,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      await persistProjectImmediately(nextProject);
+      await persistProjectImmediatelyWithPrevious(nextProject, existingProject);
     } catch (error) {
       console.error("Failed to update linked script project", error);
     }
@@ -1768,7 +2273,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      persistProject(nextProject, { debounceMs: 0 });
+      persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
       return;
     }
 
@@ -1800,7 +2305,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      await persistProjectImmediately(nextProject);
+      await persistProjectImmediatelyWithPrevious(nextProject, existingProject);
     } catch (error) {
       console.error("Failed to update linked ad project", error);
     }
@@ -1842,7 +2347,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      persistProject(nextProject, { debounceMs: 0 });
+      persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
       return;
     }
 
@@ -1877,7 +2382,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      await persistProjectImmediately(nextProject);
+      await persistProjectImmediatelyWithPrevious(nextProject, existingProject);
     } catch (error) {
       console.error("Failed to update clip library binding", error);
     }
@@ -1908,7 +2413,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      persistProject(nextProject, { debounceMs: 0 });
+      persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
       return;
     }
 
@@ -1938,7 +2443,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           projectToSummary(nextProject),
         ),
       }));
-      await persistProjectImmediately(nextProject);
+      await persistProjectImmediatelyWithPrevious(nextProject, existingProject);
     } catch (error) {
       console.error("Failed to update clip library last folder", error);
     }
@@ -1947,6 +2452,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   openProject: (id) => {
     const reqSeq = ++openProjectRequestSeq;
     projectHistoryLoadSeq += 1;
+    cancelGraphBackupCompact(id);
     useCanvasStore.getState().closeImageViewer();
     const openStartedAt = performance.now();
     const openCount = (projectOpenTraceCounts.get(id) ?? 0) + 1;
@@ -1959,31 +2465,94 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       queuedProjectPersist: queuedProjectUpserts.has(id),
       queuedViewportPersist: queuedViewportUpserts.has(id),
     });
-    set({ isOpeningProject: true });
+    set((state) => {
+      const summary = state.projects.find((project) => project.id === id);
+      if (!summary) {
+        return { isOpeningProject: true };
+      }
+
+      return {
+        currentProjectId: id,
+        currentProject: projectFromSummary(summary),
+        isOpeningProject: true,
+        saveStatus: "idle",
+        lastSaveError: null,
+        lastSaveReason: null,
+      };
+    });
+    setActiveMediaProjectId(id);
 
     void (async () => {
       try {
-        const readStartedAt = performance.now();
-        const record = await getProjectRecordWithoutHistory(id);
-        logProjectTrace("open:record-loaded", {
+        const cachedProject = recentClosedProjectCache.get(id);
+        if (cachedProject) {
+          if (reqSeq !== openProjectRequestSeq) {
+            return;
+          }
+          set((state) => ({
+            currentProjectId: id,
+            currentProject: cachedProject,
+            isOpeningProject: false,
+            projects: updateProjectSummary(
+              state.projects,
+              projectToSummary(cachedProject),
+            ),
+          }));
+          setActiveMediaProjectId(id);
+          scheduleBackgroundHistoryLoad(id, reqSeq);
+          logProjectTrace("open:memory-cache-hit", {
+            projectId: id,
+            openCount,
+            nodeCount: cachedProject.nodes.length,
+            elapsedSinceOpenMs: Math.round(performance.now() - openStartedAt),
+          });
+          return;
+        }
+
+        const graphReadStartedAt = performance.now();
+        const graphRecord = await getProjectGraphRecordIfReady(id).catch((error) => {
+          console.warn("Failed to open ready project graph; falling back to legacy record", error);
+          return null;
+        });
+        logProjectTrace("open:graph-record-loaded", {
           projectId: id,
           openCount,
-          elapsedMs: Math.round(performance.now() - readStartedAt),
+          elapsedMs: Math.round(performance.now() - graphReadStartedAt),
           elapsedSinceOpenMs: Math.round(performance.now() - openStartedAt),
-          found: Boolean(record),
-          nodesJsonChars: record?.nodesJson.length ?? 0,
-          historyJsonChars: record?.historyJson.length ?? 0,
+          found: Boolean(graphRecord),
+          persistenceVersion: graphRecord?.persistenceVersion ?? null,
+          graphRevision: graphRecord?.graphRevision ?? null,
+          nodesJsonChars: graphRecord?.record.nodesJson.length ?? 0,
+          historyJsonChars: graphRecord?.record.historyJson.length ?? 0,
         });
         if (reqSeq !== openProjectRequestSeq) {
           return;
         }
-        if (!record) {
-          set({ isOpeningProject: false });
-          return;
-        }
-
         const parseStartedAt = performance.now();
-        const project = fromProjectRecord(record);
+        let project: Project | null = graphRecord
+          ? fromProjectGraphRecord(graphRecord)
+          : null;
+        if (!project) {
+          const readStartedAt = performance.now();
+          const record = await getProjectRecordWithoutHistory(id);
+          logProjectTrace("open:legacy-record-loaded", {
+            projectId: id,
+            openCount,
+            elapsedMs: Math.round(performance.now() - readStartedAt),
+            elapsedSinceOpenMs: Math.round(performance.now() - openStartedAt),
+            found: Boolean(record),
+            nodesJsonChars: record?.nodesJson.length ?? 0,
+            historyJsonChars: record?.historyJson.length ?? 0,
+          });
+          if (reqSeq !== openProjectRequestSeq) {
+            return;
+          }
+          if (!record) {
+            set({ isOpeningProject: false });
+            return;
+          }
+          project = fromProjectRecord(record);
+        }
         logProjectTrace("open:project-parsed", {
           projectId: id,
           openCount,
@@ -2003,6 +2572,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         }));
         setActiveMediaProjectId(id);
         scheduleBackgroundHistoryLoad(id, reqSeq);
+        if (!graphRecord) {
+          scheduleBackgroundGraphWarmup(id, reqSeq);
+        }
         logProjectTrace("open:state-set", {
           projectId: id,
           openCount,
@@ -2035,6 +2607,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProject.id === currentProjectId
       ) {
         persistedSummary = projectToSummary(currentProject);
+        rememberRecentlyClosedProject(currentProject);
       }
       canvasState.resetCanvasSession();
       set((state) => ({
@@ -2044,6 +2617,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         currentProjectId: null,
         currentProject: null,
         isOpeningProject: false,
+        saveStatus: "idle",
+        lastSaveError: null,
+        lastSaveReason: null,
       }));
       setActiveMediaProjectId(null);
       return;
@@ -2063,8 +2639,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           : currentProject;
         persistedSummary = projectToSummary(nextProject);
         if (shouldPersistOnClose) {
-          persistProject(nextProject);
+          persistProject(nextProject, { previousProject: currentProject });
         }
+        rememberRecentlyClosedProject(nextProject);
       } else {
         const nextViewport =
           canvasState.currentViewport ??
@@ -2113,6 +2690,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               viewport: normalizeViewport(nextViewport),
             });
           }
+          rememberRecentlyClosedProject({
+            ...currentProject,
+            viewport: normalizeViewport(nextViewport),
+          });
           canvasState.resetCanvasSession();
           set((state) => ({
             projects: persistedSummary
@@ -2121,6 +2702,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             currentProjectId: null,
             currentProject: null,
             isOpeningProject: false,
+            saveStatus: "idle",
+            lastSaveError: null,
+            lastSaveReason: null,
           }));
           setActiveMediaProjectId(null);
           return;
@@ -2138,8 +2722,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
         persistedSummary = projectToSummary(nextProject);
         if (shouldPersistOnClose) {
-          persistProject(nextProject);
+          persistProject(nextProject, { previousProject: currentProject });
         }
+        rememberRecentlyClosedProject(nextProject);
       }
     }
 
@@ -2151,6 +2736,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       currentProjectId: null,
       currentProject: null,
       isOpeningProject: false,
+      saveStatus: "idle",
+      lastSaveError: null,
+      lastSaveReason: null,
     }));
     setActiveMediaProjectId(null);
   },
@@ -2197,7 +2785,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    persistProject(nextProject, { debounceMs: 0 });
+    persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
   },
 
   setCurrentProjectClipLibrary: (clipLibraryId) => {
@@ -2236,7 +2824,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    persistProject(nextProject, { debounceMs: 0 });
+    persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
   },
 
   setCurrentProjectColorLabels: (colorLabels) => {
@@ -2273,7 +2861,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    persistProject(nextProject, { debounceMs: 0 });
+    persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
   },
 
   setCurrentProjectScriptWelcomeSkipped: (scriptWelcomeSkipped) => {
@@ -2304,7 +2892,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    persistProject(nextProject, { debounceMs: 0 });
+    persistProject(nextProject, { debounceMs: 0, previousProject: currentProject });
   },
 
   saveCurrentProject: (nodes, edges, viewport, history) => {
@@ -2358,7 +2946,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         projectToSummary(nextProject),
       ),
     }));
-    persistProject(nextProject);
+    persistProject(nextProject, { previousProject: currentProject });
   },
 
   saveCurrentProjectViewport: (viewport) => {
@@ -2479,7 +3067,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         ),
       }));
 
-      await persistProjectImmediately(nextProject);
+      await persistProjectImmediatelyWithPrevious(nextProject, currentProject);
       await waitForProjectPersistenceIdle(currentProjectId);
       return;
     }
@@ -2498,7 +3086,104 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ),
     }));
 
-    await persistProjectImmediately(nextProject);
+    await persistProjectImmediatelyWithPrevious(nextProject, currentProject);
+    await waitForProjectPersistenceIdle(currentProjectId);
+  },
+
+  saveCurrentProjectFully: async (options) => {
+    const reason = options?.reason ?? "manual";
+    const { currentProjectId, currentProject } = get();
+    if (
+      !currentProjectId ||
+      !currentProject ||
+      currentProject.id !== currentProjectId
+    ) {
+      return;
+    }
+
+    updateProjectSaveState(currentProjectId, {
+      saveStatus: "saving",
+      lastSaveReason: reason,
+      lastSaveError: null,
+    });
+
+    const buildProjectForFullSave = (): Project => {
+      if (currentProject.projectType === "ad") {
+        return {
+          ...currentProject,
+          nodeCount: currentProject.nodes.length,
+          updatedAt: Date.now(),
+        };
+      }
+
+      const canvasState = useCanvasStore.getState();
+      const nextViewport = normalizeViewport(
+        canvasState.currentViewport ??
+          currentProject.viewport ??
+          DEFAULT_VIEWPORT,
+      );
+      return {
+        ...currentProject,
+        nodes: canvasState.nodes,
+        edges: canvasState.edges,
+        viewport: nextViewport,
+        history: canvasState.history ?? currentProject.history ?? createEmptyHistory(),
+        nodeCount: canvasState.nodes.length,
+        updatedAt: Date.now(),
+      };
+    };
+
+    const nextProject = buildProjectForFullSave();
+    set((state) => ({
+      currentProject: nextProject,
+      projects: updateProjectSummary(
+        state.projects,
+        projectToSummary(nextProject),
+      ),
+    }));
+
+    try {
+      await persistProjectImmediatelyWithPrevious(nextProject, currentProject);
+      await waitForProjectPersistenceIdle(currentProjectId);
+      await compactProjectGraphBackupNow(currentProjectId);
+      await waitForProjectPersistenceIdle(currentProjectId);
+      updateProjectSaveState(currentProjectId, {
+        saveStatus: "saved",
+        lastSuccessfulSaveAt: Date.now(),
+        lastSaveError: null,
+        lastSaveReason: reason,
+      });
+    } catch (error) {
+      updateProjectSaveState(currentProjectId, {
+        saveStatus: "error",
+        lastSaveError: formatSaveError(error),
+        lastSaveReason: reason,
+      });
+      throw error;
+    }
+  },
+
+  finalizeCurrentProjectBeforeClose: async () => {
+    const { currentProjectId, currentProject } = get();
+    if (
+      !currentProjectId ||
+      !currentProject ||
+      currentProject.id !== currentProjectId
+    ) {
+      return;
+    }
+
+    cancelBackgroundGraphWarmup(currentProjectId);
+    cancelGraphBackupCompact(currentProjectId);
+    await get().saveCurrentProjectFully({ reason: "close" });
+
+    try {
+      await getProjectGraphHistory(currentProjectId);
+    } catch (error) {
+      console.warn("Failed to finalize project graph history before close", error);
+      throw error;
+    }
+
     await waitForProjectPersistenceIdle(currentProjectId);
   },
 }));

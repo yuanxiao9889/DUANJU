@@ -41,6 +41,71 @@ export interface ProjectHistoryRecord {
   historyJson: string;
 }
 
+export interface ProjectGraphRecord {
+  record: ProjectRecord;
+  graphRevision: number;
+  persistenceVersion: number;
+}
+
+export interface ProjectGraphHistoryRecord {
+  projectId: string;
+  historyJson: string;
+  graphRevision: number;
+}
+
+export interface ProjectGraphNodePatch {
+  nodeId: string;
+  nodeType?: string | null;
+  nodeJson: string;
+}
+
+export interface ProjectGraphEdgePatch {
+  edgeId: string;
+  source?: string | null;
+  target?: string | null;
+  edgeJson: string;
+}
+
+export interface ProjectGraphHistoryPatch {
+  historyJson: string;
+}
+
+export interface ProjectGraphMetaPatch {
+  name?: string;
+  projectType?: ProjectType;
+  assetLibraryId?: string | null;
+  clipLibraryId?: string | null;
+  clipLastFolderId?: string | null;
+  linkedScriptProjectId?: string | null;
+  linkedAdProjectId?: string | null;
+  colorLabelsJson?: string;
+  scriptWelcomeSkipped?: boolean;
+}
+
+export interface ProjectGraphPatch {
+  projectId: string;
+  upsertNodes?: ProjectGraphNodePatch[];
+  deleteNodeIds?: string[];
+  upsertEdges?: ProjectGraphEdgePatch[];
+  deleteEdgeIds?: string[];
+  viewportJson?: string;
+  history?: ProjectGraphHistoryPatch;
+  meta?: ProjectGraphMetaPatch;
+  updatedAt: number;
+}
+
+export interface ProjectGraphPatchResult {
+  projectId: string;
+  graphRevision: number;
+  nodeCount: number;
+}
+
+export interface ProjectGraphValidationResult {
+  checkedProjectCount: number;
+  issueCount: number;
+  issues: string[];
+}
+
 export interface OrganizeProjectMediaResult {
   projectId: string;
   rewritten: boolean;
@@ -61,6 +126,42 @@ export async function getProjectRecordWithoutHistory(projectId: string): Promise
 
 export async function getProjectHistoryRecord(projectId: string): Promise<ProjectHistoryRecord | null> {
   return await invoke<ProjectHistoryRecord | null>('get_project_history_record', { projectId });
+}
+
+export async function getProjectGraphRecord(projectId: string): Promise<ProjectGraphRecord | null> {
+  return await invoke<ProjectGraphRecord | null>('get_project_graph_record', { projectId });
+}
+
+export async function getProjectGraphRecordIfReady(projectId: string): Promise<ProjectGraphRecord | null> {
+  return await invoke<ProjectGraphRecord | null>('get_project_graph_record_if_ready', { projectId });
+}
+
+export async function getProjectGraphHistory(projectId: string): Promise<ProjectGraphHistoryRecord | null> {
+  return await invoke<ProjectGraphHistoryRecord | null>('get_project_graph_history', { projectId });
+}
+
+export async function applyProjectGraphPatch(
+  patch: ProjectGraphPatch
+): Promise<ProjectGraphPatchResult> {
+  return await invoke<ProjectGraphPatchResult>('apply_project_graph_patch', { patch });
+}
+
+export async function upsertProjectGraphSnapshot(
+  record: ProjectRecord
+): Promise<ProjectGraphPatchResult> {
+  return await invoke<ProjectGraphPatchResult>('upsert_project_graph_snapshot', { record });
+}
+
+export async function compactProjectGraphBackup(projectId: string): Promise<boolean> {
+  return await invoke<boolean>('compact_project_graph_backup', { projectId });
+}
+
+export async function validateProjectGraphStorage(
+  projectId?: string
+): Promise<ProjectGraphValidationResult> {
+  return await invoke<ProjectGraphValidationResult>('validate_project_graph_storage', {
+    projectId: projectId ?? null,
+  });
 }
 
 export async function upsertProjectRecord(record: ProjectRecord): Promise<void> {

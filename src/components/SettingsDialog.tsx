@@ -20,10 +20,12 @@ import {
   CANVAS_OVERVIEW_ZOOM_THRESHOLD_OPTIONS,
   CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD_OPTIONS,
   CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS_OPTIONS,
+  PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES_OPTIONS,
   type CanvasOverviewThumbnailMaxDimension,
   type CanvasOverviewZoomThreshold,
   type CanvasThumbnailMediaCountThreshold,
   type CanvasViewportPreloadMarginScreens,
+  type ProjectFullAutosaveIntervalMinutes,
   type OfficialVideoProviderId,
   type ThirdPartyVideoProviderId,
 } from '@/stores/settingsStore';
@@ -570,6 +572,7 @@ export function SettingsDialog({
     canvasOverviewThumbnailMaxDimension,
     canvasThumbnailMediaCountThreshold,
     canvasViewportPreloadMarginScreens,
+    projectFullAutosaveIntervalMinutes,
     autoCheckAppUpdateOnLaunch,
     enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
@@ -607,6 +610,7 @@ export function SettingsDialog({
     setCanvasOverviewThumbnailMaxDimension,
     setCanvasThumbnailMediaCountThreshold,
     setCanvasViewportPreloadMarginScreens,
+    setProjectFullAutosaveIntervalMinutes,
     setAutoCheckAppUpdateOnLaunch,
     setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
@@ -763,6 +767,8 @@ export function SettingsDialog({
     useState<CanvasThumbnailMediaCountThreshold>(canvasThumbnailMediaCountThreshold);
   const [localCanvasViewportPreloadMarginScreens, setLocalCanvasViewportPreloadMarginScreens] =
     useState<CanvasViewportPreloadMarginScreens>(canvasViewportPreloadMarginScreens);
+  const [localProjectFullAutosaveIntervalMinutes, setLocalProjectFullAutosaveIntervalMinutes] =
+    useState<ProjectFullAutosaveIntervalMinutes>(projectFullAutosaveIntervalMinutes);
   const [localAutoCheckAppUpdateOnLaunch, setLocalAutoCheckAppUpdateOnLaunch] = useState(
     autoCheckAppUpdateOnLaunch
   );
@@ -947,6 +953,7 @@ export function SettingsDialog({
     setLocalCanvasOverviewThumbnailMaxDimension(canvasOverviewThumbnailMaxDimension);
     setLocalCanvasThumbnailMediaCountThreshold(canvasThumbnailMediaCountThreshold);
     setLocalCanvasViewportPreloadMarginScreens(canvasViewportPreloadMarginScreens);
+    setLocalProjectFullAutosaveIntervalMinutes(projectFullAutosaveIntervalMinutes);
     setLocalAutoCheckAppUpdateOnLaunch(autoCheckAppUpdateOnLaunch);
     setLocalEnableUpdateDialog(enableUpdateDialog);
     setLocalAutoUpdateDreaminaCliOnLaunch(autoUpdateDreaminaCliOnLaunch);
@@ -996,6 +1003,7 @@ export function SettingsDialog({
     canvasOverviewThumbnailMaxDimension,
     canvasThumbnailMediaCountThreshold,
     canvasViewportPreloadMarginScreens,
+    projectFullAutosaveIntervalMinutes,
     autoCheckAppUpdateOnLaunch,
     enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
@@ -1730,6 +1738,7 @@ export function SettingsDialog({
     setCanvasOverviewThumbnailMaxDimension(localCanvasOverviewThumbnailMaxDimension);
     setCanvasThumbnailMediaCountThreshold(localCanvasThumbnailMediaCountThreshold);
     setCanvasViewportPreloadMarginScreens(localCanvasViewportPreloadMarginScreens);
+    setProjectFullAutosaveIntervalMinutes(localProjectFullAutosaveIntervalMinutes);
     setAutoCheckAppUpdateOnLaunch(localAutoCheckAppUpdateOnLaunch);
     setEnableUpdateDialog(localEnableUpdateDialog || localAutoCheckAppUpdateOnLaunch);
     setAutoUpdateDreaminaCliOnLaunch(localAutoUpdateDreaminaCliOnLaunch);
@@ -1813,6 +1822,7 @@ export function SettingsDialog({
     setCanvasOverviewThumbnailMaxDimension,
     setCanvasThumbnailMediaCountThreshold,
     setCanvasViewportPreloadMarginScreens,
+    setProjectFullAutosaveIntervalMinutes,
     setAutoCheckAppUpdateOnLaunch,
     setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
@@ -1820,6 +1830,7 @@ export function SettingsDialog({
     setPsServerPort,
     setPsAutoStartServer,
     localScriptProviderEnabled,
+    localProjectFullAutosaveIntervalMinutes,
   ]);
 
   const handleSave = useCallback(() => {
@@ -3444,6 +3455,32 @@ export function SettingsDialog({
                           {CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS_OPTIONS.map((screens) => (
                             <option key={screens} value={screens}>
                               {t('settings.canvasViewportPreloadMarginOption', { count: screens })}
+                            </option>
+                          ))}
+                        </UiSelect>
+                      </label>
+
+                      <label className="block">
+                        <span className="text-xs font-medium text-text-dark">
+                          {t('settings.projectFullAutosaveInterval')}
+                        </span>
+                        <span className="mt-1 block text-[11px] leading-5 text-text-muted">
+                          {t('settings.projectFullAutosaveIntervalDesc')}
+                        </span>
+                        <UiSelect
+                          value={String(localProjectFullAutosaveIntervalMinutes)}
+                          onChange={(event) =>
+                            setLocalProjectFullAutosaveIntervalMinutes(
+                              Number(event.target.value) as ProjectFullAutosaveIntervalMinutes
+                            )
+                          }
+                          className="mt-2 h-9 text-sm"
+                        >
+                          {PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES_OPTIONS.map((minutes) => (
+                            <option key={minutes} value={minutes}>
+                              {t('settings.projectFullAutosaveIntervalOption', {
+                                count: minutes,
+                              })}
                             </option>
                           ))}
                         </UiSelect>

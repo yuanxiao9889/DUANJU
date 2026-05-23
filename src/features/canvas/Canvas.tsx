@@ -38,6 +38,10 @@ import {
   AlignCenter,
   ListOrdered,
   Link2,
+  Save,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 
@@ -1654,6 +1658,92 @@ interface ConnectNodeBusinessRuleOptions {
   schedulePersist?: boolean;
 }
 
+interface CanvasSaveBubbleProps {
+  saveStatus: ReturnType<typeof useProjectStore.getState>["saveStatus"];
+  lastSuccessfulSaveAt: number | null;
+  lastSaveError: string | null;
+  onSave: () => void;
+}
+
+function CanvasSaveBubble({
+  saveStatus,
+  lastSuccessfulSaveAt,
+  lastSaveError,
+  onSave,
+}: CanvasSaveBubbleProps) {
+  const { t } = useTranslation();
+  const [showSavedState, setShowSavedState] = useState(false);
+
+  useEffect(() => {
+    if (saveStatus !== "saved" || !lastSuccessfulSaveAt) {
+      return;
+    }
+
+    setShowSavedState(true);
+    const timer = window.setTimeout(() => {
+      setShowSavedState(false);
+    }, 2000);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [lastSuccessfulSaveAt, saveStatus]);
+
+  const isSaving = saveStatus === "saving" || saveStatus === "retrying";
+  const isError = saveStatus === "error";
+  const title = isError
+    ? lastSaveError
+      ? t("canvas.saveBubble.failedWithReason", { reason: lastSaveError })
+      : t("canvas.saveBubble.failed")
+    : lastSuccessfulSaveAt
+      ? t("canvas.saveBubble.lastSavedAt", {
+          time: new Date(lastSuccessfulSaveAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        })
+      : t("canvas.saveBubble.manualSave");
+  const label = isSaving
+    ? t("canvas.saveBubble.saving")
+    : isError
+      ? t("canvas.saveBubble.retry")
+      : showSavedState
+        ? t("canvas.saveBubble.saved")
+        : lastSuccessfulSaveAt
+          ? t("canvas.saveBubble.lastSavedAt", {
+              time: new Date(lastSuccessfulSaveAt).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            })
+          : t("canvas.saveBubble.manualSave");
+  const Icon = isSaving
+    ? Loader2
+    : isError
+      ? AlertCircle
+      : showSavedState
+        ? CheckCircle2
+        : Save;
+
+  return (
+    <button
+      type="button"
+      onClick={onSave}
+      disabled={isSaving}
+      title={title}
+      className={`pointer-events-auto inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border px-3 text-xs font-medium shadow-[0_14px_36px_rgba(15,23,42,0.18)] backdrop-blur transition-colors disabled:cursor-wait ${
+        isError
+          ? "border-red-400/50 bg-red-500/18 text-red-50 hover:bg-red-500/26"
+          : showSavedState
+            ? "border-emerald-400/55 bg-emerald-500/18 text-emerald-50"
+            : "border-border-dark bg-surface-dark/88 text-text-dark hover:bg-bg-dark/92"
+      }`}
+    >
+      <Icon className={`h-3.5 w-3.5 shrink-0 ${isSaving ? "animate-spin" : ""}`} />
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
 export function Canvas() {
   const canvasRenderStartedAtRef = useRef(performance.now());
   const { t } = useTranslation();
@@ -1824,6 +1914,9 @@ export function Canvas() {
   const nodes = useCanvasStore((state) => state.nodes);
   const edges = useCanvasStore((state) => state.edges);
   const history = useCanvasStore((state) => state.history);
+  const restoredHistoryRevision = useCanvasStore(
+    (state) => state.restoredHistoryRevision,
+  );
   const dragHistorySnapshot = useCanvasStore(
     (state) => state.dragHistorySnapshot,
   );
@@ -2321,6 +2414,7 @@ export function Canvas() {
   const getCurrentProject = useProjectStore((state) => state.getCurrentProject);
   const currentProjectId = useProjectStore((state) => state.currentProjectId);
   const currentProject = useProjectStore((state) => state.currentProject);
+  const isOpeningProject = useProjectStore((state) => state.isOpeningProject);
   const project =
     currentProject && currentProject.id === currentProjectId
       ? currentProject
@@ -2529,6 +2623,14 @@ export function Canvas() {
   const saveCurrentProject = useProjectStore(
     (state) => state.saveCurrentProject,
   );
+  const saveCurrentProjectFully = useProjectStore(
+    (state) => state.saveCurrentProjectFully,
+  );
+  const saveStatus = useProjectStore((state) => state.saveStatus);
+  const lastSuccessfulSaveAt = useProjectStore(
+    (state) => state.lastSuccessfulSaveAt,
+  );
+  const lastSaveError = useProjectStore((state) => state.lastSaveError);
   const saveCurrentProjectViewport = useProjectStore(
     (state) => state.saveCurrentProjectViewport,
   );
@@ -2541,6 +2643,11 @@ export function Canvas() {
   const cancelPendingViewportPersist = useProjectStore(
     (state) => state.cancelPendingViewportPersist,
   );
+  const handleManualFullSave = useCallback(() => {
+    void saveCurrentProjectFully({ reason: "manual" }).catch((error) => {
+      console.error("manual full project save failed", error);
+    });
+  }, [saveCurrentProjectFully]);
 
   useEffect(() => {
     return () => {
@@ -3414,6 +3521,9 @@ export function Canvas() {
 
   useEffect(() => {
     const activeProject = project;
+    if (isOpeningProject) {
+      return;
+    }
     if (!activeProject || activeProject.id !== currentProjectId) {
       return;
     }
@@ -3474,7 +3584,7 @@ export function Canvas() {
       deferredHistoryRestoreTimerRef.current = setTimeout(() => {
         deferredHistoryRestoreTimerRef.current = null;
         const historyRestoreStartedAt = performance.now();
-        setCanvasHistory(activeProject.history);
+        setCanvasHistory(activeProject.history, { source: "restore" });
         isRestoringCanvasRef.current = false;
         logCanvasPerf("[canvas-perf] deferred history restore", {
           projectId: activeProject.id,
@@ -3501,6 +3611,7 @@ export function Canvas() {
     };
   }, [
     currentProjectId,
+    isOpeningProject,
     project?.id,
     reactFlowInstance,
     setCanvasData,
@@ -3561,6 +3672,18 @@ export function Canvas() {
     }, 500);
     return () => clearTimeout(timer);
   }, [getCurrentProject, scriptWelcomePresenceSignature]);
+
+  useEffect(() => {
+    if (restoredHistoryRevision <= 0) {
+      return;
+    }
+
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    skipNextCanvasAutoPersistRef.current = true;
+  }, [restoredHistoryRevision]);
 
   useEffect(() => {
     if (isRestoringCanvasRef.current || dragHistorySnapshot) {
@@ -7808,6 +7931,16 @@ export function Canvas() {
                 onLocateGroup={handleLocateGroup}
                 onSelectGroup={handleLocateGroup}
               />
+            )}
+            {!isImageViewerOpen && !shouldHideCanvasChrome && currentProjectId && (
+              <div className="absolute right-4 top-4 z-[92] flex justify-end">
+                <CanvasSaveBubble
+                  saveStatus={saveStatus}
+                  lastSuccessfulSaveAt={lastSuccessfulSaveAt}
+                  lastSaveError={lastSaveError}
+                  onSave={handleManualFullSave}
+                />
+              </div>
             )}
             <ReactFlow
               nodes={flowNodes}

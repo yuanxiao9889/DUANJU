@@ -125,6 +125,7 @@ export type CanvasOverviewZoomThreshold = 0.2 | 0.4 | 0.6;
 export type CanvasOverviewThumbnailMaxDimension = 96 | 128 | 256 | 512;
 export type CanvasThumbnailMediaCountThreshold = 100 | 250 | 500;
 export type CanvasViewportPreloadMarginScreens = 0 | 1 | 2;
+export type ProjectFullAutosaveIntervalMinutes = 5 | 10 | 30;
 export type ProviderApiKeys = Record<string, string>;
 export const DEFAULT_GRSAI_NANO_BANANA_PRO_MODEL = 'nano-banana-pro';
 export type OfficialVideoProviderId = 'vidu' | 'volcengine';
@@ -134,10 +135,12 @@ export const CANVAS_OVERVIEW_ZOOM_THRESHOLD_OPTIONS = [0.2, 0.4, 0.6] as const;
 export const CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION_OPTIONS = [96, 128, 256, 512] as const;
 export const CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD_OPTIONS = [100, 250, 500] as const;
 export const CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS_OPTIONS = [0, 1, 2] as const;
+export const PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES_OPTIONS = [5, 10, 30] as const;
 export const DEFAULT_CANVAS_OVERVIEW_ZOOM_THRESHOLD: CanvasOverviewZoomThreshold = 0.4;
 export const DEFAULT_CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION: CanvasOverviewThumbnailMaxDimension = 256;
 export const DEFAULT_CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD: CanvasThumbnailMediaCountThreshold = 250;
 export const DEFAULT_CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS: CanvasViewportPreloadMarginScreens = 1;
+export const DEFAULT_PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES: ProjectFullAutosaveIntervalMinutes = 10;
 
 export interface ThirdPartyVideoProviderConfig {
   oopii: {
@@ -207,6 +210,7 @@ interface SettingsState {
   canvasOverviewThumbnailMaxDimension: CanvasOverviewThumbnailMaxDimension;
   canvasThumbnailMediaCountThreshold: CanvasThumbnailMediaCountThreshold;
   canvasViewportPreloadMarginScreens: CanvasViewportPreloadMarginScreens;
+  projectFullAutosaveIntervalMinutes: ProjectFullAutosaveIntervalMinutes;
   autoCheckAppUpdateOnLaunch: boolean;
   enableUpdateDialog: boolean;
   autoUpdateDreaminaCliOnLaunch: boolean;
@@ -316,6 +320,9 @@ interface SettingsState {
   ) => void;
   setCanvasViewportPreloadMarginScreens: (
     marginScreens: CanvasViewportPreloadMarginScreens | number
+  ) => void;
+  setProjectFullAutosaveIntervalMinutes: (
+    interval: ProjectFullAutosaveIntervalMinutes | number
   ) => void;
   setAutoCheckAppUpdateOnLaunch: (enabled: boolean) => void;
   setEnableUpdateDialog: (enabled: boolean) => void;
@@ -705,6 +712,16 @@ function normalizeCanvasViewportPreloadMarginScreens(
   );
 }
 
+function normalizeProjectFullAutosaveIntervalMinutes(
+  input: ProjectFullAutosaveIntervalMinutes | number | string | null | undefined
+): ProjectFullAutosaveIntervalMinutes {
+  return normalizeNumberOption(
+    input,
+    PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES_OPTIONS,
+    DEFAULT_PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES
+  );
+}
+
 function normalizeApiKeys(input: ProviderApiKeys | null | undefined): ProviderApiKeys {
   if (!input) {
     return {};
@@ -833,6 +850,7 @@ export const useSettingsStore = create<SettingsState>()(
       canvasOverviewThumbnailMaxDimension: DEFAULT_CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION,
       canvasThumbnailMediaCountThreshold: DEFAULT_CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD,
       canvasViewportPreloadMarginScreens: DEFAULT_CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS,
+      projectFullAutosaveIntervalMinutes: DEFAULT_PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES,
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
       autoUpdateDreaminaCliOnLaunch: true,
@@ -1111,6 +1129,11 @@ export const useSettingsStore = create<SettingsState>()(
         set({
           canvasViewportPreloadMarginScreens:
             normalizeCanvasViewportPreloadMarginScreens(canvasViewportPreloadMarginScreens),
+        }),
+      setProjectFullAutosaveIntervalMinutes: (projectFullAutosaveIntervalMinutes) =>
+        set({
+          projectFullAutosaveIntervalMinutes:
+            normalizeProjectFullAutosaveIntervalMinutes(projectFullAutosaveIntervalMinutes),
         }),
       setAutoCheckAppUpdateOnLaunch: (enabled) => set({ autoCheckAppUpdateOnLaunch: enabled }),
       setEnableUpdateDialog: (enabled) => set({ enableUpdateDialog: enabled }),
@@ -1898,6 +1921,10 @@ export const useSettingsStore = create<SettingsState>()(
             | CanvasViewportPreloadMarginScreens
             | number
             | string;
+          projectFullAutosaveIntervalMinutes?:
+            | ProjectFullAutosaveIntervalMinutes
+            | number
+            | string;
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
           autoUpdateDreaminaCliOnLaunch?: boolean;
@@ -2133,6 +2160,9 @@ export const useSettingsStore = create<SettingsState>()(
           ),
           canvasViewportPreloadMarginScreens: normalizeCanvasViewportPreloadMarginScreens(
             state.canvasViewportPreloadMarginScreens
+          ),
+          projectFullAutosaveIntervalMinutes: normalizeProjectFullAutosaveIntervalMinutes(
+            state.projectFullAutosaveIntervalMinutes
           ),
           autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,
           enableUpdateDialog: state.enableUpdateDialog ?? true,

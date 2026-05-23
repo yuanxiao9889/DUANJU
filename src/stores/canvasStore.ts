@@ -734,6 +734,7 @@ interface CanvasState {
   activeDirectorStageNodeId: string | null;
   nodeDescriptionPanelOpenById: Record<string, boolean>;
   history: CanvasHistoryState;
+  restoredHistoryRevision: number;
   dragHistorySnapshot: CanvasHistorySnapshot | null;
   currentViewport: Viewport;
   canvasViewportSize: { width: number; height: number };
@@ -758,7 +759,10 @@ interface CanvasState {
   closeDirectorStage: () => void;
 
   setCanvasData: (nodes: CanvasNode[], edges: CanvasEdge[], history?: CanvasHistoryState) => void;
-  setCanvasHistory: (history?: CanvasHistoryState) => void;
+  setCanvasHistory: (
+    history?: CanvasHistoryState,
+    options?: { source?: 'restore' | 'user' }
+  ) => void;
   replaceThumbnailFieldsInNodesAndHistory: (updates: CanvasThumbnailUpdate[]) => void;
   resetCanvasSession: () => void;
   addNode: (
@@ -3785,6 +3789,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   activeDirectorStageNodeId: null,
   nodeDescriptionPanelOpenById: {},
   history: { past: [], future: [] },
+  restoredHistoryRevision: 0,
   dragHistorySnapshot: null,
   currentViewport: { x: 0, y: 0, zoom: 1 },
   canvasViewportSize: { width: 0, height: 0 },
@@ -3993,14 +3998,19 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       activeDirectorStageNodeId: null,
       nodeDescriptionPanelOpenById: {},
       history: normalizeHistory(history),
+      restoredHistoryRevision: 0,
       dragHistorySnapshot: null,
     });
   },
 
-  setCanvasHistory: (history) => {
+  setCanvasHistory: (history, options) => {
     set({
       history: normalizeHistory(history),
       dragHistorySnapshot: null,
+      restoredHistoryRevision:
+        options?.source === 'restore'
+          ? Date.now()
+          : get().restoredHistoryRevision,
     });
   },
 
@@ -4037,6 +4047,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       activeDirectorStageNodeId: null,
       nodeDescriptionPanelOpenById: {},
       history: { past: [], future: [] },
+      restoredHistoryRevision: 0,
       dragHistorySnapshot: null,
       currentViewport: { x: 0, y: 0, zoom: 1 },
       imageViewer: createInitialImageViewerState(),

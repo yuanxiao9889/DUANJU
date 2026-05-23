@@ -371,6 +371,15 @@
     "emptyHintTitle": "双击鼠标添加节点",
     "emptyHintSubtitle": "Double-click to add a node",
     "dropFilesHint": "释放图片、视频或音频以上传",
+    "saveBubble": {
+      "manualSave": "手动保存",
+      "saving": "正在保存...",
+      "saved": "保存成功",
+      "failed": "保存失败",
+      "failedWithReason": "保存失败：{{reason}}",
+      "retry": "保存失败，点击重试",
+      "lastSavedAt": "已保存 {{time}}"
+    },
     "edgeCutDisconnected": "已断开 {{count}} 条连线",
     "toolbar": {
       "zoomIn": "放大",
@@ -3260,6 +3269,9 @@
     "canvasViewportPreloadMargin": "视口预加载范围",
     "canvasViewportPreloadMarginDesc": "预加载当前视口外扩的屏数，范围越大越顺滑但后台负载更高。",
     "canvasViewportPreloadMarginOption": "外扩 {{count}} 屏",
+    "projectFullAutosaveInterval": "全量自动保存间隔",
+    "projectFullAutosaveIntervalDesc": "按固定间隔把当前项目完整写入磁盘，降低数据丢失风险。",
+    "projectFullAutosaveIntervalOption": "{{count}} 分钟",
     "accentColor": "强调色",
     "accentColorDesc": "用于按钮、选中边框和交互高亮。",
     "resetAccentColor": "恢复默认",
