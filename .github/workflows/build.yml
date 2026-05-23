@@ -302,20 +302,82 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and publish Windows artifacts
-        uses: tauri-apps/tauri-action@v0.6.2
+      - name: Build Windows bundles
         env:
           CI: true
           GITHUB_TOKEN: ${{ github.token }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npx tauri build --bundles nsis
+
+      - name: Normalize Windows artifact names
+        shell: pwsh
+        run: |
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+          $version = "${{ needs.prepare-release.outputs.version }}"
+
+          $installer = Get-ChildItem -Path $bundleDir -Filter "*_${version}_x64-setup.exe" | Select-Object -First 1
+          if (-not $installer) {
+            Get-ChildItem -Path $bundleDir
+            throw "No NSIS installer found for version $version."
+          }
+
+          $signaturePath = "$($installer.FullName).sig"
+          if (-not (Test-Path -LiteralPath $signaturePath)) {
+            Get-ChildItem -Path $bundleDir
+            throw "No NSIS updater signature found for $($installer.Name)."
+          }
+
+          $targetInstaller = Join-Path $bundleDir "oopii_${version}_x64-setup.exe"
+          $targetSignature = "$targetInstaller.sig"
+          Move-Item -LiteralPath $installer.FullName -Destination $targetInstaller -Force
+          Move-Item -LiteralPath $signaturePath -Destination $targetSignature -Force
+
+          Get-ChildItem -Path $bundleDir
+
+      - name: Create Windows updater manifest
+        shell: pwsh
+        env:
+          RELEASE_BODY: ${{ needs.prepare-release.outputs.body }}
+        run: |
+          $bundleDir = "src-tauri/target/release/bundle/nsis"
+          $tag = "${{ needs.prepare-release.outputs.tag }}"
+          $version = "${{ needs.prepare-release.outputs.version }}"
+          $installerName = "oopii_${version}_x64-setup.exe"
+          $signaturePath = Join-Path $bundleDir "$installerName.sig"
+          $signature = (Get-Content -Raw -LiteralPath $signaturePath).Trim()
+          $downloadUrl = "https://github.com/${{ github.repository }}/releases/download/$tag/$installerName"
+
+          $manifest = [ordered]@{
+            version = $version
+            notes = $env:RELEASE_BODY
+            pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $signature
+                url = $downloadUrl
+              }
+              "windows-x86_64-nsis" = [ordered]@{
+                signature = $signature
+                url = $downloadUrl
+              }
+            }
+          }
+
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $bundleDir "latest.json") -Encoding utf8
+          Get-Content -Path (Join-Path $bundleDir "latest.json")
+
+      - name: Upload Windows artifacts to GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          tagName: ${{ needs.prepare-release.outputs.tag }}
-          releaseName: oopii无限画布 ${{ needs.prepare-release.outputs.tag }}
-          releaseBody: ${{ needs.prepare-release.outputs.body }}
-          releaseDraft: false
+          tag_name: ${{ needs.prepare-release.outputs.tag }}
+          name: oopii无限画布 ${{ needs.prepare-release.outputs.tag }}
+          body: ${{ needs.prepare-release.outputs.body }}
+          target_commitish: ${{ github.sha }}
+          draft: false
           prerelease: false
-          args: --bundles nsis
-          includeUpdaterJson: true
-          updaterJsonPreferNsis: true
-          assetNamePattern: oopii_[version]_[arch]-setup[ext]
+          files: |
+            src-tauri/target/release/bundle/nsis/oopii_${{ needs.prepare-release.outputs.version }}_x64-setup.exe
+            src-tauri/target/release/bundle/nsis/oopii_${{ needs.prepare-release.outputs.version }}_x64-setup.exe.sig
+            src-tauri/target/release/bundle/nsis/latest.json
+          fail_on_unmatched_files: true
