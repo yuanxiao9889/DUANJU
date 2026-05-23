@@ -2417,31 +2417,78 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
 
-    const nextProject: Project =
-      currentProject.projectType === "ad"
-        ? {
+    if (currentProject.projectType !== "ad") {
+      const canvasState = useCanvasStore.getState();
+      const nextViewport = normalizeViewport(
+        canvasState.currentViewport ??
+          currentProject.viewport ??
+          DEFAULT_VIEWPORT,
+      );
+      const nextHistory =
+        canvasState.history ?? currentProject.history ?? createEmptyHistory();
+      const hasContentChanged =
+        !areCanvasNodesEqualForPersistence(
+          currentProject.nodes,
+          canvasState.nodes,
+        ) ||
+        !areCanvasEdgesEqualForPersistence(
+          currentProject.edges,
+          canvasState.edges,
+        ) ||
+        !areCanvasHistoriesEquivalentForPersistence(
+          currentProject.history ?? createEmptyHistory(),
+          nextHistory,
+        );
+      const hasViewportChanged = hasViewportMeaningfulDelta(
+        currentProject.viewport ?? DEFAULT_VIEWPORT,
+        nextViewport,
+      );
+
+      if (!hasContentChanged) {
+        if (hasViewportChanged) {
+          const viewportOnlyProject: Project = {
             ...currentProject,
-            nodeCount: currentProject.nodes.length,
-            updatedAt: Date.now(),
-          }
-        : (() => {
-            const canvasState = useCanvasStore.getState();
-            return {
-              ...currentProject,
-              nodes: canvasState.nodes,
-              edges: canvasState.edges,
-              viewport:
-                canvasState.currentViewport ??
-                currentProject.viewport ??
-                DEFAULT_VIEWPORT,
-              history:
-                canvasState.history ??
-                currentProject.history ??
-                createEmptyHistory(),
-              nodeCount: canvasState.nodes.length,
-              updatedAt: Date.now(),
-            };
-          })();
+            viewport: nextViewport,
+          };
+
+          set({ currentProject: viewportOnlyProject });
+          queueViewportUpsert(currentProjectId, nextViewport, {
+            immediate: true,
+          });
+        }
+
+        await waitForProjectPersistenceIdle(currentProjectId);
+        return;
+      }
+
+      const nextProject: Project = {
+        ...currentProject,
+        nodes: canvasState.nodes,
+        edges: canvasState.edges,
+        viewport: nextViewport,
+        history: nextHistory,
+        nodeCount: canvasState.nodes.length,
+        updatedAt: Date.now(),
+      };
+
+      set((state) => ({
+        currentProject: nextProject,
+        projects: updateProjectSummary(
+          state.projects,
+          projectToSummary(nextProject),
+        ),
+      }));
+
+      await persistProjectImmediately(nextProject);
+      await waitForProjectPersistenceIdle(currentProjectId);
+      return;
+    }
+
+    const nextProject: Project = {
+      ...currentProject,
+      nodeCount: currentProject.nodes.length,
+      updatedAt: Date.now(),
+    };
 
     set((state) => ({
       currentProject: nextProject,
