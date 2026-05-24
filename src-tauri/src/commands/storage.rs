@@ -28,6 +28,8 @@ pub struct MediaPersistContext {
     #[serde(default)]
     pub project_id: Option<String>,
     #[serde(default)]
+    pub project_name: Option<String>,
+    #[serde(default)]
     pub media_type: Option<String>,
     #[serde(default)]
     pub role: Option<String>,
@@ -397,12 +399,84 @@ fn sanitize_project_dir_name(raw: &str) -> Option<String> {
     }
 }
 
+fn sanitize_project_name_dir_part(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut sanitized = String::with_capacity(trimmed.len());
+    let mut previous_was_separator = false;
+    for ch in trimmed.chars() {
+        let next = match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            ch if ch.is_control() => '-',
+            ch if ch.is_whitespace() => '-',
+            ch => ch,
+        };
+
+        if next == '-' || next == '_' || next == '.' {
+            if previous_was_separator {
+                continue;
+            }
+            previous_was_separator = true;
+            sanitized.push(next);
+        } else {
+            previous_was_separator = false;
+            sanitized.push(next);
+        }
+    }
+
+    let compact = sanitized
+        .trim_matches(|ch| ch == '-' || ch == '_' || ch == '.' || ch == ' ')
+        .chars()
+        .take(48)
+        .collect::<String>();
+    if compact.is_empty() {
+        None
+    } else {
+        Some(compact)
+    }
+}
+
+fn short_project_id(project_id: &str) -> Option<String> {
+    let compact = project_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(8)
+        .collect::<String>();
+    if compact.is_empty() {
+        None
+    } else {
+        Some(compact)
+    }
+}
+
+fn resolve_project_media_dir_name(project_id: &str, project_name: Option<&str>) -> Option<String> {
+    let safe_project_id = sanitize_project_dir_name(project_id)?;
+    let safe_project_name = project_name.and_then(sanitize_project_name_dir_part);
+    match (safe_project_name, short_project_id(project_id)) {
+        (Some(name), Some(short_id)) => Some(format!("{name}-{short_id}")),
+        (Some(name), None) => Some(name),
+        _ => Some(safe_project_id),
+    }
+}
+
 pub(crate) fn resolve_project_media_root_in_base(
     base_path: &Path,
     project_id: &str,
 ) -> Option<PathBuf> {
     sanitize_project_dir_name(project_id)
         .map(|safe_project_id| base_path.join("projects").join(safe_project_id))
+}
+
+pub(crate) fn resolve_project_media_root_for_context_in_base(
+    base_path: &Path,
+    project_id: &str,
+    project_name: Option<&str>,
+) -> Option<PathBuf> {
+    resolve_project_media_dir_name(project_id, project_name)
+        .map(|safe_dir_name| base_path.join("projects").join(safe_dir_name))
 }
 
 pub(crate) fn resolve_project_media_root(
@@ -425,7 +499,13 @@ pub(crate) fn resolve_media_dir_in_base(
     let scope_root = context
         .project_id
         .as_deref()
-        .and_then(|project_id| resolve_project_media_root_in_base(base_path, project_id))
+        .and_then(|project_id| {
+            resolve_project_media_root_for_context_in_base(
+                base_path,
+                project_id,
+                context.project_name.as_deref(),
+            )
+        })
         .unwrap_or_else(|| base_path.join("shared"));
 
     match media_type.as_str() {
@@ -2663,17 +2743,38 @@ pub fn adopt_existing_storage_path(
     })
 }
 
+fn resolve_open_storage_folder_path(
+    app: &AppHandle,
+    requested_path: Option<String>,
+) -> Result<PathBuf, String> {
+    let Some(requested_path) = requested_path
+        .as_deref()
+        .and_then(normalize_storage_path_string)
+        .map(PathBuf::from)
+    else {
+        return resolve_storage_base_path(app);
+    };
+
+    let current_path = resolve_storage_base_path(app)?;
+    if storage_roots_equal(&requested_path, &current_path) {
+        return Ok(current_path);
+    }
+
+    Ok(requested_path)
+}
+
 #[tauri::command]
-pub fn open_storage_folder(app: AppHandle) -> Result<(), String> {
-    let storage_path = resolve_storage_base_path(&app)?;
+pub fn open_storage_folder(app: AppHandle, storage_path: Option<String>) -> Result<(), String> {
+    let storage_path = resolve_open_storage_folder_path(&app, storage_path)?;
 
     fs::create_dir_all(&storage_path)
         .map_err(|e| format!("Failed to create storage directory: {}", e))?;
 
     #[cfg(target_os = "windows")]
     {
+        let native_storage_path = storage_path.to_string_lossy().replace('/', "\\");
         std::process::Command::new("explorer")
-            .arg(&storage_path)
+            .arg(native_storage_path)
             .spawn()
             .map_err(|e| format!("Failed to open folder: {}", e))?;
     }
@@ -2809,6 +2910,7 @@ mod tests {
         let root = PathBuf::from(r"D:\StoryboardData");
         let context = MediaPersistContext {
             project_id: Some("project-1".to_string()),
+            project_name: None,
             media_type: Some("video".to_string()),
             role: None,
         };
@@ -2822,10 +2924,29 @@ mod tests {
     }
 
     #[test]
+    fn resolve_media_dir_in_base_uses_project_name_with_short_id() {
+        let root = PathBuf::from(r"D:\StoryboardData");
+        let context = MediaPersistContext {
+            project_id: Some("01c371cd-dd69-49e2-9186-bcdda69fffff".to_string()),
+            project_name: Some("第三章：被信任的奇迹".to_string()),
+            media_type: Some("image".to_string()),
+            role: Some("original".to_string()),
+        };
+
+        let path = resolve_media_dir_in_base(&root, Some(&context), "png", "original");
+
+        assert_eq!(
+            normalize_path_for_assertion(&path),
+            "D:/StoryboardData/projects/第三章：被信任的奇迹-01c371cd/images/originals"
+        );
+    }
+
+    #[test]
     fn resolve_media_dir_in_base_uses_shared_image_roles_without_project() {
         let root = PathBuf::from(r"D:\StoryboardData");
         let context = MediaPersistContext {
             project_id: None,
+            project_name: None,
             media_type: Some("image".to_string()),
             role: Some("preview".to_string()),
         };
@@ -2843,6 +2964,7 @@ mod tests {
         let root = PathBuf::from(r"D:\StoryboardData");
         let context = MediaPersistContext {
             project_id: Some("project-1".to_string()),
+            project_name: None,
             media_type: Some("image".to_string()),
             role: None,
         };
@@ -2865,6 +2987,7 @@ mod tests {
         fs::create_dir_all(&temp_root).expect("failed to create temp root");
         let context = MediaPersistContext {
             project_id: Some("project-1".to_string()),
+            project_name: None,
             media_type: Some("audio".to_string()),
             role: None,
         };

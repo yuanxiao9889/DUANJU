@@ -1,7 +1,7 @@
 import { memo, useMemo } from "react";
 import { Position, type NodeProps } from "@xyflow/react";
 import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
-import { FileText, Images, PackageSearch, Sparkles } from "lucide-react";
+import { FileText, Images, LayoutTemplate, PackageSearch, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
 import {
@@ -10,6 +10,7 @@ import {
   type CommerceBriefNodeData,
   type CommerceProductNodeData,
   type CommerceResultGroupNodeData,
+  type CommerceVisualPreferenceNodeData,
   type CanvasNodeType,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
@@ -26,6 +27,7 @@ import {
 type CommerceStageNodeData =
   | CommerceProductNodeData
   | CommerceBriefNodeData
+  | CommerceVisualPreferenceNodeData
   | CommerceBatchGenerateNodeData
   | CommerceResultGroupNodeData;
 
@@ -63,14 +65,54 @@ function FieldRow({
   );
 }
 
-function ChipList({ items }: { items: string[] }) {
-  if (items.length === 0) {
+function hasCjkText(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value);
+}
+
+function isMostlyEnglishText(value: string): boolean {
+  const letters = value.match(/[a-z]/gi)?.length ?? 0;
+  const cjk = value.match(/[\u3400-\u9fff]/gu)?.length ?? 0;
+  return letters >= 8 && cjk === 0;
+}
+
+function extractChineseChipCandidates(text: string): string[] {
+  if (!hasCjkText(text)) {
+    return [];
+  }
+
+  return text
+    .split(/[\n。；;，,、]/u)
+    .map((item) => item.replace(/^[\s:：\-·•]+|[\s:：。；;，,、]+$/gu, "").trim())
+    .filter((item) => hasCjkText(item) && item.length >= 2 && item.length <= 22)
+    .map((item) => item.replace(/^(优势是|可见卖点|重点卖点|核心卖点|卖点|特点)[:：]?/u, "").trim())
+    .filter((item) => hasCjkText(item) && item.length >= 2 && item.length <= 18);
+}
+
+function resolveDisplayChips(items: string[], fallbackText = ""): string[] {
+  const cleanedItems = Array.from(new Set(items.map((item) => item.trim()).filter(Boolean)));
+  const chineseItems = cleanedItems.filter((item) => hasCjkText(item));
+  if (chineseItems.length > 0) {
+    return chineseItems;
+  }
+
+  const nonEnglishItems = cleanedItems.filter((item) => !isMostlyEnglishText(item));
+  const fallbackItems = extractChineseChipCandidates(fallbackText);
+  if (fallbackItems.length > 0 && cleanedItems.some(isMostlyEnglishText)) {
+    return Array.from(new Set(fallbackItems)).slice(0, 6);
+  }
+
+  return nonEnglishItems;
+}
+
+function ChipList({ items, fallbackText = "" }: { items: string[]; fallbackText?: string }) {
+  const displayItems = resolveDisplayChips(items, fallbackText);
+  if (displayItems.length === 0) {
     return null;
   }
 
   return (
     <div className="flex flex-wrap gap-1.5">
-      {items.map((item) => (
+      {displayItems.map((item) => (
         <span
           key={item}
           className="rounded-full border border-border-dark/45 bg-bg-dark/80 px-2 py-1 text-[11px] text-text-dark"
@@ -121,8 +163,14 @@ function ProductContent({ data }: { data: CommerceProductNodeData }) {
             {inference.summary || inference.visualDescription}
           </p>
           <div className="mt-3 space-y-2">
-            <ChipList items={inference.visibleSellingPoints} />
-            <ChipList items={inference.followUpQuestions} />
+            <ChipList
+              items={inference.visibleSellingPoints}
+              fallbackText={`${inference.summary}\n${inference.visualDescription}`}
+            />
+            <ChipList
+              items={inference.followUpQuestions}
+              fallbackText={`${inference.summary}\n${inference.visualDescription}`}
+            />
           </div>
         </div>
       ) : null}
@@ -154,7 +202,7 @@ function BriefContent({ data }: { data: CommerceBriefNodeData }) {
       <FieldRow label={t("commerceAd.fields.audience")} value={data.audience} />
       <FieldRow label={t("commerceAd.fields.style")} value={data.style} />
       <FieldRow label={t("commerceAd.fields.headline")} value={data.headline} />
-      <ChipList items={data.sellingPoints} />
+      <ChipList items={data.sellingPoints} fallbackText={data.normalizedBrief} />
     </div>
   );
 }
@@ -187,6 +235,67 @@ function BatchContent({ data }: { data: CommerceBatchGenerateNodeData }) {
       ) : (
         <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
           {t("commerceAd.nodes.batchEmpty")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VisualPreferenceContent({ data }: { data: CommerceVisualPreferenceNodeData }) {
+  const { t } = useTranslation();
+  const accentColor = data.brandAccentColor?.trim();
+  const isAutoAccent = !accentColor || accentColor.toLowerCase() === "auto";
+
+  return (
+    <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
+      <div className="grid grid-cols-2 gap-2">
+        <FieldRow label={t("commerceAd.fields.designStyle")} value={data.designStyle} />
+        <FieldRow label={t("commerceAd.fields.colorPalette")} value={data.colorPalette} />
+        <FieldRow label={t("commerceAd.fields.platformVisual")} value={data.platformVisual} />
+        <FieldRow label={t("commerceAd.fields.language")} value={data.language} />
+      </div>
+      <div className="rounded-lg border border-white/[0.07] bg-black/[0.08] px-3 py-2">
+        <div className="text-[11px] text-text-muted">
+          {t("commerceAd.fields.brandAccentColor")}
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-sm text-text-dark">
+          {isAutoAccent ? (
+            <span className="rounded-full border border-border-dark/70 bg-bg-dark/80 px-2 py-1 text-xs text-text-muted">
+              {t("commerceAd.agent.visualPreference.autoAccent")}
+            </span>
+          ) : (
+            <>
+              <span
+                className="h-5 w-5 rounded-full border border-white/20"
+                style={{ backgroundColor: accentColor }}
+              />
+              <span className="font-mono text-xs">{accentColor}</span>
+            </>
+          )}
+        </div>
+      </div>
+      {data.summary ? (
+        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
+          <div className="mb-2 text-xs font-medium text-text-dark">
+            {t("commerceAd.fields.preferenceSummary")}
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-5 text-text-dark/85">
+            {data.summary}
+          </p>
+        </div>
+      ) : null}
+      {data.promptFragment ? (
+        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
+          <div className="mb-2 text-xs font-medium text-text-dark">
+            {t("commerceAd.fields.visualPromptFragment")}
+          </div>
+          <p className="whitespace-pre-wrap text-sm leading-5 text-text-dark/85">
+            {data.promptFragment}
+          </p>
+        </div>
+      ) : (
+        <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
+          {t("commerceAd.nodes.visualPreferenceEmpty")}
         </div>
       )}
     </div>
@@ -262,6 +371,12 @@ export const CommerceStageNode = memo(
           accent: "cyan" as const,
         };
       }
+      if (type === CANVAS_NODE_TYPES.commerceVisualPreference) {
+        return {
+          icon: <LayoutTemplate className="h-4 w-4" />,
+          accent: "emerald" as const,
+        };
+      }
       if (type === CANVAS_NODE_TYPES.commerceBatchGenerate) {
         return {
           icon: <Sparkles className="h-4 w-4" />,
@@ -309,6 +424,8 @@ export const CommerceStageNode = memo(
             <ProductContent data={data as CommerceProductNodeData} />
           ) : type === CANVAS_NODE_TYPES.commerceBrief ? (
             <BriefContent data={data as CommerceBriefNodeData} />
+          ) : type === CANVAS_NODE_TYPES.commerceVisualPreference ? (
+            <VisualPreferenceContent data={data as CommerceVisualPreferenceNodeData} />
           ) : type === CANVAS_NODE_TYPES.commerceBatchGenerate ? (
             <BatchContent data={data as CommerceBatchGenerateNodeData} />
           ) : (

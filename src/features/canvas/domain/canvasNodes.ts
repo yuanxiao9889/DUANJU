@@ -14,14 +14,17 @@ import {
   createDefaultCommerceAdBriefState,
   createDefaultCommerceAdProductState,
   createDefaultCommerceAdResultGroupState,
+  createDefaultCommerceAdVisualPreferenceState,
   normalizeCommerceAdBatchGenerateState,
   normalizeCommerceAdBriefState,
   normalizeCommerceAdProductState,
   normalizeCommerceAdResultGroupState,
+  normalizeCommerceAdVisualPreferenceState,
   type CommerceAdBatchGenerateState,
   type CommerceAdBriefState,
   type CommerceAdProductState,
   type CommerceAdResultGroupState,
+  type CommerceAdVisualPreferenceState,
 } from '@/features/commerce-ad/types';
 import {
   normalizeMidjourneyProviderId,
@@ -74,6 +77,7 @@ export const CANVAS_NODE_TYPES = {
   adProjectRoot: 'adProjectRootNode',
   commerceProduct: 'commerceProductNode',
   commerceBrief: 'commerceBriefNode',
+  commerceVisualPreference: 'commerceVisualPreferenceNode',
   commerceBatchGenerate: 'commerceBatchGenerateNode',
   commerceResultGroup: 'commerceResultGroupNode',
   scriptRoot: 'scriptRootNode',
@@ -133,10 +137,10 @@ export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_WIDTH = 640;
 export const JIMENG_IMAGE_RESULT_NODE_DEFAULT_HEIGHT = 520;
 export const JIMENG_IMAGE_RESULT_NODE_MIN_WIDTH = 560;
 export const JIMENG_IMAGE_RESULT_NODE_MIN_HEIGHT = 420;
-export const MJ_NODE_DEFAULT_WIDTH = 700;
-export const MJ_NODE_DEFAULT_HEIGHT = 360;
-export const MJ_NODE_MIN_WIDTH = 620;
-export const MJ_NODE_MIN_HEIGHT = 320;
+export const MJ_NODE_DEFAULT_WIDTH = IMAGE_EDIT_NODE_DEFAULT_WIDTH;
+export const MJ_NODE_DEFAULT_HEIGHT = IMAGE_EDIT_NODE_DEFAULT_HEIGHT;
+export const MJ_NODE_MIN_WIDTH = 480;
+export const MJ_NODE_MIN_HEIGHT = 180;
 export const MJ_RESULT_NODE_DEFAULT_WIDTH = 700;
 export const MJ_RESULT_NODE_DEFAULT_HEIGHT = 560;
 export const MJ_RESULT_NODE_MIN_WIDTH = 620;
@@ -179,8 +183,8 @@ export const TTS_TEXT_NODE_DEFAULT_WIDTH = 500;
 export const TTS_TEXT_NODE_DEFAULT_HEIGHT = 300;
 export const LLM_LOGIC_NODE_DEFAULT_WIDTH = 520;
 export const LLM_LOGIC_NODE_DEFAULT_HEIGHT = 540;
-export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 420;
-export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 380;
+export const SCRIPT_CHAPTER_NODE_DEFAULT_WIDTH = 460;
+export const SCRIPT_CHAPTER_NODE_DEFAULT_HEIGHT = 420;
 export const SCRIPT_SCENE_NODE_DEFAULT_WIDTH = 460;
 export const SCRIPT_SCENE_NODE_DEFAULT_HEIGHT = 420;
 export const SHOOTING_SCRIPT_NODE_DEFAULT_WIDTH = 1680;
@@ -3113,6 +3117,8 @@ export interface CommerceProductNodeData extends NodeDisplayData, CommerceAdProd
 
 export interface CommerceBriefNodeData extends NodeDisplayData, CommerceAdBriefState {}
 
+export interface CommerceVisualPreferenceNodeData extends NodeDisplayData, CommerceAdVisualPreferenceState {}
+
 export interface CommerceBatchGenerateNodeData extends NodeDisplayData, CommerceAdBatchGenerateState {}
 
 export interface CommerceResultGroupNodeData extends NodeDisplayData, CommerceAdResultGroupState {}
@@ -3160,6 +3166,7 @@ export type CanvasNodeData =
   | AdProjectRootNodeData
   | CommerceProductNodeData
   | CommerceBriefNodeData
+  | CommerceVisualPreferenceNodeData
   | CommerceBatchGenerateNodeData
   | CommerceResultGroupNodeData
   | ScriptRootNodeData
@@ -5029,6 +5036,18 @@ export function normalizeCommerceBriefNodeData(
   return {
     ...createDefaultCommerceAdBriefState(),
     ...normalizeCommerceAdBriefState(data),
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+  };
+}
+
+export function normalizeCommerceVisualPreferenceNodeData(
+  data: Partial<CommerceVisualPreferenceNodeData> | null | undefined
+): CommerceVisualPreferenceNodeData {
+  return {
+    ...createDefaultCommerceAdVisualPreferenceState(),
+    ...normalizeCommerceAdVisualPreferenceState(data),
     displayName: normalizeString(data?.displayName).trim() || undefined,
     nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
     semanticColor: data?.semanticColor ?? null,

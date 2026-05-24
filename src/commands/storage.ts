@@ -114,8 +114,8 @@ export async function refreshStorageSession(): Promise<void> {
   return invoke<void>('refresh_storage_session');
 }
 
-export async function openStorageFolder(): Promise<void> {
-  return invoke<void>('open_storage_folder');
+export async function openStorageFolder(storagePath?: string): Promise<void> {
+  return invoke<void>('open_storage_folder', { storagePath: storagePath ?? null });
 }
 
 export async function selectStorageFolder(): Promise<string | null> {

@@ -1,6 +1,7 @@
 export type CommerceAdWorkflowStep =
   | 'product'
   | 'brief'
+  | 'visualPreference'
   | 'batch'
   | 'results';
 
@@ -47,6 +48,17 @@ export interface CommerceAdBriefState {
   mustInclude: string;
   constraints: string;
   normalizedBrief: string;
+  updatedAt: number | null;
+}
+
+export interface CommerceAdVisualPreferenceState {
+  designStyle: string;
+  colorPalette: string;
+  platformVisual: string;
+  language: string;
+  brandAccentColor: string;
+  summary: string;
+  promptFragment: string;
   updatedAt: number | null;
 }
 
@@ -143,6 +155,10 @@ export type CommerceAdAgentAction =
       data: Partial<CommerceAdBriefState>;
     }
   | {
+      type: 'upsertVisualPreference';
+      data: Partial<CommerceAdVisualPreferenceState>;
+    }
+  | {
       type: 'upsertBatchGenerate';
       data: Partial<CommerceAdBatchGenerateState>;
     }
@@ -177,6 +193,40 @@ function normalizeStringArray(value: unknown): string[] {
   }
 
   return [];
+}
+
+function normalizeHexColor(value: unknown): string {
+  const normalized = normalizeString(value);
+  return /^#[0-9a-f]{6}$/i.test(normalized) ? normalized.toUpperCase() : '';
+}
+
+const VISUAL_PREFERENCE_LEGACY_VALUE_MAP: Record<string, string> = {
+  '智能匹配': '智能匹配（自动推荐/整体更稳）',
+  '极简高级': '极简编辑感（大留白/克制简洁）',
+  '生活方式': '温馨生活感（居家暖调/亲和场景）',
+  '促销转化': '图形海报风（视觉冲击/大字标题）',
+  '科技质感': '现代科技感（冷调精密/理性质感）',
+  '国潮插画': '复古潮流风（怀旧纹理/个性氛围）',
+  '商品主色延展': '商品主色延展（自动提取/整体统一）',
+  '高对比促销': '高对比冲击（反差强烈/更吸睛）',
+  '低饱和高级': '柔和低饱和（高级柔和/克制耐看）',
+  '清新明亮': '浅色通透（明亮清爽/轻盈通透）',
+  '深色质感': '深色高级（沉稳浓郁/层次更深）',
+  '全平台通用': '全平台通用（风格平衡/适配面广/稳妥耐用）',
+  '淘宝/天猫主图': '淘宝/天猫（视觉抢眼/氛围浓/转化导向）',
+  '小红书种草': '小红书（生活方式/种草氛围/编辑感强）',
+  '抖音信息流': '抖音/TikTok（开屏抓眼/节奏快/冲击感强）',
+  '详情页首屏': '淘宝/天猫（视觉抢眼/氛围浓/转化导向）',
+  '英文': '英文（美式）',
+  '中文（简体）': '中文（简体）',
+};
+
+function normalizeVisualPreferenceText(value: unknown, fallback: string): string {
+  const normalized = normalizeString(value);
+  if (!normalized) {
+    return fallback;
+  }
+  return VISUAL_PREFERENCE_LEGACY_VALUE_MAP[normalized] ?? normalized;
 }
 
 function normalizeTimestamp(value: unknown): number | null {
@@ -293,6 +343,42 @@ export function normalizeCommerceAdBriefState(value: unknown): CommerceAdBriefSt
     mustInclude: normalizeString(record.mustInclude),
     constraints: normalizeString(record.constraints),
     normalizedBrief: normalizeString(record.normalizedBrief),
+    updatedAt: normalizeTimestamp(record.updatedAt),
+  };
+}
+
+export function createDefaultCommerceAdVisualPreferenceState(): CommerceAdVisualPreferenceState {
+  return {
+    designStyle: '智能匹配（自动推荐/整体更稳）',
+    colorPalette: '商品主色延展（自动提取/整体统一）',
+    platformVisual: '全平台通用（风格平衡/适配面广/稳妥耐用）',
+    language: '中文（简体）',
+    brandAccentColor: 'auto',
+    summary: '自动匹配商品气质、平台视觉与品牌强调色。',
+    promptFragment: '视觉与排版偏好：智能匹配（自动推荐/整体更稳）设计风格，整体配色基于商品主色延展（自动提取/整体统一），平台视觉全平台通用（风格平衡/适配面广/稳妥耐用），画面语言使用中文（简体），品牌强调色自动提取。',
+    updatedAt: null,
+  };
+}
+
+export function normalizeCommerceAdVisualPreferenceState(value: unknown): CommerceAdVisualPreferenceState {
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Partial<CommerceAdVisualPreferenceState>
+      : {};
+  const defaults = createDefaultCommerceAdVisualPreferenceState();
+  const rawAccentColor = normalizeString(record.brandAccentColor);
+  const brandAccentColor = rawAccentColor.toLowerCase() === 'auto'
+    ? 'auto'
+    : normalizeHexColor(rawAccentColor) || defaults.brandAccentColor;
+
+  return {
+    designStyle: normalizeVisualPreferenceText(record.designStyle, defaults.designStyle),
+    colorPalette: normalizeVisualPreferenceText(record.colorPalette, defaults.colorPalette),
+    platformVisual: normalizeVisualPreferenceText(record.platformVisual, defaults.platformVisual),
+    language: normalizeVisualPreferenceText(record.language, defaults.language),
+    brandAccentColor,
+    summary: normalizeString(record.summary) || defaults.summary,
+    promptFragment: normalizeString(record.promptFragment) || defaults.promptFragment,
     updatedAt: normalizeTimestamp(record.updatedAt),
   };
 }

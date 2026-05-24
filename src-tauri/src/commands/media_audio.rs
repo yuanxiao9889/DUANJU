@@ -9,16 +9,16 @@ use tauri::Manager;
 use super::image::persist_image_source;
 use super::storage::{self, MediaPersistContext};
 
-const BUNDLED_FFMPEG_DIR_NAME: &str = "ffmpeg";
+pub(crate) const BUNDLED_FFMPEG_DIR_NAME: &str = "ffmpeg";
 const FFMPEG_RUNTIME_DIR_NAME: &str = "ffmpeg-runtime";
 
 #[cfg(target_os = "windows")]
-fn ffmpeg_binary_name(name: &str) -> String {
+pub(crate) fn ffmpeg_binary_name(name: &str) -> String {
     format!("{name}.exe")
 }
 
 #[cfg(not(target_os = "windows"))]
-fn ffmpeg_binary_name(name: &str) -> String {
+pub(crate) fn ffmpeg_binary_name(name: &str) -> String {
     name.to_string()
 }
 
@@ -87,7 +87,7 @@ pub struct ExtractAudioFromVideoResult {
     pub output_file_name: String,
 }
 
-fn workspace_root() -> Result<PathBuf, String> {
+pub(crate) fn workspace_root() -> Result<PathBuf, String> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
         .parent()
@@ -359,7 +359,7 @@ fn collect_ffmpeg_search_candidates(app: &AppHandle, file_name: &str) -> Vec<Pat
     candidates
 }
 
-fn ensure_runtime_binary(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
+pub(crate) fn ensure_runtime_binary(app: &AppHandle, file_name: &str) -> Result<PathBuf, String> {
     let runtime_dir = media_runtime_root(app)?;
     let runtime_path = runtime_dir.join(file_name);
     if runtime_path.is_file() {
@@ -479,6 +479,9 @@ pub async fn extract_audio_from_video(
             project_id: media_context
                 .as_ref()
                 .and_then(|context| context.project_id.clone()),
+            project_name: media_context
+                .as_ref()
+                .and_then(|context| context.project_name.clone()),
             media_type: Some("video".to_string()),
             role: Some("original".to_string()),
         }),
@@ -516,6 +519,9 @@ pub async fn extract_audio_from_video(
             project_id: media_context
                 .as_ref()
                 .and_then(|context| context.project_id.clone()),
+            project_name: media_context
+                .as_ref()
+                .and_then(|context| context.project_name.clone()),
             media_type: Some("audio".to_string()),
             role: media_context
                 .as_ref()

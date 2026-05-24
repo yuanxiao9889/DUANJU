@@ -1,0 +1,85 @@
+/* 现代化右键菜单样式 */
+
+/* 菜单容器 */
+#modernContextMenu {
+    background-color: #2a2a2a;
+    border-radius: 10px;
+    border: 1px solid #3a3a3a;
+}
+
+/* 亮色主题 */
+#modernContextMenu[theme="light"] {
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+}
+
+/* 菜单项（暗色主题） - 使用更具体的选择器覆盖所有状态 */
+QPushButton#modernMenuAction,
+QPushButton#modernMenuAction:flat,
+QPushButton#modernMenuAction:!default {
+    background-color: transparent;
+    border-radius: 6px;
+    border: none;
+    color: #e5e5e5;
+    text-align: left;
+    padding-left: 16px;
+    padding-right: 16px;
+    font-size: 14px;
+    outline: none;
+}
+
+/* 菜单项悬停状态（暗色主题） */
+QPushButton#modernMenuAction:hover,
+QPushButton#modernMenuAction:flat:hover {
+    background-color: #404040;
+}
+
+/* 菜单项按下状态（暗色主题） */
+QPushButton#modernMenuAction:pressed,
+QPushButton#modernMenuAction:flat:pressed {
+    background-color: #404040;
+}
+
+/* 菜单项焦点状态（暗色主题）- 移除蓝色背景 */
+QPushButton#modernMenuAction:focus,
+QPushButton#modernMenuAction:flat:focus {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+
+/* 确保默认按钮状态也不显示蓝色 */
+QPushButton#modernMenuAction:default {
+    background-color: transparent;
+    border: none;
+}
+
+/* 菜单项禁用状态（暗色主题） */
+QPushButton#modernMenuAction:disabled {
+    color: #666666;
+}
+
+/* 危险操作（如删除）- 暗色主题 */
+QPushButton#modernMenuAction[danger="true"] {
+    color: #ef4444;
+}
+
+QPushButton#modernMenuAction[danger="true"]:hover {
+    background-color: #404040;
+}
+
+/* ========== 浅色主题样式 ========== */
+
+/* 菜单项（浅色主题） - 需要通过代码动态切换 objectName 或使用全局样式表 */
+/* 这里使用 components.qss 文件来定义浅色主题样式 */
+
+/* 分隔线 */
+QFrame[frameShape="4"] {
+    background-color: #3a3a3a;
+    max-height: 1px;
+    margin: 4px 8px;
+}
+
+QFrame[frameShape="4"][theme="light"] {
+    background-color: #e5e7eb;
+}

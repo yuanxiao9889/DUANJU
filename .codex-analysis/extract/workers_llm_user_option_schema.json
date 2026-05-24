@@ -1,0 +1,431 @@
+{
+  "profiles": {
+    "default": {
+      "allowed_tokens": [
+        "platform",
+        "theme_pack",
+        "palette_mode",
+        "accent_color",
+        "language",
+        "canvas_aspect_ratio",
+        "image_resolution",
+        "grid_type"
+      ]
+    },
+    "single_tile_dispatch": {
+      "allowed_tokens": [
+        "platform",
+        "theme_pack",
+        "palette_mode",
+        "accent_color",
+        "language",
+        "canvas_aspect_ratio",
+        "image_resolution",
+        "output_image_count"
+      ]
+    }
+  },
+  "tokens": [
+    "platform",
+    "theme_pack",
+    "palette_mode",
+    "accent_color",
+    "language",
+    "canvas_aspect_ratio",
+    "image_resolution",
+    "output_image_count",
+    "grid_type",
+    "gutter_px",
+    "outer_margin_px"
+  ],
+  "defaults_by_context": {
+    "default": {
+      "platform": "general",
+      "theme_pack": "minimalist",
+      "palette_mode": "auto_extract",
+      "accent_color": "auto",
+      "language": "en-US",
+      "canvas_aspect_ratio": "3:4",
+      "image_resolution": "2K",
+      "output_image_count": "9",
+      "grid_type": "9-grid",
+      "gutter_px": "12",
+      "outer_margin_px": "16"
+    },
+    "amazon": {
+      "platform": "amazon",
+      "theme_pack": "minimalist",
+      "palette_mode": "light_bright",
+      "accent_color": "auto",
+      "language": "en-US",
+      "canvas_aspect_ratio": "1:1",
+      "image_resolution": "2K",
+      "output_image_count": "9",
+      "grid_type": "9-grid",
+      "gutter_px": "16",
+      "outer_margin_px": "24"
+    }
+  },
+  "mode_overrides": {
+    "theme_recommendation": {
+      "palette_mode": "auto_extract"
+    }
+  },
+  "token_catalog": {
+    "platform": {
+      "label_zh": "平台视觉偏好",
+      "options": [
+        {
+          "value": "general",
+          "label_zh": "全平台通用（风格平衡/适配面广/稳妥耐用）",
+          "label_en": "Cross-Platform General",
+          "prompt_hint_en": "balanced cross-platform commercial presentation, visually clean, conversion-friendly, and not overly specialized for any single marketplace",
+          "llm_value": "balanced_commercial_clean_layout"
+        },
+        {
+          "value": "taobao",
+          "label_zh": "淘宝/天猫（视觉抢眼/氛围浓/转化导向）",
+          "label_en": "Taobao / Tmall",
+          "prompt_hint_en": "taobao-oriented commercial presentation with stronger visual attraction, denser selling-point hierarchy, richer decorative support, and a more expressive conversion-focused layout rhythm",
+          "llm_value": "rich_visual_dense_hierarchy_promotional"
+        },
+        {
+          "value": "jd",
+          "label_zh": "京东（理性专业/参数清晰/信任感强）",
+          "label_en": "JD",
+          "prompt_hint_en": "jd-oriented presentation with clear specification hierarchy, professional trust cues, structured information blocks, and a rational product-detail emphasis",
+          "llm_value": "structured_spec_layout_clean_technical"
+        },
+        {
+          "value": "amazon",
+          "label_zh": "亚马逊（海外极简/白底清爽/信息清晰）",
+          "label_en": "Amazon",
+          "prompt_hint_en": "amazon-oriented presentation with cleaner structure, restrained decoration, white or light-neutral background preference, high clarity, trust-driven hierarchy, and export-safe commercial legibility",
+          "llm_value": "minimal_clean_white_background_high_legibility"
+        },
+        {
+          "value": "xiaohongshu",
+          "label_zh": "小红书（生活方式/种草氛围/编辑感强）",
+          "label_en": "Xiaohongshu",
+          "prompt_hint_en": "xiaohongshu-oriented presentation with lifestyle storytelling, tasteful editorial composition, approachable atmosphere, and trend-aware visual softness rather than aggressive hard selling",
+          "llm_value": "lifestyle_editorial_soft_natural"
+        },
+        {
+          "value": "tiktok",
+          "label_zh": "抖音/TikTok（开屏抓眼/节奏快/冲击感强）",
+          "label_en": "TikTok",
+          "prompt_hint_en": "tiktok-oriented presentation with hook-first composition, stronger first-screen impact, sharper focal hierarchy, fast visual rhythm, and highly scroll-stopping commercial energy",
+          "llm_value": "bold_fast_paced_high_impact"
+        },
+        {
+          "value": "pinduoduo",
+          "label_zh": "拼多多（促销吸睛/信息直给/成交优先）",
+          "label_en": "Pinduoduo",
+          "prompt_hint_en": "pinduoduo-oriented presentation with direct value communication, stronger promotion visibility, bolder attention capture, and a practical conversion-first layout approach",
+          "llm_value": "bold_promotional_dense_attention_grabbing"
+        },
+        {
+          "value": "shopify",
+          "label_zh": "独立站（品牌叙事/高级质感/品牌氛围）",
+          "label_en": "Shopify",
+          "prompt_hint_en": "shopify-oriented presentation with stronger brand identity, cleaner premium layout, curated visual storytelling, and a more independent-brand editorial commercial tone",
+          "llm_value": "premium_editorial_brand_storytelling"
+        }
+      ]
+    },
+    "theme_pack": {
+      "label_zh": "设计风格",
+      "options": [
+        {
+          "value": "auto",
+          "label_zh": "智能匹配（自动推荐/整体更稳）",
+          "label_en": "Adaptive Commercial",
+          "prompt_hint_en": "adaptive commercial style chosen from product category, platform preference, and product temperament; keep the result balanced, conversion-oriented, and visually coherent",
+          "llm_value": "balanced_clean_editorial"
+        },
+        {
+          "value": "minimalist",
+          "label_zh": "极简编辑感（大留白/克制简洁）",
+          "label_en": "Minimalist Editorial",
+          "prompt_hint_en": "minimalist editorial commercial layout, generous negative space, restrained decoration, clean geometry, crisp product focus, and premium everyday polish",
+          "llm_value": "minimalist_editorial_clean"
+        },
+        {
+          "value": "premium_luxury",
+          "label_zh": "高端奢感（精致光感/仪式氛围）",
+          "label_en": "Premium Luxury",
+          "prompt_hint_en": "premium luxury commercial aesthetic with refined composition, controlled highlights, elegant material reflections, and a high-value beauty or jewelry campaign atmosphere",
+          "llm_value": "refined_luxury_glossy"
+        },
+        {
+          "value": "luxury_minimal",
+          "label_zh": "轻奢极简（高级留白/精致材质/低调贵感）",
+          "label_en": "Luxury Minimal",
+          "prompt_hint_en": "luxury minimal commercial style with premium whitespace, refined materials, restrained highlights, and understated high-end elegance",
+          "llm_value": "luxury_minimal_refined_clean"
+        },
+        {
+          "value": "natural_organic",
+          "label_zh": "自然有机（清新治愈/柔和光感）",
+          "label_en": "Natural Organic",
+          "prompt_hint_en": "natural organic commercial style with soft daylight, breathable composition, botanical cues, organic textures, and a fresh wellness-oriented feeling",
+          "llm_value": "natural_organic_soft_daylight"
+        },
+        {
+          "value": "warm_cozy",
+          "label_zh": "温馨生活感（居家暖调/亲和场景）",
+          "label_en": "Warm Lifestyle",
+          "prompt_hint_en": "warm lifestyle commercial style with cozy ambient lighting, home-like textures, approachable composition, and an inviting, emotionally friendly tone",
+          "llm_value": "warm_cozy_home_lighting"
+        },
+        {
+          "value": "soft_editorial_lifestyle",
+          "label_zh": "柔和编辑生活风（轻编辑感/柔光/生活方式）",
+          "label_en": "Soft Editorial Lifestyle",
+          "prompt_hint_en": "soft editorial lifestyle commercial style with gentle editorial composition, soft lighting, airy spacing, and warm lifestyle storytelling",
+          "llm_value": "soft_editorial_lifestyle_airy"
+        },
+        {
+          "value": "tech_modern",
+          "label_zh": "现代科技感（冷调精密/理性质感）",
+          "label_en": "Modern Tech",
+          "prompt_hint_en": "modern tech commercial style with cool-toned lighting, precise structure, engineered spacing, premium industrial materials, and a rational future-facing mood",
+          "llm_value": "cool_tech_precise_clean"
+        },
+        {
+          "value": "dynamic_vitality",
+          "label_zh": "动感活力风（速度张力/年轻能量）",
+          "label_en": "Dynamic Vitality",
+          "prompt_hint_en": "dynamic energetic commercial style with directional composition, youthful momentum, punchy contrast, and high visual rhythm without becoming chaotic",
+          "llm_value": "dynamic_directional_high_energy"
+        },
+        {
+          "value": "professional_clean",
+          "label_zh": "专业洁净风（洁净明亮/专业可信）",
+          "label_en": "Professional Clean",
+          "prompt_hint_en": "professional clean commercial style with hygienic brightness, low-noise background, strong legibility, scientific credibility, and highly trustworthy presentation",
+          "llm_value": "clean_bright_clinical_minimal"
+        },
+        {
+          "value": "clean_beauty_commercial",
+          "label_zh": "清透美妆商业风（干净通透/精致肤感/高级克制）",
+          "label_en": "Clean Beauty Commercial",
+          "prompt_hint_en": "clean beauty commercial style with bright clean lighting, refined skin-like softness, polished beauty textures, and restrained premium composition",
+          "llm_value": "clean_beauty_polished_soft"
+        },
+        {
+          "value": "editorial_magazine",
+          "label_zh": "杂志编辑感（高级版式/留白感）",
+          "label_en": "Editorial Magazine",
+          "prompt_hint_en": "editorial magazine commercial style with art-directed composition, premium whitespace, deliberate cropping, and strong headline hierarchy",
+          "llm_value": "editorial_magazine_art_directed"
+        },
+        {
+          "value": "bold_graphic_poster",
+          "label_zh": "图形海报风（视觉冲击/大字标题）",
+          "label_en": "Bold Graphic Poster",
+          "prompt_hint_en": "bold graphic poster style with oversized visual blocks, strong silhouette separation, decisive hierarchy, and immediate first-screen impact",
+          "llm_value": "bold_graphic_blocks_high_impact"
+        },
+        {
+          "value": "fashion_campaign",
+          "label_zh": "时尚大片感（质感光影/高级氛围）",
+          "label_en": "Fashion Campaign",
+          "prompt_hint_en": "fashion campaign commercial style with elevated art direction, dramatic tonal control, premium staging, and aspirational brand-led atmosphere",
+          "llm_value": "dramatic_fashion_lighting_editorial"
+        },
+        {
+          "value": "cute_playful",
+          "label_zh": "可爱趣味风（轻松活泼/亲和可爱）",
+          "label_en": "Cute Playful",
+          "prompt_hint_en": "cute playful commercial style with cheerful color rhythm, soft rounded visual language, friendly energy, and clean delightful product presentation",
+          "llm_value": "cute_playful_soft_rounded"
+        },
+        {
+          "value": "retro_trendy",
+          "label_zh": "复古潮流风（怀旧纹理/个性氛围）",
+          "label_en": "Retro Trendy",
+          "prompt_hint_en": "retro trendy commercial style with nostalgic color logic, expressive texture accents, and a vintage-meets-modern fashionable personality",
+          "llm_value": "retro_textured_colorful"
+        },
+        {
+          "value": "industrial_precision",
+          "label_zh": "工业精密风（工程感/结构拆解）",
+          "label_en": "Industrial Precision",
+          "prompt_hint_en": "industrial precision commercial style with technical composition, structural clarity, engineering-oriented detail emphasis, and exacting product presentation",
+          "llm_value": "industrial_precise_structural"
+        }
+      ]
+    },
+    "palette_mode": {
+      "label_zh": "整体配色",
+      "options": [
+        {
+          "value": "auto_extract",
+          "label_zh": "商品主色延展（自动提取/整体统一）",
+          "label_en": "Auto Extracted Palette",
+          "prompt_hint_en": "extract the dominant palette from the product itself, keep color continuity with the product body, and ensure the overall composition feels naturally unified",
+          "llm_value": "product_derived_harmonized_palette"
+        },
+        {
+          "value": "light_bright",
+          "label_zh": "浅色通透（明亮清爽/轻盈通透）",
+          "label_en": "Light and Bright",
+          "prompt_hint_en": "light and bright commercial palette with airy highlights, clean whites or soft neutrals, fresh visibility, and a transparent polished feeling",
+          "llm_value": "light_bright_clean_neutral"
+        },
+        {
+          "value": "dark_moody",
+          "label_zh": "深色高级（沉稳浓郁/层次更深）",
+          "label_en": "Dark Moody",
+          "prompt_hint_en": "dark moody palette with deep tonal base, controlled highlights, premium shadow depth, and a sophisticated low-key atmosphere",
+          "llm_value": "dark_moody_deep_contrast"
+        },
+        {
+          "value": "warm_tones",
+          "label_zh": "温暖暖调（柔和亲和/生活感强）",
+          "label_en": "Warm Tones",
+          "prompt_hint_en": "warm-toned palette with creamy highlights, soft amber or beige warmth, inviting emotional tone, and comfortable commercial friendliness",
+          "llm_value": "warm_tones_soft_beige_amber"
+        },
+        {
+          "value": "cool_tones",
+          "label_zh": "冷调专业（理性清爽/科技感强）",
+          "label_en": "Cool Tones",
+          "prompt_hint_en": "cool-toned palette with restrained blues or cool grays, precise visual temperature, rational atmosphere, and a clean technology-oriented impression",
+          "llm_value": "cool_tones_clean_blue_gray"
+        },
+        {
+          "value": "high_contrast",
+          "label_zh": "高对比冲击（反差强烈/更吸睛）",
+          "label_en": "High Contrast",
+          "prompt_hint_en": "high-contrast palette with strong separation between light and dark areas, sharper focal impact, and bolder first-screen visual punch",
+          "llm_value": "high_contrast_sharp_separation"
+        },
+        {
+          "value": "soft_muted",
+          "label_zh": "柔和低饱和（高级柔和/克制耐看）",
+          "label_en": "Soft Muted",
+          "prompt_hint_en": "soft muted palette with lowered saturation, gentle tonal transitions, refined calmness, and an understated premium lifestyle mood",
+          "llm_value": "soft_muted_desaturated_tones"
+        },
+        {
+          "value": "cream_beige",
+          "label_zh": "奶油米白（柔和干净/暖白生活感）",
+          "label_en": "Cream Beige",
+          "prompt_hint_en": "cream beige palette with soft warm whites, gentle beige undertones, clean lifestyle atmosphere, and cozy premium softness",
+          "llm_value": "cream_beige_soft_clean"
+        },
+        {
+          "value": "black_gold",
+          "label_zh": "黑金高级（深色奢感/金属点缀/对比强）",
+          "label_en": "Black Gold",
+          "prompt_hint_en": "black and gold palette with deep dark base, metallic golden highlights, luxury contrast, and premium dramatic elegance",
+          "llm_value": "black_gold_luxury_contrast"
+        },
+        {
+          "value": "silver_gray",
+          "label_zh": "银灰冷调（银灰科技感/理性精密）",
+          "label_en": "Silver Gray",
+          "prompt_hint_en": "silver gray palette with cool metallic neutrals, precise technical atmosphere, clean highlights, and refined industrial clarity",
+          "llm_value": "silver_gray_clean_technical"
+        }
+      ]
+    },
+    "language": {
+      "label_zh": "语言",
+      "options": [
+        { "value": "zh-CN", "label_zh": "中文（简体）" },
+        { "value": "zh-TW", "label_zh": "中文（繁体）" },
+        { "value": "en-US", "label_zh": "英文（美式）" },
+        { "value": "ja-JP", "label_zh": "日文" },
+        { "value": "ko-KR", "label_zh": "韩文" },
+        { "value": "de-DE", "label_zh": "德文" },
+        { "value": "fr-FR", "label_zh": "法文" },
+        { "value": "ru-RU", "label_zh": "俄文" },
+        { "value": "es-ES", "label_zh": "西班牙文" },
+        { "value": "ar-SA", "label_zh": "阿拉伯文" }
+      ]
+    },
+    "canvas_aspect_ratio": {
+      "label_zh": "画布比例",
+      "options": [
+        { "value": "1:1", "label_zh": "1:1 方形" },
+        { "value": "4:3", "label_zh": "4:3 横向" },
+        { "value": "3:4", "label_zh": "3:4 竖向" },
+        { "value": "4:5", "label_zh": "4:5 竖向" },
+        { "value": "2:3", "label_zh": "2:3 竖向" },
+        { "value": "9:16", "label_zh": "9:16 竖屏长图" },
+        { "value": "21:9", "label_zh": "21:9 超宽屏" },
+        { "value": "16:9", "label_zh": "16:9 横屏" },
+        { "value": "fixed:970x600", "label_zh": "970×600 (普通A+)", "hint_zh": "建议2K+分辨率" },
+        { "value": "fixed:1200x900", "label_zh": "1200×900 (高级A+)" },
+        { "value": "fixed:1464x600", "label_zh": "1464×600 (高级A+)", "hint_zh": "建议2K+，裁切量大" },
+        { "value": "fixed:600x450", "label_zh": "600×450 (高级A+)" }
+      ]
+    },
+    "image_resolution": {
+      "label_zh": "生图分辨率",
+      "options": [
+        { "value": "1K", "label_zh": "1K" },
+        { "value": "2K", "label_zh": "2K" },
+        { "value": "4K", "label_zh": "4K" }
+      ]
+    },
+    "output_image_count": {
+      "label_zh": "生图数量",
+      "options": [
+        { "value": "2", "label_zh": "2" },
+        { "value": "3", "label_zh": "3" },
+        { "value": "4", "label_zh": "4" },
+        { "value": "6", "label_zh": "6" },
+        { "value": "8", "label_zh": "8" },
+        { "value": "9", "label_zh": "9" },
+        { "value": "10", "label_zh": "10" },
+        { "value": "12", "label_zh": "12" }
+      ]
+    },
+    "grid_type": {
+      "label_zh": "宫格类型",
+      "options": [
+        { "value": "3-grid", "label_zh": "1行 x 3列（3宫格）" },
+        { "value": "4-grid", "label_zh": "2行 x 2列（4宫格）" },
+        { "value": "6-grid", "label_zh": "3行 x 2列 / 2行 x 3列（6宫格）" },
+        { "value": "8-grid", "label_zh": "2行 x 4列 / 4行 x 2列（8宫格）" },
+        { "value": "9-grid", "label_zh": "3行 x 3列（9宫格）" },
+        { "value": "12-grid", "label_zh": "3行 x 4列 / 4行 x 3列（12宫格）" },
+        { "value": "free", "label_zh": "自由布局" }
+      ]
+    },
+    "gutter_px": {
+      "label_zh": "宫格间距（px）",
+      "options": [
+        { "value": "8", "label_zh": "8" },
+        { "value": "12", "label_zh": "12" },
+        { "value": "16", "label_zh": "16" }
+      ]
+    },
+    "accent_color": {
+      "label_zh": "强调色",
+      "options": [
+        { "value": "auto", "label_zh": "自动（智能匹配）" },
+        { "value": "red", "label_zh": "大促红" },
+        { "value": "orange", "label_zh": "活力橙" },
+        { "value": "gold", "label_zh": "质感金" },
+        { "value": "blue", "label_zh": "科技蓝" },
+        { "value": "green", "label_zh": "生态绿" },
+        { "value": "purple", "label_zh": "神秘紫" },
+        { "value": "pink", "label_zh": "温柔粉" },
+        { "value": "black", "label_zh": "高级黑" }
+      ]
+    },
+    "outer_margin_px": {
+      "label_zh": "外边距（px）",
+      "options": [
+        { "value": "16", "label_zh": "16" },
+        { "value": "24", "label_zh": "24" },
+        { "value": "32", "label_zh": "32" }
+      ]
+    }
+  }
+}

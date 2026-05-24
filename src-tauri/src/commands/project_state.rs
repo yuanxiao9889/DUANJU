@@ -1930,6 +1930,43 @@ fn expand_image_pool_refs_in_history_payload(history_json: &str) -> Result<Strin
     .map_err(|e| format!("Failed to serialize expanded graph history: {}", e))
 }
 
+fn image_pool_from_project_payloads(
+    nodes_json: &str,
+    history_json: &str,
+) -> Result<Vec<String>, String> {
+    let parsed_nodes = serde_json::from_str::<Value>(nodes_json)
+        .map_err(|e| format!("Failed to parse project nodes image pool: {}", e))?;
+    let nodes_image_pool = collect_string_array(parsed_nodes.get("imagePool"));
+    if !nodes_image_pool.is_empty() {
+        return Ok(nodes_image_pool);
+    }
+
+    let parsed_history = serde_json::from_str::<Value>(history_json)
+        .map_err(|e| format!("Failed to parse project history image pool: {}", e))?;
+    Ok(collect_string_array(parsed_history.get("imagePool")))
+}
+
+fn attach_image_pool_to_history_json(
+    history_json: &str,
+    image_pool: &[String],
+) -> Result<String, String> {
+    if image_pool.is_empty() {
+        return Ok(history_json.to_string());
+    }
+
+    let mut parsed_history = serde_json::from_str::<Value>(history_json)
+        .map_err(|e| format!("Failed to parse graph history for image pool: {}", e))?;
+    if let Some(history_object) = parsed_history.as_object_mut() {
+        history_object.insert(
+            "imagePool".to_string(),
+            Value::Array(image_pool.iter().cloned().map(Value::String).collect()),
+        );
+    }
+
+    serde_json::to_string(&parsed_history)
+        .map_err(|e| format!("Failed to serialize graph history image pool: {}", e))
+}
+
 fn encode_project_payload_storage_refs(
     app: &AppHandle,
     nodes_json: &str,
@@ -2586,7 +2623,8 @@ fn replace_project_graph_history_in_tx(
     history_json: &str,
     updated_at: i64,
 ) -> Result<(), String> {
-    let (past, future) = split_history_steps(history_json)?;
+    let expanded_history_json = expand_image_pool_refs_in_history_payload(history_json)?;
+    let (past, future) = split_history_steps(&expanded_history_json)?;
     tx.execute(
         "DELETE FROM project_history_steps WHERE project_id = ?1",
         params![project_id],
@@ -4465,8 +4503,13 @@ pub fn get_project_graph_history(
     else {
         return Ok(None);
     };
+    let image_pool = match read_project_record_from_connection(&conn, &project_id, true)? {
+        Some(record) => image_pool_from_project_payloads(&record.nodes_json, &record.history_json)?,
+        None => Vec::new(),
+    };
     let history_json = read_project_graph_history_json(&conn, &project_id)?;
-    let decoded_history_json = decode_graph_json_storage_refs(&app, &history_json)?;
+    let history_json_with_pool = attach_image_pool_to_history_json(&history_json, &image_pool)?;
+    let decoded_history_json = decode_graph_json_storage_refs(&app, &history_json_with_pool)?;
     Ok(Some(ProjectGraphHistoryRecord {
         project_id,
         history_json: decoded_history_json,
@@ -5174,11 +5217,11 @@ pub fn organize_project_media(
     }
 
     let mut conn = open_db(&app)?;
-    let (nodes_json, history_json): (String, String) = conn
+    let (project_name, nodes_json, history_json): (Option<String>, String, String) = conn
         .query_row(
-            "SELECT nodes_json, history_json FROM projects WHERE id = ?1 LIMIT 1",
+            "SELECT name, nodes_json, history_json FROM projects WHERE id = ?1 LIMIT 1",
             params![&normalized_project_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|e| format!("Failed to load project for media organization: {}", e))?;
     let legacy_images_dirs = storage::resolve_known_storage_roots(&app)?
@@ -5211,6 +5254,7 @@ pub fn organize_project_media(
         let extension = extension_from_local_path(&local_path);
         let media_context = storage::MediaPersistContext {
             project_id: Some(normalized_project_id.clone()),
+            project_name: project_name.clone(),
             media_type: Some(storage::media_type_from_extension(&extension)),
             role: None,
         };

@@ -1682,7 +1682,7 @@ function CanvasSaveBubble({
     setShowSavedState(true);
     const timer = window.setTimeout(() => {
       setShowSavedState(false);
-    }, 2000);
+    }, 3000);
     return () => {
       window.clearTimeout(timer);
     };
@@ -1708,14 +1708,7 @@ function CanvasSaveBubble({
       ? t("canvas.saveBubble.retry")
       : showSavedState
         ? t("canvas.saveBubble.saved")
-        : lastSuccessfulSaveAt
-          ? t("canvas.saveBubble.lastSavedAt", {
-              time: new Date(lastSuccessfulSaveAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              }),
-            })
-          : t("canvas.saveBubble.manualSave");
+        : t("canvas.saveBubble.manualSave");
   const Icon = isSaving
     ? Loader2
     : isError

@@ -1,4 +1,4 @@
-{
+﻿{
   "app": {
     "title": "OOpii无限画布",
     "subtitle": "Infinite Canvas",
@@ -3482,7 +3482,9 @@
       "productEmpty": "从右侧 Agent 上传商品图或补充商品信息。",
       "briefEmpty": "Agent 会根据你的回答持续更新这份 Brief。",
       "batchEmpty": "选择比例后，Agent 会整理统一出图提示词。",
-      "resultsEmpty": "生成批次会按比例收纳在这里。"
+      "resultsEmpty": "生成批次会按比例收纳在这里。",
+      "visualPreference": "视觉与排版偏好",
+      "visualPreferenceEmpty": "视觉偏好会自动匹配商品、平台和品牌色，也可以在右侧手动调整。"
     },
     "fields": {
       "productName": "商品",
@@ -3500,7 +3502,14 @@
       "size": "尺寸",
       "corePrompt": "核心提示词",
       "batches": "批次",
-      "images": "图片"
+      "images": "图片",
+      "designStyle": "设计风格",
+      "colorPalette": "整体配色",
+      "platformVisual": "平台视觉偏好",
+      "language": "语言",
+      "brandAccentColor": "品牌强调色",
+      "preferenceSummary": "偏好摘要",
+      "visualPromptFragment": "生图提示片段"
     },
     "status": {
       "queued": "排队中",
@@ -3517,12 +3526,27 @@
       "openModelSettings": "模型设置",
       "productSection": "商品",
       "productSectionHint": "先上传商品图，再补充模型无法判断的信息。",
+      "productStickySummary": "已上传 {{count}} 张商品图",
       "upload": "上传",
       "productImageLabel": "商品图 {{index}}",
-      "manualProductPlaceholder": "补充商品名称、品牌、卖点、目标人群、必须出现的文字...",
+      "productInfoTitle": "产品补充信息",
+      "productInfoHint": "优先于图片推断，可补充材质、用途、人群等关键信息。",
+      "productInfoCollapsedFilled": "已填写补充信息，点击展开继续编辑。",
+      "manualProductPlaceholder": "例：铝合金外壳降噪耳机，适合通勤白领，50h续航，IP54防水...",
+      "productInfoFields": {
+        "coreSellingPoints": "核心卖点",
+        "targetAudience": "适用人群",
+        "materials": "材质成分",
+        "restrictions": "禁忌说明",
+        "specModel": "规格型号"
+      },
       "syncProductInfo": "同步商品信息",
       "inferProduct": "反推商品信息",
-      "batchSection": "批量",
+      "deleteProductImage": "删除商品图",
+      "replaceProductImage": "替换商品图",
+      "batchSection": "生图参数",
+      "batchSettingsHint": "设置图像厂商、模型、分辨率、比例与张数。",
+      "batchSettingsSummary": "{{provider}} · {{model}} · {{ratios}} · 每比例 {{count}} 张",
       "batchLockedHint": "请先反推或同步商品信息，生成参数会在商品信息明确后出现。",
       "recommended": "推荐",
       "imageProvider": "图像厂商",
@@ -3540,6 +3564,8 @@
       "statusSynced": "画布节点已同步。",
       "productInfoSynced": "商品信息已同步到画布。",
       "statusProductSynced": "商品信息已更新。",
+      "productImageDeleted": "商品图已删除，相关信息已清空。",
+      "productImageReplaced": "商品图已替换，相关信息已清空。",
       "statusFailed": "Agent 处理失败。",
       "statusSubmitting": "正在提交图片生成任务...",
       "statusBatchCreated": "结果组已更新。",
@@ -3594,6 +3620,79 @@
         "selectionMarker": "我选择：",
         "selectionDraft": "我选择：{{items}}。补充：",
         "selectionSeparator": "、"
+      },
+      "visualPreference": {
+        "title": "视觉偏好",
+        "hint": "设置设计风格、整体配色、平台视觉、语言与品牌强调色。",
+        "sync": "同步视觉偏好",
+        "syncInstruction": "请基于最新视觉偏好刷新出图 Brief 下游提示词。",
+        "autoAccent": "自动强调色",
+        "chooseAccent": "选择品牌强调色 {{color}}",
+        "options": {
+          "designStyle": {
+            "auto": "智能匹配（自动推荐/整体更稳）",
+            "minimalist": "极简编辑感（大留白/克制简洁）",
+            "premium_luxury": "高端奢感（精致光感/仪式氛围）",
+            "luxury_minimal": "轻奢极简（高级留白/精致材质/低调贵感）",
+            "natural_organic": "自然有机（清新治愈/柔和光感）",
+            "warm_cozy": "温馨生活感（居家暖调/亲和场景）",
+            "soft_editorial_lifestyle": "柔和编辑生活风（轻编辑感/柔光/生活方式）",
+            "tech_modern": "现代科技感（冷调精密/理性质感）",
+            "dynamic_vitality": "动感活力风（速度张力/年轻能量）",
+            "professional_clean": "专业洁净风（洁净明亮/专业可信）",
+            "clean_beauty_commercial": "清透美妆商业风（干净通透/精致肤感/高级克制）",
+            "editorial_magazine": "杂志编辑感（高级版式/留白感）",
+            "bold_graphic_poster": "图形海报风（视觉冲击/大字标题）",
+            "fashion_campaign": "时尚大片感（质感光影/高级氛围）",
+            "cute_playful": "可爱趣味风（轻松活泼/亲和可爱）",
+            "retro_trendy": "复古潮流风（怀旧纹理/个性氛围）",
+            "industrial_precision": "工业精密风（工程感/结构拆解）"
+          },
+          "colorPalette": {
+            "auto_extract": "商品主色延展（自动提取/整体统一）",
+            "light_bright": "浅色通透（明亮清爽/轻盈通透）",
+            "dark_moody": "深色高级（沉稳浓郁/层次更深）",
+            "warm_tones": "温暖暖调（柔和亲和/生活感强）",
+            "cool_tones": "冷调专业（理性清爽/科技感强）",
+            "high_contrast": "高对比冲击（反差强烈/更吸睛）",
+            "soft_muted": "柔和低饱和（高级柔和/克制耐看）",
+            "cream_beige": "奶油米白（柔和干净/暖白生活感）",
+            "black_gold": "黑金高级（深色奢感/金属点缀/对比强）",
+            "silver_gray": "银灰冷调（银灰科技感/理性精密）"
+          },
+          "platformVisual": {
+            "general": "全平台通用（风格平衡/适配面广/稳妥耐用）",
+            "taobao": "淘宝/天猫（视觉抢眼/氛围浓/转化导向）",
+            "jd": "京东（理性专业/参数清晰/信任感强）",
+            "amazon": "亚马逊（海外极简/白底清爽/信息清晰）",
+            "xiaohongshu": "小红书（生活方式/种草氛围/编辑感强）",
+            "tiktok": "抖音/TikTok（开屏抓眼/节奏快/冲击感强）",
+            "pinduoduo": "拼多多（促销吸睛/信息直给/成交优先）",
+            "shopify": "独立站（品牌叙事/高级质感/品牌氛围）"
+          },
+          "language": {
+            "zhCN": "中文（简体）",
+            "zhTW": "中文（繁体）",
+            "enUS": "英文（美式）",
+            "jaJP": "日文",
+            "koKR": "韩文",
+            "deDE": "德文",
+            "frFR": "法文",
+            "ruRU": "俄文",
+            "esES": "西班牙文",
+            "arSA": "阿拉伯文"
+          },
+          "accentColor": {
+            "red": "大促红",
+            "orange": "活力橙",
+            "gold": "质感金",
+            "blue": "科技蓝",
+            "green": "生态绿",
+            "purple": "神秘紫",
+            "pink": "温柔粉",
+            "black": "高级黑"
+          }
+        }
       }
     }
   },
@@ -4923,7 +5022,23 @@
       "focalValue": "{{value}}mm",
       "lensSettings": "镜头焦距",
       "fovValue": "视角 {{value}}°",
-      "focalWithFovValue": "{{focal}}mm / 视角 {{fov}}°"
+      "focalWithFovValue": "{{focal}}mm / 视角 {{fov}}°",
+      "recordPath": "录制相机轨迹",
+      "stopRecording": "停止录制",
+      "recording": "正在录制相机轨迹",
+      "recordingStarted": "已开始录制相机轨迹",
+      "recordingSaved": "相机轨迹已保存（{{seconds}}s）",
+      "recordingTooShort": "相机轨迹太短，暂未保存",
+      "recordingStatus": "录制 {{seconds}}s / {{max}}s",
+      "playingStatus": "正在播放相机轨迹",
+      "playPath": "播放相机轨迹",
+      "exportPath": "导出 MP4",
+      "clearPath": "清除相机轨迹",
+      "pathSummary": "相机轨迹 {{seconds}}s",
+      "exporting": "正在导出相机轨迹...",
+      "exported": "相机轨迹 MP4 已导出",
+      "exportFailed": "相机轨迹 MP4 导出失败",
+      "recordingNodeTitle": "{{name}} 运镜录制"
     },
     "snapshot": {
       "send": "截图到画布",

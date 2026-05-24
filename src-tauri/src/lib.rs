@@ -8,6 +8,7 @@ use commands::ad_skill_package;
 use commands::ai as ai_commands;
 use commands::asset_state;
 use commands::clip_library;
+use commands::director_stage;
 use commands::dreamina_cli;
 use commands::error_log;
 use commands::extensions;
@@ -362,6 +363,7 @@ pub fn run() {
             image::save_image_source_to_app_debug_dir,
             image::copy_image_source_to_clipboard,
             media_audio::extract_audio_from_video,
+            director_stage::transcode_director_stage_recording_to_mp4,
             jimeng_video_queue::list_jimeng_video_queue_jobs,
             jimeng_video_queue::list_all_jimeng_video_queue_jobs,
             jimeng_video_queue::upsert_jimeng_video_queue_job,

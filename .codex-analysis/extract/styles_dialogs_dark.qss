@@ -1,0 +1,392 @@
+/* AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
+ * Source: styles/templates/variant_dialogs_dark.qss.template
+ * Regenerate: python scripts/sync_qss_from_templates.py
+ */
+
+/* ============================================
+   暗色主题 - 对话框样式
+   ============================================ */
+
+/* 通用对话框 */
+QDialog {
+    background-color: #2d2d2d;
+    border-radius: 12px;
+}
+
+QDialog QLabel {
+    color: #e5e5e5;
+    font-size: 13px;
+}
+
+QDialog QPushButton {
+    min-width: 80px;
+    padding: 8px 16px;
+}
+
+/* 消息框 */
+QMessageBox {
+    background-color: #2d2d2d;
+}
+
+QMessageBox QLabel {
+    color: #e5e5e5;
+    font-size: 14px;
+}
+
+QMessageBox QPushButton {
+    min-width: 80px;
+    padding: 8px 16px;
+}
+
+/* 文件对话框 */
+QFileDialog {
+    background-color: #2d2d2d;
+}
+
+/* 颜色对话框 */
+QColorDialog {
+    background-color: #2d2d2d;
+}
+
+/* 画布提示对话框 */
+#canvasPromptDialog {
+    background-color: #2d2d2d;
+    border-radius: 12px;
+}
+
+#canvasPromptDialog QTextEdit {
+    border: 2px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 14px;
+    background-color: #252525;
+    color: #e5e5e5;
+}
+
+#canvasPromptDialog QTextEdit:focus {
+    border-color: #5B7FFF;
+}
+
+#canvasPromptDialog QPushButton {
+    min-width: 100px;
+    padding: 10px 20px;
+    font-size: 14px;
+}
+
+/* 渠道管理对话框 */
+#channelManagerDialog {
+    background-color: #1e2128;
+}
+
+#channelManagerDialog QLabel {
+    color: #e0e0e0;
+}
+
+#channelManagerDialog QLabel#dialogTitle {
+    font-size: 14px;
+    font-weight: bold;
+    padding: 4px 0;
+}
+
+#channelManagerDialog QLabel#dialogHint {
+    color: #ff6b6b;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+#channelManagerDialog QCheckBox {
+    color: #e0e0e0;
+    font-size: 13px;
+    padding: 4px 0;
+}
+
+#channelManagerDialog QCheckBox::indicator {
+    width: 20px;
+    height: 20px;
+    border: 1px solid #666;
+    border-radius: 4px;
+    background: transparent;
+}
+
+#channelManagerDialog QCheckBox::indicator:unchecked {
+    image: none;
+}
+
+#channelManagerDialog QCheckBox::indicator:checked {
+    border: none;
+    background-color: white;
+    image: url(assits/icon_selectbox_checked.svg);
+}
+
+#channelManagerDialog QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+#channelManagerDialog QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+#channelManagerDialog QPushButton {
+    background-color: #5b7def;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 24px;
+    font-size: 13px;
+}
+
+#channelManagerDialog QPushButton:hover {
+    background-color: #6b8dff;
+}
+
+#channelManagerDialog QPushButton:pressed {
+    background-color: #4a6cde;
+}
+
+/* ============================================
+   快捷标签管理器样式 (暗色主题)
+   ============================================ */
+
+/* 主面板背景 (覆盖 ModernDialog 默认) */
+#QuickTagManagerDialog QFrame#dialogContainer {
+    background-color: #2d2d2d !important;
+    border: 1px solid #404040;
+}
+
+/* 状态标签 */
+#statusLabel {
+    color: #a0a0a0;
+    font-size: 12px;
+    padding: 0 4px;
+}
+
+/* 添加/编辑容器 */
+QFrame#addPresetBox, QFrame#editContainer {
+    border: 1px solid #ce66ff;
+    border-radius: 12px;
+    background-color: #1f1f1f;
+}
+
+#editContainer {
+    margin: 4px 12px 4px 12px;
+}
+
+/* 容器内的输入框 - 修正 PlainTextEdit 选择器 */
+#addPresetBox QLineEdit, #addPresetBox QTextEdit,
+#editContainer QLineEdit, #editContainer QTextEdit {
+    border: 1px solid #404040;
+    border-radius: 8px;
+    padding: 8px;
+    background-color: #1a1a1a;
+    color: #e5e5e5;
+}
+
+#addPresetBox QLineEdit:focus, #addPresetBox QTextEdit:focus,
+#editContainer QLineEdit:focus, #editContainer QTextEdit:focus {
+    border: 1px solid #888888;
+}
+
+/* 虚线添加按钮 */
+QPushButton#dashedAddBtn {
+    background-color: transparent;
+    border: 1px dashed #ce66ff;
+    border-radius: 8px;
+    color: #ce66ff;
+}
+
+QPushButton#dashedAddBtn:hover {
+    background-color: rgba(206, 102, 255, 0.15);
+}
+
+/* 主要操作按钮 (紫色填充) */
+QPushButton#primaryActionBtn {
+    background-color: #ce66ff;
+    color: white;
+    border-radius: 8px;
+    border: none;
+    font-weight: bold;
+    font-size: 13px;
+}
+
+QPushButton#primaryActionBtn:hover {
+    background-color: #dcb3ff;
+}
+
+/* 次要操作按钮 (深色描边) */
+QPushButton#secondaryActionBtn {
+    background-color: transparent;
+    border: 1px solid #404040;
+    border-radius: 8px;
+    color: #a0a0a0;
+    font-size: 13px;
+}
+
+QPushButton#secondaryActionBtn:hover {
+    background-color: #3a3a3a;
+    color: #e5e5e5;
+}
+
+/* 搜索框 */
+QLineEdit#quickTagSearch {
+    border-radius: 8px;
+    padding-left: 10px;
+    background-color: #1a1a1a;
+    border: 1px solid #404040;
+    color: #e5e5e5;
+}
+QLineEdit#quickTagSearch:focus {
+    border: 1px solid #ce66ff;
+    background-color: #1a1a1a;
+}
+
+/* 工具栏按钮 (Import/Export) */
+QPushButton#toolButton {
+    background: transparent;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    padding: 0 10px;
+    text-align: center;
+    color: #e5e5e5;
+}
+QPushButton#toolButton:hover {
+    background-color: #3a3a3a;
+}
+
+/* 分类组容器 */
+QFrame#categoryGroup {
+    border: 1px solid #404040;
+    border-radius: 8px;
+    background-color: #2d2d2d;
+}
+
+/* 分类组头 */
+QPushButton#categoryHeader {
+    text-align: left;
+    background-color: #1a1a1a;
+    border: none;
+    border-bottom: 1px solid #404040;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+    padding-left: 4px;
+    color: #e5e5e5;
+}
+QPushButton#categoryHeader:hover {
+    background-color: #3a3a3a;
+}
+QPushButton#categoryHeader[expanded="false"] {
+    border-bottom: none;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+
+/* 分类标题 */
+QLabel#categoryTitle {
+    font-weight: bold;
+    font-size: 14px;
+    color: #e5e5e5;
+}
+
+/* 分类计数 */
+QLabel#categoryCount {
+    color: #a0a0a0;
+    margin-left: 4px;
+}
+
+/* 徽章 (用户/系统) */
+QLabel#badgeUser {
+    color: #ce66ff;
+    font-size: 12px;
+}
+QLabel#badgeSystem {
+    color: #a0a0a0;
+    font-size: 12px;
+}
+
+/* 预设项名称 */
+QLabel#presetName {
+    font-size: 14px;
+    color: #e5e5e5;
+}
+
+/* 编辑头标题 */
+QLabel#editHeader {
+    color: #ce66ff;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+/* 预设项列表项 */
+#presetItemWidget {
+    background-color: transparent;
+    border: none;
+    border-bottom: none;
+}
+#presetItemWidget[separator="true"] {
+    border-bottom: 1px solid #404040;
+}
+#presetItemWidget[active="true"] {
+    background-color: #3a3a3a;
+    border-bottom: none;
+}
+
+/* 预设操作按钮 (编辑/删除/查看) */
+QPushButton#presetActionBtn {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    min-width: 24px;
+    padding: 0;
+}
+QPushButton#presetActionBtn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+#presetDisplay {
+    background-color: transparent;
+    border: none;
+}
+
+/* 区域标题 */
+QLabel#sectionTitle {
+    font-size: 16px;
+    font-weight: bold;
+    color: #e5e5e5;
+}
+
+/* 添加预设标题 */
+QLabel#addPresetHeader {
+    color: #ce66ff;
+    font-weight: bold;
+    font-size: 16px;
+}
+
+/* 滚动区域 */
+QScrollArea#quickTagScrollArea {
+    background: transparent;
+    border: none;
+}
+
+/* 列表容器 */
+QWidget#quickTagListContainer {
+    background-color: transparent;
+}
+
+/* 小文本按钮 (全部展开/折叠) */
+QPushButton#smallTextBtn {
+    border-radius: 4px;
+    padding: 0 8px;
+    background-color: transparent;
+    color: #a0a0a0;
+    border: 1px solid transparent;
+}
+QPushButton#smallTextBtn[compact="true"] {
+    padding: 0 4px;
+    min-width: 0;
+}
+QPushButton#smallTextBtn:hover {
+    background-color: #3a3a3a;
+    color: #e5e5e5;
+}

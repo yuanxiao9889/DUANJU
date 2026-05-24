@@ -95,6 +95,19 @@ export interface DirectorStageLight {
   penumbra?: number;
 }
 
+export interface DirectorStageCameraKeyframe {
+  timeMs: number;
+  position: DirectorStageVector3;
+  target: DirectorStageVector3;
+  fov: number;
+}
+
+export interface DirectorStageCameraPath {
+  durationMs: number;
+  sampleRate: number;
+  keyframes: DirectorStageCameraKeyframe[];
+}
+
 export interface DirectorStageCameraShot {
   id: string;
   name: string;
@@ -102,6 +115,7 @@ export interface DirectorStageCameraShot {
   target: DirectorStageVector3;
   fov: number;
   focalLengthMm: number;
+  cameraPath?: DirectorStageCameraPath;
   createdAt: number;
   updatedAt: number;
 }
@@ -220,6 +234,10 @@ export const DIRECTOR_STAGE_LIMB_ROTATION_MAX = Math.PI / 2;
 export const DIRECTOR_STAGE_DEFAULT_PLANE_ASPECT_RATIO = 1;
 export const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN = 0.1;
 export const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX = 10;
+export const DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS = 15_000;
+export const DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE = 30;
+export const DIRECTOR_STAGE_CAMERA_PATH_MAX_KEYFRAMES =
+  Math.ceil(DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS / (1000 / DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE)) + 1;
 
 export function createStageVector3(x: number, y: number, z: number): DirectorStageVector3 {
   return { x, y, z };
@@ -311,6 +329,58 @@ function normalizeVector3(value: unknown, fallback: DirectorStageVector3): Direc
     x: normalizeNumber(candidate.x, fallback.x),
     y: normalizeNumber(candidate.y, fallback.y),
     z: normalizeNumber(candidate.z, fallback.z),
+  };
+}
+
+function normalizeCameraPath(value: unknown): DirectorStageCameraPath | undefined {
+  if (!value || typeof value !== 'object') {
+    return undefined;
+  }
+
+  const candidate = value as Partial<DirectorStageCameraPath>;
+  const rawKeyframes = Array.isArray(candidate.keyframes) ? candidate.keyframes : [];
+  const keyframes = rawKeyframes
+    .map((keyframe): DirectorStageCameraKeyframe | null => {
+      if (!keyframe || typeof keyframe !== 'object') {
+        return null;
+      }
+      const raw = keyframe as Partial<DirectorStageCameraKeyframe>;
+      const timeMs = normalizeNumber(raw.timeMs, Number.NaN);
+      if (!Number.isFinite(timeMs) || timeMs < 0 || timeMs > DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS) {
+        return null;
+      }
+      return {
+        timeMs,
+        position: normalizeVector3(raw.position, createStageVector3(4, 2.4, 5)),
+        target: normalizeVector3(raw.target, createStageVector3(0, 1.2, 0)),
+        fov: Math.max(1, Math.min(120, normalizeNumber(raw.fov, 42))),
+      };
+    })
+    .filter((keyframe): keyframe is DirectorStageCameraKeyframe => keyframe !== null)
+    .sort((left, right) => left.timeMs - right.timeMs)
+    .slice(0, DIRECTOR_STAGE_CAMERA_PATH_MAX_KEYFRAMES);
+
+  if (keyframes.length < 2) {
+    return undefined;
+  }
+
+  const fallbackDuration = keyframes[keyframes.length - 1]?.timeMs ?? 0;
+  const durationMs = Math.max(
+    1,
+    Math.min(
+      DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS,
+      normalizeNumber(candidate.durationMs, fallbackDuration)
+    )
+  );
+  const sampleRate = Math.max(
+    1,
+    Math.min(120, Math.round(normalizeNumber(candidate.sampleRate, DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE)))
+  );
+
+  return {
+    durationMs,
+    sampleRate,
+    keyframes,
   };
 }
 
@@ -641,6 +711,7 @@ export function normalizeDirectorStageProject(
             return null;
           }
           const lens = normalizeCameraShotLens(candidate);
+          const cameraPath = normalizeCameraPath(candidate.cameraPath);
           return {
             id,
             name: normalizeText(candidate.name, id),
@@ -648,6 +719,7 @@ export function normalizeDirectorStageProject(
             target: normalizeVector3(candidate.target, createStageVector3(0, 1.2, 0)),
             fov: lens.fov,
             focalLengthMm: lens.focalLengthMm,
+            ...(cameraPath ? { cameraPath } : {}),
             createdAt: normalizeNumber(candidate.createdAt, now),
             updatedAt: normalizeNumber(candidate.updatedAt, now),
           };

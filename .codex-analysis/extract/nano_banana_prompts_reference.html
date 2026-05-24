@@ -1,0 +1,2119 @@
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Nano Banana 提示词参考手册</title>
+<style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            background: #ffffff;
+            padding: 0;
+            margin: 0;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            background: white;
+            border-radius: 0;
+            box-shadow: none;
+            overflow: visible;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 60px 40px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            bottom: -50px;
+            left: 0;
+            right: 0;
+            height: 100px;
+            background: inherit;
+            filter: blur(40px);
+            opacity: 0.6;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+            position: relative;
+            z-index: 1;
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+        }
+
+        .nav {
+            background: #f8f9fa;
+            padding: 20px 40px;
+            border-bottom: 2px solid #e9ecef;
+        }
+
+        .nav-links {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .nav-row {
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 20px;
+            align-items: start;
+            margin-bottom: 15px;
+        }
+        
+        .nav-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .nav-row-center {
+            display: flex;
+            justify-content: center;
+            grid-template-columns: unset;
+        }
+
+        .nav-row-center .btn-all {
+            width: auto;
+            min-width: 120px;
+        }
+
+        /* 全部按钮独立样式 */
+        .btn-all {
+            padding: 8px 16px;
+            background: white;
+            border: 2px solid #d1d5db;
+            border-radius: 20px;
+            color: #4b5563;
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: all 0.3s;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .btn-all:hover {
+            background: #fdf4ff;
+            border-color: #e879f9;
+        }
+
+        .btn-all.active {
+            background: linear-gradient(135deg, #d946ef 0%, #c026d3 100%);
+            border-color: transparent;
+            color: white;
+            box-shadow: 0 4px 12px rgba(217, 70, 239, 0.4);
+        }
+
+        .nav-row-label {
+            display: flex;
+            align-items: flex-start;
+        }
+
+        .nav-row-label .nav-link,
+        .nav-row-label .tag-group-title {
+            width: auto;
+        }
+
+        .nav-row-tags {
+            display: flex;
+            flex-wrap: wrap;
+            align-content: start;
+            margin: -5px;
+        }
+
+        .nav-link {
+            padding: 8px 16px;
+            background: white;
+            border: 2px solid #d1d5db;
+            border-radius: 20px;
+            color: #4b5563;
+            text-decoration: none;
+            font-size: 0.9em;
+            transition: all 0.3s;
+            font-weight: 500;
+            margin: 5px;
+        }
+
+        .nav-link:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+        }
+
+        .nav-link.active {
+            background: linear-gradient(135deg, #d946ef 0%, #c026d3 100%);
+            border-color: transparent;
+            color: white;
+            box-shadow: 0 4px 12px rgba(217, 70, 239, 0.4);
+        }
+
+        .tag-filter {
+            background: white;
+            color: #4b5563;
+            border: 2px solid #d1d5db;
+        }
+
+        .tag-filter:hover {
+            background: #f9fafb;
+            border-color: #9ca3af;
+        }
+
+        .tag-filter.active {
+            background: #f3f4f6;
+            border-color: #6b7280;
+            color: #1f2937;
+        }
+
+        /* 图像效果分类 - 粉紫色 */
+        .tag-filter.category-image-effects.active {
+            background: linear-gradient(135deg, #d946ef 0%, #c026d3 100%);
+            border-color: transparent;
+            color: white;
+            box-shadow: 0 4px 12px rgba(217, 70, 239, 0.4);
+        }
+
+        /* 人像编辑分类 - 蓝色 */
+        .tag-filter.category-portrait-editing.active {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            border-color: transparent;
+            color: white;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+        }
+
+        /* 图像编辑分类 - 绿色 */
+        .tag-filter.category-image-editing.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            border-color: transparent;
+            color: white;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
+        }
+
+        /* 大标签样式 */
+        .tag-group-title {
+            display: block;
+            padding: 8px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            margin: 0;
+            border: 2px solid;
+            text-align: center;
+            font-size: 0.9em;
+            background: white;
+            color: #1a1a1a;
+            text-decoration: none;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .tag-group-title:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 图像效果大标签 */
+        .tag-group-title.group-image-effects {
+            border-color: #d946ef;
+        }
+        
+        .tag-group-title.group-image-effects:hover {
+            background: #fdf4ff;
+            border-color: #d946ef;
+        }
+
+        /* 人像编辑大标签 */
+        .tag-group-title.group-portrait-editing {
+            border-color: #3b82f6;
+        }
+        
+        .tag-group-title.group-portrait-editing:hover {
+            background: #eff6ff;
+            border-color: #3b82f6;
+        }
+
+        /* 图像编辑大标签 */
+        .tag-group-title.group-image-editing {
+            border-color: #10b981;
+        }
+        
+        .tag-group-title.group-image-editing:hover {
+            background: #f0fdf4;
+            border-color: #10b981;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .category {
+            margin-bottom: 40px;
+        }
+
+        .category-title {
+            font-size: 1.5em;
+            color: #1a1a1a;
+            margin-bottom: 20px;
+            padding-bottom: 0;
+            border-bottom: none;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .category-icon {
+            font-size: 1.2em;
+        }
+
+        .prompt-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(500px, 1fr));
+            gap: 20px;
+        }
+
+        
+        .prompt-header {
+            padding: 20px 20px 15px 20px;
+        }
+
+        .prompt-tag {
+            display: inline-block;
+            background: #e9d5ff;
+            color: #7c3aed;
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            font-weight: 500;
+            margin-bottom: 12px;
+        }
+
+
+        .category-link {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-weight: 600;
+        }
+
+        .button-group {
+            display: block;
+            margin-top: 20px;
+        }
+
+        .copy-btn {
+            width: 100%;
+        }
+
+        .prompt-card {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s;
+            border: 1px solid #f0f0f0;
+        }
+
+        .prompt-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+        }
+
+        .prompt-image {
+            width: 100%;
+            aspect-ratio: 3 / 2;
+            background: #f5f5f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 3em;
+            position: relative;
+            gap: 10px;
+            padding: 0;
+        }
+
+        .prompt-image-container {
+            display: flex;
+            width: 100%;
+            height: 100%;
+            gap: 5px;
+        }
+
+        .image-wrapper {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            aspect-ratio: 3 / 4;
+        }
+
+        .image-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .image-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(55, 65, 81, 0.9);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.32em;
+            font-weight: 500;
+        }
+
+        .image-wrapper:last-child .image-label {
+            background: #8b5cf6;
+        }
+
+        .prompt-image-container.vertical {
+            flex-direction: column;
+        }
+
+        .prompt-image-container.vertical .image-wrapper {
+            aspect-ratio: auto;
+            max-height: 400px;
+        }
+
+        .prompt-number {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: rgba(255, 255, 255, 0.9);
+            color: #667eea;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 0.4em;
+            display: none;
+        }
+
+
+        .prompt-rating {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            color: #333;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.32em;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            z-index: 10;
+        }
+
+        .prompt-rating::before {
+            content: '⭐';
+            font-size: 1.1em;
+        }
+
+        .prompt-body {
+            padding: 20px;
+        }
+
+        .prompt-title {
+            font-size: 1.3em;
+            color: #1a1a1a;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .prompt-subtitle {
+            font-size: 1em;
+            color: #9ca3af;
+            margin-bottom: 20px;
+            font-style: normal;
+            font-weight: 400;
+        }
+
+        .prompt-text {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 16px;
+            border: none;
+            font-size: 0.95em;
+            color: #4b5563;
+            line-height: 1.7;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .prompt-translation {
+            background: #f3f4f6;
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border: none;
+            font-size: 0.92em;
+            color: #6b7280;
+            line-height: 1.7;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+        
+        /* 占位符高亮样式 - 需要替换的内容（柔和橙色） */
+        .placeholder {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 50%, #fcd34d 100%);
+            color: #92400e;
+            padding: 2px 8px;
+            border-radius: 5px;
+            font-weight: 600;
+            font-size: 0.9em;
+            display: inline-block;
+            margin: 0 2px;
+            box-shadow: 0 1px 2px rgba(252, 211, 77, 0.25);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            transition: all 0.2s ease;
+        }
+        
+        .placeholder:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(252, 211, 77, 0.35);
+            background: linear-gradient(135deg, #fde68a 0%, #fcd34d 50%, #fbbf24 100%);
+        }
+        
+        /* 图像引用占位符 - 仅提示性质（蓝色） */
+        .placeholder-ref {
+            background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+            color: #1e40af;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 0.9em;
+            display: inline-block;
+            margin: 0 2px;
+            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.2);
+            border: 1px solid rgba(96, 165, 250, 0.3);
+            transition: all 0.2s ease;
+        }
+        
+        .placeholder-ref:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 4px rgba(59, 130, 246, 0.25);
+        }
+
+        .prompt-note {
+            background: #d1ecf1;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.85em;
+            color: #0c5460;
+            border-left: 4px solid #17a2b8;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 20px;
+        }
+
+        .copy-btn {
+            flex: 1;
+            padding: 14px 24px;
+            background: linear-gradient(90deg, #8b5cf6 0%, #3b82f6 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .copy-btn:hover {
+            background: linear-gradient(90deg, #7c3aed 0%, #2563eb 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(139, 92, 246, 0.4);
+        }
+
+        .copy-btn:active {
+            transform: translateY(0);
+        }
+
+        .copy-btn.copied {
+            background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+        }
+
+        .detail-btn {
+            padding: 14px 24px;
+            background: white;
+            color: #8b5cf6;
+            border: 2px solid #8b5cf6;
+            border-radius: 10px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .detail-btn:hover {
+            background: #f5f3ff;
+            transform: translateY(-2px);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #28a745;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .footer {
+            background: #2c3e50;
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .prompt-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .content {
+                padding: 20px;
+            }
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #764ba2;
+        }
+        
+        /* 平滑滚动 */
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        /* 回到顶部按钮 */
+        .back-to-top {
+            position: fixed !important;
+            bottom: 30px !important;
+            right: 30px !important;
+            width: 50px !important;
+            height: 50px !important;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            color: white !important;
+            border: none !important;
+            border-radius: 50% !important;
+            font-size: 24px !important;
+            cursor: pointer !important;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4) !important;
+            transition: all 0.3s !important;
+            opacity: 0;
+            visibility: hidden;
+            z-index: 9999 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            pointer-events: auto !important;
+            outline: none !important;
+        }
+        
+        .back-to-top.show {
+            opacity: 1 !important;
+            visibility: visible !important;
+        }
+        
+        .back-to-top:hover {
+            transform: translateY(-5px) !important;
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6) !important;
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
+        }
+        
+        .back-to-top:active {
+            transform: translateY(-2px) scale(0.95) !important;
+            background: linear-gradient(135deg, #5a3d8a 0%, #5566d8 100%) !important;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+<div class="header">
+<h1>🍌 Nano Banana 提示词参考手册</h1>
+<p>39+ 最热门的 AI 图像生成提示词 - 一键复制，即刻使用</p>
+</div>
+<div class="nav">
+<div class="nav-links">
+    <!-- 全部按钮行 -->
+    <div class="nav-row nav-row-center">
+        <a class="btn-all active" data-tag="all" href="#" id="show-all">
+         📋 全部
+        </a>
+    </div>
+    
+    <!-- 图像效果分类行 -->
+    <div class="nav-row">
+        <div class="nav-row-label">
+            <a href="#image-effects" class="tag-group-title group-image-effects">🎨 图像效果</a>
+        </div>
+        <div class="nav-row-tags">
+     <a class="nav-link tag-filter category-image-effects" data-tag="3D建模" href="#">
+      3D建模
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="AI拥抱" href="#">
+      AI拥抱
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="像素风格" href="#">
+      像素风格
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="动画风格" href="#">
+      动画风格
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="图像修复" href="#">
+      图像修复
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="图像增强" href="#">
+      图像增强
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="图像替换" href="#">
+      图像替换
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="图像生成" href="#">
+      图像生成
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="图像融合" href="#">
+      图像融合
+     </a>
+     <a class="nav-link tag-filter category-image-effects" data-tag="图像转换" href="#">
+      图像转换
+     </a>
+        </div>
+    </div>
+    
+    <!-- 人像编辑分类行 -->
+    <div class="nav-row">
+        <div class="nav-row-label">
+            <a href="#portrait-editing" class="tag-group-title group-portrait-editing">👤 人像编辑</a>
+        </div>
+        <div class="nav-row-tags">
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="对象提取" href="#">
+      对象提取
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="对象编辑" href="#">
+      对象编辑
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="手办" href="#">
+      手办
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="手工艺" href="#">
+      手工艺
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="摄影" href="#">
+      摄影
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="收藏品" href="#">
+      收藏品
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="文字编辑" href="#">
+      文字编辑
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="时间序列" href="#">
+      时间序列
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="毛绒玩具" href="#">
+      毛绒玩具
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="游戏UI" href="#">
+      游戏UI
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="电影肖像" href="#">
+      电影肖像
+     </a>
+     <a class="nav-link tag-filter category-portrait-editing" data-tag="网格肖像" href="#">
+      网格肖像
+     </a>
+        </div>
+    </div>
+    
+    <!-- 图像编辑分类行 -->
+    <div class="nav-row">
+        <div class="nav-row-label">
+            <a href="#image-editing" class="tag-group-title group-image-editing">✏️ 图像编辑</a>
+        </div>
+        <div class="nav-row-tags">
+     <a class="nav-link tag-filter category-image-editing" data-tag="姿势控制" href="#">
+      姿势控制
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="表情包" href="#">
+      表情包
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="表情控制" href="#">
+      表情控制
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="视角变换" href="#">
+      视角变换
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="解剖图" href="#">
+      解剖图
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="身体重塑" href="#">
+      身体重塑
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="透视图" href="#">
+      透视图
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="颜色调整" href="#">
+      颜色调整
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="风格迁移" href="#">
+      风格迁移
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="食物变化" href="#">
+      食物变化
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="背景替换" href="#">
+      背景替换
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="虚拟换装" href="#">
+      虚拟换装
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="肖像摄影" href="#">
+      肖像摄影
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="肖像生成" href="#">
+      肖像生成
+     </a>
+     <a class="nav-link tag-filter category-image-editing" data-tag="老照片" href="#">
+      老照片
+     </a>
+        </div>
+    </div>
+</div>
+</div>
+<div class="content">
+<!-- 图像效果分类 -->
+<div class="category" id="image-effects">
+<h2 class="category-title">
+<span class="category-icon">🎨</span>
+                    图像效果 (Image Effects)
+                </h2>
+<div class="prompt-grid">
+<!-- 1. 3D手办 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">3D建模</span><div class="prompt-title">3D 手办模型</div><div class="prompt-subtitle">Nano Banana 3D Action Figure</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/1_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/1_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">create a 1/7 scale commercialized figure of the character in the illustration, in a realistic style and environment. Place the figure on a computer desk, using a circular transparent acrylic base without any text. On the computer screen, display the ZBrush modeling process of the figure. Next to the computer screen, place a BANDAI-style toy packaging box printed with the original artwork.</div>
+<div class="prompt-translation">创建一个1/7比例的商业化手办，采用逼真的风格和环境。将手办放置在电脑桌上，使用圆形透明亚克力底座，不带任何文字。在电脑屏幕上显示手办的ZBrush建模过程。在电脑屏幕旁边，放置一个印有原始插画的万代风格玩具包装盒。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'create a 1/7 scale commercialized figure of the character in the illustration, in a realistic style and environment. Place the figure on a computer desk, using a circular transparent acrylic base without any text. On the computer screen, display the ZBrush modeling process of the figure. Next to the computer screen, place a BANDAI-style toy packaging box printed with the original artwork.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 2. Q版编织娃娃 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">手工艺</span><div class="prompt-title">Q版编织娃娃</div><div class="prompt-subtitle">Chibi Knitted Doll</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/2_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/2_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">A close-up, professionally composed photograph showcasing a hand-crocheted yarn doll gently cradled by two hands. The doll has a rounded shape, featuring the cute chibi image of the [upload image] character, with vivid contrasting colors and rich details. The hands holding the doll are natural and gentle, with clearly visible finger postures, and natural skin texture and light/shadow transitions, conveying a warm and realistic touch. The background is slightly blurred, depicting an indoor environment with a warm wooden tabletop and natural light streaming in from a window, creating a comfortable and intimate atmosphere. The overall image conveys a sense of exquisite craftsmanship and cherished warmth.</div>
+<div class="prompt-translation">一张特写的专业构图照片，展示一个手工钩织的毛线娃娃被双手温柔地捧着。娃娃呈圆润形状，具有可爱的Q版角色形象，色彩对比鲜明，细节丰富。捧着娃娃的双手自然温柔，手指姿势清晰可见，皮肤纹理和光影过渡自然，传达出温暖真实的触感。背景略微模糊，描绘了一个室内环境，有温暖的木质桌面和从窗户透进来的自然光，营造出舒适亲密的氛围。整体画面传达出精致的工艺感和珍贵的温暖。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "A close-up, professionally composed photograph showcasing a hand-crocheted yarn doll gently cradled by two hands. The doll has a rounded shape, featuring the cute chibi image of the [upload image] character, with vivid contrasting colors and rich details. The hands holding the doll are natural and gentle, with clearly visible finger postures, and natural skin texture and light/shadow transitions, conveying a warm and realistic touch. The background is slightly blurred, depicting an indoor environment with a warm wooden tabletop and natural light streaming in from a window, creating a comfortable and intimate atmosphere. The overall image conveys a sense of exquisite craftsmanship and cherished warmth.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 3. 角色扭蛋 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">收藏品</span><div class="prompt-title">角色扭蛋胶囊</div><div class="prompt-subtitle">Character Capsules</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/3_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/3_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">A detailed, transparent gashapon capsule diorama, held between fingers, featuring [NAME] in their [ICONIC POSE / STYLE]. Inside: [short description of figure's look, clothing, and accessories], with background elements such as [relevant setting: stadium, stage, lecture hall, etc.]. Lighting should be dramatic and cinematic, matching their theme. The capsule has a transparent top and a colored base [choose fitting color: e.g., royal blue, gold, black, red], decorated with [motifs related to the person]. The base is labeled with [NAME or NICKNAME] in a matching font style. The design should look like a miniature collectible, with photorealistic detail and soft bokeh.</div>
+<div class="prompt-translation">一个精致的透明扭蛋胶囊场景模型，被手指夹持着，展示[名字]的[标志性姿势/风格]。内部：[人物外观、服装和配饰的简短描述]，背景元素包括[相关场景：体育场、舞台、演讲厅等]。灯光应该是戏剧性和电影感的，与主题相匹配。胶囊有透明的顶部和彩色的底座[选择合适的颜色：如宝蓝色、金色、黑色、红色]，装饰有[与人物相关的图案]。底座上标有[名字或昵称]，字体风格匹配。设计应该看起来像一个微型收藏品，具有逼真的细节和柔和的散景效果。</div>
+<div class="prompt-note">💡 注意：请将提示词中的 [NAME]、[ICONIC POSE / STYLE]、[相关描述] 等占位符替换为具体内容。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "A detailed, transparent gashapon capsule diorama, held between fingers, featuring [NAME] in their [ICONIC POSE / STYLE]. Inside: [short description of figure&#39;s look, clothing, and accessories], with background elements such as [relevant setting: stadium, stage, lecture hall, etc.]. Lighting should be dramatic and cinematic, matching their theme. The capsule has a transparent top and a colored base [choose fitting color: e.g., royal blue, gold, black, red], decorated with [motifs related to the person]. The base is labeled with [NAME or NICKNAME] in a matching font style. The design should look like a miniature collectible, with photorealistic detail and soft bokeh.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 4. 角色毛绒玩具 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">毛绒玩具</span><div class="prompt-title">角色毛绒玩具</div><div class="prompt-subtitle">Character Plush Toys</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/4_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/4_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">A soft, high-quality plush toy of [CHARACTER], with an oversized head, small body, and stubby limbs. Made of fuzzy fabric with visible stitching and embroidered facial features. The plush is shown sitting or standing against a neutral background. The expression is cute or expressive, and it wears simple clothes or iconic accessories if relevant. Lighting is soft and even, with a realistic, collectible plush look. Centered, full-body view.</div>
+<div class="prompt-translation">一个柔软、高质量的[角色]毛绒玩具，具有超大的头部、小身体和短粗的四肢。由毛茸茸的面料制成，有可见的缝线和刺绣的面部特征。毛绒玩具坐着或站在中性背景前。表情可爱或富有表现力，如果相关的话，穿着简单的衣服或标志性配饰。灯光柔和均匀，具有逼真的收藏品毛绒外观。居中，全身视图。</div>
+<div class="prompt-note">💡 注意：请将 [CHARACTER] 替换为具体角色描述。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "A soft, high-quality plush toy of [CHARACTER], with an oversized head, small body, and stubby limbs. Made of fuzzy fabric with visible stitching and embroidered facial features. The plush is shown sitting or standing against a neutral background. The expression is cute or expressive, and it wears simple clothes or iconic accessories if relevant. Lighting is soft and even, with a realistic, collectible plush look. Centered, full-body view.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 5. iPhone自拍 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">摄影</span><div class="prompt-title">iPhone 随手自拍</div><div class="prompt-subtitle">iPhone Selfie</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/5_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/5_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Please draw an extremely ordinary and unremarkable iPhone selfie, with no clear subject or sense of composition — just like a random snapshot taken casually. The photo should include slight motion blur, with uneven lighting caused by sunlight or indoor lights resulting in mild overexposure. The angle is awkward, the composition is messy, and the overall aesthetic is deliberately plain — as if it was accidentally taken while pulling the phone out of a pocket. The subjects are [Names], taken at night, next to the [Location].</div>
+<div class="prompt-translation">请绘制一张极其普通和不起眼的iPhone自拍照，没有明确的主题或构图感——就像随意拍摄的随机快照。照片应该包括轻微的运动模糊，由阳光或室内灯光造成的不均匀照明导致轻微过曝。角度尴尬，构图凌乱，整体美感刻意平淡——就像从口袋里掏出手机时不小心拍的。拍摄对象是[名字]，在夜晚拍摄，地点在[位置]旁边。</div>
+<div class="prompt-note">💡 注意：请将 [Names] 和 [Location] 替换为具体内容。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Please draw an extremely ordinary and unremarkable iPhone selfie, with no clear subject or sense of composition — just like a random snapshot taken casually. The photo should include slight motion blur, with uneven lighting caused by sunlight or indoor lights resulting in mild overexposure. The angle is awkward, the composition is messy, and the overall aesthetic is deliberately plain — as if it was accidentally taken while pulling the phone out of a pocket. The subjects are [Names], taken at night, next to the [Location].")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 6. Q版表情贴纸 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">表情包</span><div class="prompt-title">Q版表情贴纸</div><div class="prompt-subtitle">Chibi Emoji Sticker</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/6_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/6_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Making a playful peace sign with both hands and winking. Tearful eyes and slightly trembling lips, showing a cute crying expression. Arms wide open in a warm, enthusiastic hug pose. Lying on their side asleep, resting on a tiny pillow with a sweet smile. Pointing forward with confidence, surrounded by shining visual effects. Blowing a kiss, with heart symbols floating around. Maintain the chibi aesthetic. Exaggerated, expressive big eyes. Soft facial lines. Background: Vibrant red with star or colorful confetti elements for decoration. Leave some clean white space around each sticker. Aspect ratio: 9:16</div>
+<div class="prompt-translation">用双手做出俏皮的和平手势并眨眼。泪眼和微微颤抖的嘴唇，展现可爱的哭泣表情。张开双臂做出温暖、热情的拥抱姿势。侧躺睡觉，靠在小枕头上带着甜美的微笑。自信地向前指，周围环绕着闪亮的视觉效果。飞吻，周围漂浮着心形符号。保持Q版美学。夸张、富有表现力的大眼睛。柔和的面部线条。背景：鲜艳的红色，带有星星或彩色纸屑元素装饰。在每个贴纸周围留一些干净的白色空间。纵横比：9:16</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Making a playful peace sign with both hands and winking. Tearful eyes and slightly trembling lips, showing a cute crying expression. Arms wide open in a warm, enthusiastic hug pose. Lying on their side asleep, resting on a tiny pillow with a sweet smile. Pointing forward with confidence, surrounded by shining visual effects. Blowing a kiss, with heart symbols floating around. Maintain the chibi aesthetic. Exaggerated, expressive big eyes. Soft facial lines. Background: Vibrant red with star or colorful confetti elements for decoration. Leave some clean white space around each sticker. Aspect ratio: 9:16')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 7. Funko Pop手办 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">手办</span><div class="prompt-title">Funko Pop 手办</div><div class="prompt-subtitle">Funko Pop Figure</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/7_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/7_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Create a detailed 3D render of a chibi Funko Pop figure, strictly based on the provided reference photo. The figure should accurately reflect the person's appearance, hairstyle, attire, and characteristic style from the photo. High detail, studio lighting, photorealistic texture, pure white background.</div>
+<div class="prompt-translation">创建一个详细的Q版Funko Pop手办3D渲染图，严格基于提供的参考照片。手办应准确反映照片中人物的外观、发型、服装和特征风格。高细节，工作室照明，逼真纹理，纯白色背景。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Create a detailed 3D render of a chibi Funko Pop figure, strictly based on the provided reference photo. The figure should accurately reflect the person&apos;s appearance, hairstyle, attire, and characteristic style from the photo. High detail, studio lighting, photorealistic texture, pure white background.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 8. 吉卜力风格 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">动画风格</span><div class="prompt-title">吉卜力动画风格</div><div class="prompt-subtitle">Ghibli Style</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/8_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/8_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Redraw this photo in Ghibli style</div>
+<div class="prompt-translation">用吉卜力风格重新绘制这张照片</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Redraw this photo in Ghibli style')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 9. 游戏UI -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">游戏UI</span><div class="prompt-title">游戏界面效果</div><div class="prompt-subtitle">Game UI</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/9_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/9_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">A vibrant rhythm dance game screenshot featuring the 3D animated character from the reference photo, keeping its unique style, hat, outfit, and confident dance pose. Immersive cinematic lighting with neon pink and purple glow, glossy reflective dance floor shining under spotlights, and dynamic 3D cartoon style. Rhythm game interface with immersive UI: score meter at the top, colorful music waveform animations synced to the beat, stage timer countdown, and floating combo numbers. Highly detailed, game-like atmosphere with energy bars, neon particle effects, and immersive arcade rhythm game HUD elements. Ultra-detailed, cinematic, immersive, 3D animation.</div>
+<div class="prompt-translation">一个充满活力的节奏舞蹈游戏截图，展示来自参考照片的3D动画角色，保持其独特的风格、帽子、服装和自信的舞蹈姿势。沉浸式电影照明，带有霓虹粉色和紫色光芒，聚光灯下闪亮的光泽反射舞池，以及动态的3D卡通风格。节奏游戏界面，带有沉浸式UI：顶部的分数计，与节拍同步的彩色音乐波形动画，舞台计时器倒计时，以及漂浮的连击数字。高度详细，游戏般的氛围，带有能量条、霓虹粒子效果和沉浸式街机节奏游戏HUD元素。超详细，电影感，沉浸式，3D动画。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'A vibrant rhythm dance game screenshot featuring the 3D animated character from the reference photo, keeping its unique style, hat, outfit, and confident dance pose. Immersive cinematic lighting with neon pink and purple glow, glossy reflective dance floor shining under spotlights, and dynamic 3D cartoon style. Rhythm game interface with immersive UI: score meter at the top, colorful music waveform animations synced to the beat, stage timer countdown, and floating combo numbers. Highly detailed, game-like atmosphere with energy bars, neon particle effects, and immersive arcade rhythm game HUD elements. Ultra-detailed, cinematic, immersive, 3D animation.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 10. 图像融合 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像融合</span><div class="prompt-title">多图像融合</div><div class="prompt-subtitle">Image Fusion: Combine Multiple Images</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/10_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/10_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Combine multiple images ([Image1], [Image2], [Image3], …) into a single cohesive image. Keep all key subjects recognizable and maintain their proportions and details. Blend the images naturally with consistent lighting, shadows, perspective, and style. Photorealistic, high-resolution, seamless integration.</div>
+<div class="prompt-translation">将多张图像（[图像1]、[图像2]、[图像3]...）组合成一张连贯的图像。保持所有关键主体可识别，并保持其比例和细节。自然地融合图像，保持一致的照明、阴影、透视和风格。逼真，高分辨率，无缝集成。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Combine multiple images ([Image1], [Image2], [Image3], …) into a single cohesive image. Keep all key subjects recognizable and maintain their proportions and details. Blend the images naturally with consistent lighting, shadows, perspective, and style. Photorealistic, high-resolution, seamless integration.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 11. 风格融合 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">风格迁移</span><div class="prompt-title">风格融合</div><div class="prompt-subtitle">Style Fusion</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/11_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/11_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Transform this image [Image1] into the artistic style of [Image2]. Keep the main subject, composition, and details from [Image1], but apply the colors, textures, and overall aesthetic of [Image2]. High-quality, [illustration] style, consistent details.</div>
+<div class="prompt-translation">将这张图像[图像1]转换为[图像2]的艺术风格。保持[图像1]的主要主体、构图和细节，但应用[图像2]的颜色、纹理和整体美学。高质量，[插画]风格，细节一致。</div>
+<div class="prompt-note">💡 注意：请将 [illustration] 替换为具体风格描述。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Transform this image [Image1] into the artistic style of [Image2]. Keep the main subject, composition, and details from [Image1], but apply the colors, textures, and overall aesthetic of [Image2]. High-quality, [illustration] style, consistent details.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 12. 虚拟换装 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">虚拟换装</span><div class="prompt-title">虚拟换装</div><div class="prompt-subtitle">Virtual Change Clothes</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/12_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/12_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Keep the character in [Image1] unchanged, but replace her pant with the outfit in [Image2]. Maintain the same pose, body proportions, and facial features, while applying the color, texture, and style of the pants in [Image2]. High-quality, realistic, consistent detail.</div>
+<div class="prompt-translation">保持[图像1]中的角色不变，但用[图像2]中的服装替换她的裤子。保持相同的姿势、身体比例和面部特征，同时应用[图像2]中裤子的颜色、纹理和风格。高质量，逼真，细节一致。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Keep the character in [Image1] unchanged, but replace her pant with the outfit in [Image2]. Maintain the same pose, body proportions, and facial features, while applying the color, texture, and style of the pants in [Image2]. High-quality, realistic, consistent detail.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+</div>
+</div>
+<!-- 人像编辑分类 -->
+<div class="category" id="portrait-editing">
+<h2 class="category-title">
+<span class="category-icon">👤</span>
+                    人像编辑 (Portrait Editing)
+                </h2>
+<div class="prompt-grid">
+<!-- 13. 面部表情控制 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">表情控制</span><div class="prompt-title">面部表情控制</div><div class="prompt-subtitle">Facial Expression Control</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/13_01.webp"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/13_02.webp"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Keep the person from [Image1] unchanged, but change their facial expression to [desired expression, e.g., smiling, surprised, angry]. Preserve the pose, body proportions, hairstyle, and overall appearance. Maintain realistic lighting, shadows, and photorealistic details.</div>
+<div class="prompt-translation">保持[图像1]中的人物不变，但将其面部表情更改为[所需表情，例如：微笑、惊讶、愤怒]。保留姿势、身体比例、发型和整体外观。保持逼真的照明、阴影和照片级真实细节。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Keep the person from [Image1] unchanged, but change their facial expression to [desired expression, e.g., smiling, surprised, angry]. Preserve the pose, body proportions, hairstyle, and overall appearance. Maintain realistic lighting, shadows, and photorealistic details.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 14. 姿势控制 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">姿势控制</span><div class="prompt-title">姿势控制</div><div class="prompt-subtitle">Pose Control</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/14_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/14_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Take the two men and place them in the exact poses of the man in green carrying the man in red. Preserve their identities, body proportions, and clothing details. Ensure the pose is natural and realistic, with consistent lighting, shadows, and perspective. Photorealistic, high-resolution result.</div>
+<div class="prompt-translation">将两个男人放置在绿衣男子背红衣男子的确切姿势中。保留他们的身份、身体比例和服装细节。确保姿势自然逼真，照明、阴影和透视一致。逼真，高分辨率结果。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Take the two men and place them in the exact poses of the man in green carrying the man in red. Preserve their identities, body proportions, and clothing details. Ensure the pose is natural and realistic, with consistent lighting, shadows, and perspective. Photorealistic, high-resolution result.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 15. 身体重塑 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">身体重塑</span><div class="prompt-title">身体重塑</div><div class="prompt-subtitle">Body Reshape</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/15_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/15_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Reshape the body of the person in [Image1] into a [target body type]. Keep the face, identity, hairstyle, and clothing consistent. Ensure realistic anatomy, natural proportions, and photorealistic details.</div>
+<div class="prompt-translation">将[图像1]中人物的身体重塑为[目标体型]。保持面部、身份、发型和服装一致。确保解剖结构逼真、比例自然和照片级真实细节。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Reshape the body of the person in [Image1] into a [target body type]. Keep the face, identity, hairstyle, and clothing consistent. Ensure realistic anatomy, natural proportions, and photorealistic details.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 16. 3x3网格肖像 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">肖像生成</span><div class="prompt-title">3x3 网格肖像</div><div class="prompt-subtitle">3x3 Grid Portrait</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/16_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/16_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Using the uploaded photo as a reference, generate a set of 9 vibrant half-length portraits featuring natural life. Each portrait should show a different pose and be placed in a unique setting, with rich, colorful details that highlight the diversity of nature.</div>
+<div class="prompt-translation">使用上传的照片作为参考，生成一组9张充满活力的半身肖像，展现自然生活。每张肖像应展示不同的姿势，并放置在独特的环境中，具有丰富多彩的细节，突出自然的多样性。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Using the uploaded photo as a reference, generate a set of 9 vibrant half-length portraits featuring natural life. Each portrait should show a different pose and be placed in a unique setting, with rich, colorful details that highlight the diversity of nature.')">✨ 复制提示词</button></div>
+</div>
+</div>
+</div>
+</div>
+<!-- 图像编辑分类 -->
+<div class="category" id="image-editing">
+<h2 class="category-title">
+<span class="category-icon">✏️</span>
+                    图像编辑 (Image Editing)
+                </h2>
+<div class="prompt-grid">
+<!-- 17. 更换背景 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">背景替换</span><div class="prompt-title">更换图像背景</div><div class="prompt-subtitle">Change Image Background</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/17_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/17_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Replace the background of [Image1] with [desired background description, e.g., a beach, a forest, a city skyline]. Keep the main subject (person/object) unchanged, maintaining original proportions, lighting, and details. Ensure the subject blends naturally with the new environment. Photorealistic, high-resolution, seamless integration.</div>
+<div class="prompt-translation">用[所需背景描述，例如：海滩、森林、城市天际线]替换[图像1]的背景。保持主要主体（人物/物体）不变，保持原始比例、照明和细节。确保主体与新环境自然融合。逼真，高分辨率，无缝集成。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Replace the background of [Image1] with [desired background description, e.g., a beach, a forest, a city skyline]. Keep the main subject (person/object) unchanged, maintaining original proportions, lighting, and details. Ensure the subject blends naturally with the new environment. Photorealistic, high-resolution, seamless integration.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 18a. 添加物体 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">对象编辑</span><div class="prompt-title">添加物体到图像</div><div class="prompt-subtitle">Add Object to Image</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/18_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/18_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Add [desired element, e.g., a tree, a lamp, a dog] to [Image1]. Place it naturally in the scene, matching the lighting, perspective, and style. Keep the original elements unchanged. Photorealistic, seamless integration.</div>
+<div class="prompt-translation">将[所需元素，例如：树、灯、狗]添加到[图像1]。将其自然地放置在场景中，匹配照明、透视和风格。保持原始元素不变。逼真，无缝集成。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Add [desired element, e.g., a tree, a lamp, a dog] to [Image1]. Place it naturally in the scene, matching the lighting, perspective, and style. Keep the original elements unchanged. Photorealistic, seamless integration.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 18b. 移除物体 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">对象编辑</span><div class="prompt-title">从图像移除物体</div><div class="prompt-subtitle">Remove Object from Image</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/18_03.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/18_04.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Remove [element to remove, e.g., a person, a car, a sign] from [Image1]. Fill the background naturally to maintain the scene's continuity, lighting, and details. Keep all other elements unchanged. Photorealistic, high-resolution.</div>
+<div class="prompt-translation">从[图像1]中移除[要移除的元素，例如：人、车、标志]。自然地填充背景以保持场景的连续性、照明和细节。保持所有其他元素不变。逼真，高分辨率。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Remove [element to remove, e.g., a person, a car, a sign] from [Image1]. Fill the background naturally to maintain the scene&#39;s continuity, lighting, and details. Keep all other elements unchanged. Photorealistic, high-resolution.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 19. 改变相机角度 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">视角变换</span><div class="prompt-title">改变相机角度</div><div class="prompt-subtitle">Change Camera Angle</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/19_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/19_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Recreate the person from [Image1] in four different camera perspectives. Keep the subject's identity, body proportions, and clothing consistent across all four images. Maintain the same background environment as [Image1], with photorealistic lighting, natural shadows, and high-quality details. Generate four variations side by side: 1. Bird's-eye view (from above). 2. Rear view (from behind). 3. Side profile view. 4. Close-up portrait view.</div>
+<div class="prompt-translation">从四个不同的相机视角重新创建[图像1]中的人物。在所有四张图像中保持主体的身份、身体比例和服装一致。保持与[图像1]相同的背景环境，具有逼真的照明、自然阴影和高质量细节。并排生成四个变体：1. 鸟瞰图（从上方）。2. 后视图（从后面）。3. 侧面轮廓视图。4. 特写肖像视图。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Recreate the person from [Image1] in four different camera perspectives. Keep the subject&#39;s identity, body proportions, and clothing consistent across all four images. Maintain the same background environment as [Image1], with photorealistic lighting, natural shadows, and high-quality details. Generate four variations side by side: 1. Bird&#39;s-eye view (from above). 2. Rear view (from behind). 3. Side profile view. 4. Close-up portrait view.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 20. 编辑图像文字 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">文字编辑</span><div class="prompt-title">编辑图像文字</div><div class="prompt-subtitle">Edit Text in Image</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/20_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/20_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Edit the text in [Image1]. Replace the existing text with "[your new text]" while keeping the background, design, and other elements unchanged. Match the font style, size, and color to look natural and consistent with the image. Photorealistic, seamless integration.</div>
+<div class="prompt-translation">编辑[图像1]中的文字。用"[你的新文字]"替换现有文字，同时保持背景、设计和其他元素不变。匹配字体样式、大小和颜色，使其看起来自然并与图像一致。逼真，无缝集成。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Edit the text in [Image1]. Replace the existing text with [your new text] while keeping the background, design, and other elements unchanged. Match the font style, size, and color to look natural and consistent with the image. Photorealistic, seamless integration.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 21. 基于时间的图像生成 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">时间序列</span><div class="prompt-title">基于时间的图像生成</div><div class="prompt-subtitle">Time-Based Image Generation</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/21_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/21_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Generate an image of the same scene as [Image1], but showing how it looks 10 minutes later. Keep the environment and style consistent, but add natural changes over time such as light, weather, people and so on. Photorealistic, seamless continuity.</div>
+<div class="prompt-translation">生成与[图像1]相同场景的图像，但显示10分钟后的样子。保持环境和风格一致，但添加随时间的自然变化，如光线、天气、人物等。逼真，无缝连续。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Generate an image of the same scene as [Image1], but showing how it looks 10 minutes later. Keep the environment and style consistent, but add natural changes over time such as light, weather, people and so on. Photorealistic, seamless continuity.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 22. 物体提取 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">对象提取</span><div class="prompt-title">物体提取</div><div class="prompt-subtitle">Object Extraction</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/22_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/22_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Extract the clothing from [Image1] and present it as a clean e-commerce product photo. Remove the model's body completely. Keep the outfit in natural 3D shape, with realistic fabric folds, seams, and textures. Display the garment as if photographed on a mannequin or neatly laid flat, centered on a pure white or transparent background. High-resolution, professional lighting, suitable for online fashion catalog.</div>
+<div class="prompt-translation">从[图像1]中提取服装，并将其呈现为干净的电子商务产品照片。完全移除模特的身体。保持服装的自然3D形状，具有逼真的面料褶皱、接缝和纹理。将服装展示为在人体模型上拍摄或整齐平放，居中于纯白色或透明背景上。高分辨率，专业照明，适合在线时尚目录。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Extract the clothing from [Image1] and present it as a clean e-commerce product photo. Remove the model&#39;s body completely. Keep the outfit in natural 3D shape, with realistic fabric folds, seams, and textures. Display the garment as if photographed on a mannequin or neatly laid flat, centered on a pure white or transparent background. High-resolution, professional lighting, suitable for online fashion catalog.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 23. 增强图像 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像增强</span><div class="prompt-title">增强图像质量</div><div class="prompt-subtitle">Enhance Image</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/23_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/23_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Enhance [Image1] to improve overall quality and detail. Keep the original composition, colors, and style intact. Increase resolution, sharpness, texture clarity, and lighting realism. Output as a photorealistic, high-resolution image.</div>
+<div class="prompt-translation">增强[图像1]以提高整体质量和细节。保持原始构图、颜色和风格完整。提高分辨率、清晰度、纹理清晰度和照明真实感。输出为逼真的高分辨率图像。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Enhance [Image1] to improve overall quality and detail. Keep the original composition, colors, and style intact. Increase resolution, sharpness, texture clarity, and lighting realism. Output as a photorealistic, high-resolution image.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 24. 改变天气 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像修复</span><div class="prompt-title">改变天气效果</div><div class="prompt-subtitle">Change the Weather</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/24_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/24_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Change the weather in [Image1] to [desired weather, e.g., rainy, snowy, foggy, sunny]. Keep the main subject and overall scene intact. Adjust lighting, shadows, colors, and environmental effects to match the new weather. Photorealistic, seamless integration, high-resolution.</div>
+<div class="prompt-translation">将[图像1]中的天气更改为[所需天气，例如：雨天、雪天、雾天、晴天]。保持主要主体和整体场景完整。调整照明、阴影、颜色和环境效果以匹配新天气。逼真，无缝集成，高分辨率。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Change the weather in [Image1] to [desired weather, e.g., rainy, snowy, foggy, sunny]. Keep the main subject and overall scene intact. Adjust lighting, shadows, colors, and environmental effects to match the new weather. Photorealistic, seamless integration, high-resolution.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 25. 改变图像颜色 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">颜色调整</span><div class="prompt-title">改变图像颜色</div><div class="prompt-subtitle">Change Image Color</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/25_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/25_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Change the colors in [Image1] to [desired color/style, e.g., warm tones, cool blue tones, pastel colors]. Keep the main subject and composition intact. Adjust lighting, shadows, and overall color balance to match the new color scheme. Photorealistic, high-resolution, natural-looking result.</div>
+<div class="prompt-translation">将[图像1]中的颜色更改为[所需颜色/风格，例如：暖色调、冷蓝色调、柔和色彩]。保持主要主体和构图完整。调整照明、阴影和整体色彩平衡以匹配新的配色方案。逼真，高分辨率，自然外观的结果。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Change the colors in [Image1] to [desired color/style, e.g., warm tones, cool blue tones, pastel colors]. Keep the main subject and composition intact. Adjust lighting, shadows, and overall color balance to match the new color scheme. Photorealistic, high-resolution, natural-looking result.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 26. 图像替换 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像替换</span><div class="prompt-title">图像元素替换</div><div class="prompt-subtitle">Image Replace</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/26_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/26_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Replace [target element or area] in [Image1] with [new element or reference, e.g., a different person, object, or scene]. Keep all other parts of the image unchanged. Ensure the replacement blends naturally with lighting, perspective, and overall style. Photorealistic, high-resolution, seamless integration.</div>
+<div class="prompt-translation">用[新元素或参考，例如：不同的人、物体或场景]替换[图像1]中的[目标元素或区域]。保持图像的所有其他部分不变。确保替换与照明、透视和整体风格自然融合。逼真，高分辨率，无缝集成。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Replace [target element or area] in [Image1] with [new element or reference, e.g., a different person, object, or scene]. Keep all other parts of the image unchanged. Ensure the replacement blends naturally with lighting, perspective, and overall style. Photorealistic, high-resolution, seamless integration.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 27. 图像外延 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像生成</span><div class="prompt-title">图像外延扩展</div><div class="prompt-subtitle">Image Outpainting</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/27_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/27_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Extend [Image1] beyond its original borders using outpainting. Keep the main subject and composition intact. Generate new content around the edges that matches the style, colors, lighting, and perspective of the original image. Photorealistic, high-resolution, seamless integration.</div>
+<div class="prompt-translation">使用外延绘制将[图像1]扩展到其原始边界之外。保持主要主体和构图完整。在边缘周围生成与原始图像的风格、颜色、照明和透视相匹配的新内容。逼真，高分辨率，无缝集成。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Extend [Image1] beyond its original borders using outpainting. Keep the main subject and composition intact. Generate new content around the edges that matches the style, colors, lighting, and perspective of the original image. Photorealistic, high-resolution, seamless integration.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 27b. 图像外延（比例控制） -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像生成</span><div class="prompt-title">图像外延（比例控制）</div><div class="prompt-subtitle">Image Outpainting with Aspect Ratio Control</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container vertical">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/27_03.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/27_04.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Redraw the content of Figure 1 onto Figure 2, add more detailed content to Figure 1 to fit the aspect ratio of Figure 2, completely clear the content of Figure 2, and only retain the aspect ratio of Figure 2.</div>
+<div class="prompt-translation">将图1的内容重新绘制到图2上，为图1添加更多详细内容以适应图2的纵横比，完全清除图2的内容，仅保留图2的纵横比。</div>
+<div class="prompt-note">💡 使用方法：先上传"要外延的原始图像"，然后上传"纵横比模板图像"，再输入此提示词。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Redraw the content of Figure 1 onto Figure 2, add more detailed content to Figure 1 to fit the aspect ratio of Figure 2, completely clear the content of Figure 2, and only retain the aspect ratio of Figure 2.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 28. 线稿转图像 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像转换</span><div class="prompt-title">线稿转完整图像</div><div class="prompt-subtitle">Line to Image</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/28_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/28_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Convert the line art in [Image1] into a fully colored and detailed image. Preserve all original outlines and compositions. Apply [desired style, e.g., photorealistic, anime, cartoon, digital painting] with realistic lighting, shadows, and textures. High-resolution, natural, seamless rendering.</div>
+<div class="prompt-translation">将[图像1]中的线稿转换为完全着色和详细的图像。保留所有原始轮廓和构图。应用[所需风格，例如：逼真、动漫、卡通、数字绘画]，具有逼真的照明、阴影和纹理。高分辨率，自然，无缝渲染。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Convert the line art in [Image1] into a fully colored and detailed image. Preserve all original outlines and compositions. Apply [desired style, e.g., photorealistic, anime, cartoon, digital painting] with realistic lighting, shadows, and textures. High-resolution, natural, seamless rendering.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 29. 3x3照片网格姿势 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">网格肖像</span><div class="prompt-title">3x3 照片网格姿势</div><div class="prompt-subtitle">3x3 Photo Grid Pose</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/29_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/29_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Turn the photo into a 3x3 grid of photo strips with different studio-style poses and expressions.</div>
+<div class="prompt-translation">将照片转换为3x3网格的照片条，具有不同的工作室风格姿势和表情。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Turn the photo into a 3x3 grid of photo strips with different studio-style poses and expressions.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 30. AI室内设计 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">图像生成</span><div class="prompt-title">AI 室内设计</div><div class="prompt-subtitle">AI Interior Design</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/30_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/30_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Step 1: Add a comfortable gray sofa and a wooden coffee table in the center, matching the room's contemporary style, photorealistic render. Step 2: Add more furniture-like items to the foreground and more daily necessities on the table. Also, change the wallpaper to something warmer.</div>
+<div class="prompt-translation">步骤1：在中心添加一个舒适的灰色沙发和一个木制咖啡桌，与房间的现代风格相匹配，逼真渲染。步骤2：在前景添加更多类似家具的物品，在桌子上添加更多日常用品。同时，将壁纸更换为更温暖的颜色。</div>
+<div class="prompt-note">💡 提示：这是一个分步骤的提示词，可以逐步完善室内设计。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Add a comfortable gray sofa and a wooden coffee table in the center, matching the room&apos;s contemporary style, photorealistic render.')">📋 复制步骤1</button></div>
+</div>
+</div>
+<!-- 31. 食材变菜肴 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">食物变化</span><div class="prompt-title">食材变菜肴</div><div class="prompt-subtitle">Ingredients to Dish</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/31_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/31_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Here are the items available: [List of items]. Based on these items, create an image of a [type of object/scene] that can be made or represented by combining them. The composition should make logical sense, considering the relationship between the items. Ensure the image is [visual style]. It should be with appropriate proportions and clear placement of each item.</div>
+<div class="prompt-translation">这里有可用的物品：[物品列表]。基于这些物品，创建一个可以通过组合它们制作或表示的[物体/场景类型]的图像。构图应该合乎逻辑，考虑物品之间的关系。确保图像是[视觉风格]。它应该具有适当的比例和每个物品的清晰放置。</div>
+<div class="prompt-note">💡 注意：请将 [List of items]、[type of object/scene]、[visual style] 替换为具体内容。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Here are the items available: [List of items]. Based on these items, create an image of a [type of object/scene] that can be made or represented by combining them. The composition should make logical sense, considering the relationship between the items. Ensure the image is [visual style]. It should be with appropriate proportions and clear placement of each item.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 32. 解剖插图 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">透视图</span><div class="prompt-title">解剖结构插图</div><div class="prompt-subtitle">Anatomy Illustration</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/32_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/32_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Draw a bilaterally symmetrical frontal anatomical illustration of the [Character], styled similarly to an infographic. The image should show the creature's external features on both sides, with its internal anatomy partially exposed. Detailed text should flank the image, explaining the creature's biology, abilities, behavior, habitat, and the specific functions of its anatomical structures. The overall design should be clear, informative, and in the style of a scientific illustration.</div>
+<div class="prompt-translation">绘制[角色]的双侧对称正面解剖插图，风格类似于信息图表。图像应显示生物两侧的外部特征，其内部解剖结构部分暴露。详细的文字应该在图像两侧，解释生物的生物学、能力、行为、栖息地以及其解剖结构的具体功能。整体设计应该清晰、信息丰富，并采用科学插图的风格。</div>
+<div class="prompt-note">💡 注意：请将 [Character] 替换为具体角色描述。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Draw a bilaterally symmetrical frontal anatomical illustration of the [Character], styled similarly to an infographic. The image should show the creature&#39;s external features on both sides, with its internal anatomy partially exposed. Detailed text should flank the image, explaining the creature&#39;s biology, abilities, behavior, habitat, and the specific functions of its anatomical structures. The overall design should be clear, informative, and in the style of a scientific illustration.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 33. 16位游戏角色 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">像素风格</span><div class="prompt-title">16位游戏角色</div><div class="prompt-subtitle">16-Bit Video Game Character</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/33_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/33_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Recreate this [Character] as a 16-bit video game character, and place the character in a level of a 2D 16-bit platform video game.</div>
+<div class="prompt-translation">将这个[角色]重新创建为16位视频游戏角色，并将角色放置在2D 16位平台视频游戏的关卡中。</div>
+<div class="prompt-note">💡 注意：请将 [Character] 替换为具体角色描述。</div>
+<div class="button-group"><button class="copy-btn" onclick='copyPrompt(this, "Recreate this [Character] as a 16-bit video game character, and place the character in a level of a 2D 16-bit platform video game.")'>✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 34. 宝丽来风格照片 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">老照片</span><div class="prompt-title">宝丽来风格照片</div><div class="prompt-subtitle">Gemini AI Polaroid-Style Photo</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/34_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/34_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Take a picture with a Polaroid camera. The photo should look like a normal photo, without any clear subject or props. The photo should have a slight blur a consistent light source. Such as a flash from a dark room, spread throughout the photo. Do not change the faces. Replace the background behind the two people with a white curtain.</div>
+<div class="prompt-translation">用宝丽来相机拍照。照片应该看起来像一张普通照片，没有任何明确的主题或道具。照片应该有轻微的模糊和一致的光源。例如来自暗室的闪光灯，遍布整张照片。不要改变面孔。用白色窗帘替换两个人身后的背景。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Take a picture with a Polaroid camera. The photo should look like a normal photo, without any clear subject or props. The photo should have a slight blur a consistent light source. Such as a flash from a dark room, spread throughout the photo. Do not change the faces. Replace the background behind the two people with a white curtain.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 35. AI纱丽 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">肖像摄影</span><div class="prompt-title">AI 纱丽服装</div><div class="prompt-subtitle">AI Saree</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/35_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/35_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Create A soft, sunlit portrait wearing a flowing sheer yellow saree with delicate floral embroidery. Sit gracefully against a plain wall, bathed in warm natural light with a triangular patch of sunlight casting artistic shadows. Hold a vibrant bouquet of sunflowers close to the chest, and a small white flower is tucked behind he ear. Gentle expression, loose hair strands moving slightly, and the dreamy golden glow create a serene, poetic, and romantic.</div>
+<div class="prompt-translation">创建一幅柔和的阳光肖像，穿着飘逸的透明黄色纱丽，带有精致的花卉刺绣。优雅地坐在素色墙壁前，沐浴在温暖的自然光中，三角形的阳光投射出艺术阴影。将一束鲜艳的向日葵紧贴胸前，耳后别着一朵小白花。温柔的表情，松散的发丝微微飘动，梦幻般的金色光芒营造出宁静、诗意和浪漫的氛围。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Create A soft, sunlit portrait wearing a flowing sheer yellow saree with delicate floral embroidery. Sit gracefully against a plain wall, bathed in warm natural light with a triangular patch of sunlight casting artistic shadows. Hold a vibrant bouquet of sunflowers close to the chest, and a small white flower is tucked behind he ear. Gentle expression, loose hair strands moving slightly, and the dreamy golden glow create a serene, poetic, and romantic.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 36. AI拥抱年轻的自己 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">AI拥抱</span><div class="prompt-title">AI 拥抱年轻的自己</div><div class="prompt-subtitle">AI Hug Younger Self</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/36_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/36_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Take a photo taken with a Polaroid camera. The photo should look like an ordinary photograph, without an explicit subject or property. The photo should have a slight blur and a consistent light source, like a flash from a dark room, scattered throughout the photo. Don't change the face. Change the background behind those two people with white curtains. Make it look like both people in the reference picture are hugging each other.</div>
+<div class="prompt-translation">用宝丽来相机拍摄照片。照片应该看起来像一张普通照片，没有明确的主题或道具。照片应该有轻微的模糊和一致的光源，就像来自暗室的闪光灯，散布在整张照片中。不要改变面孔。用白色窗帘改变这两个人身后的背景。使参考图片中的两个人看起来像在互相拥抱。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Take a photo taken with a Polaroid camera. The photo should look like an ordinary photograph, without an explicit subject or property. The photo should have a slight blur and a consistent light source, like a flash from a dark room, scattered throughout the photo. Don&apos;t change the face. Change the background behind those two people with white curtains. Make it look like both people in the reference picture are hugging each other.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 37. AI黑白工作室肖像 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">肖像摄影</span><div class="prompt-title">AI 黑白工作室肖像</div><div class="prompt-subtitle">AI B&amp;W Studio Portrait</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/37_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/37_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Please generate a top-angle and close-up black and white portrait of my face, focused on the head facing forward. Use a 35mm lens look, 10.7K 4HD quality. Proud expression. Deep black shadow background - only the face, the upper chest, and the shoulder.</div>
+<div class="prompt-translation">请生成一张俯视角度和特写的黑白面部肖像，聚焦于正面朝前的头部。使用35mm镜头外观，10.7K 4HD质量。自豪的表情。深黑色阴影背景 - 只有面部、上胸部和肩膀。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Please generate a top-angle and close-up black and white portrait of my face, focused on the head facing forward. Use a 35mm lens look, 10.7K 4HD quality. Proud expression. Deep black shadow background - only the face, the upper chest, and the shoulder.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 38. AI电影肖像 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">电影肖像</span><div class="prompt-title">AI 电影感肖像</div><div class="prompt-subtitle">AI Cinematic Portrait</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/38_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/38_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Create a vertical potrait shot using the exact same face features, characterized by stark cinematic lighting and intense contrast. Captured in a slightly low, upward-facing angle that dramatized the subject's jawline and neck, the composition evokes quite dominance and sculptural elegance. The background is a deep, saturated crimson red, creating a bold visual clash with the model's luminous skin and dark wardrobe.</div>
+<div class="prompt-translation">使用完全相同的面部特征创建一张垂直肖像照片，以鲜明的电影照明和强烈的对比为特征。以略低的仰角拍摄，突出主体的下颌线和颈部，构图唤起相当的主导性和雕塑般的优雅。背景是深沉、饱和的深红色，与模特发光的皮肤和深色服装形成大胆的视觉冲突。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Create a vertical potrait shot using the exact same face features, characterized by stark cinematic lighting and intense contrast. Captured in a slightly low, upward-facing angle that dramatized the subject&apos;s jawline and neck, the composition evokes quite dominance and sculptural elegance. The background is a deep, saturated crimson red, creating a bold visual clash with the model&apos;s luminous skin and dark wardrobe.')">✨ 复制提示词</button></div>
+</div>
+</div>
+<!-- 39. 内部结构图 -->
+<div class="prompt-card"><div class="prompt-header"><span class="prompt-tag">解剖图</span><div class="prompt-title">内部结构分解图</div><div class="prompt-subtitle">Internal Structure Diagram</div></div>
+<div class="prompt-image">
+
+<div class="prompt-image-container">
+<div class="image-wrapper">
+<img alt="Before" src="assits/images/39_01.jpg"/>
+<span class="image-label">Before</span>
+</div>
+<div class="image-wrapper">
+<img alt="After" src="assits/images/39_02.jpg"/>
+<span class="image-label">After</span>
+</div>
+</div>
+</div>
+<div class="prompt-body">
+
+
+<div class="prompt-text">Ultra-detailed exploded view of a product, metallic parts and electronic components floating in mid-air, perfectly aligned, revealing inner structure, futuristic technology aesthetic, 8K resolution, soft cinematic lighting, highly realistic.</div>
+<div class="prompt-translation">产品的超详细分解视图，金属部件和电子元件漂浮在半空中，完美对齐，揭示内部结构，未来科技美学，8K分辨率，柔和的电影照明，高度逼真。</div>
+<div class="button-group"><button class="copy-btn" onclick="copyPrompt(this, 'Ultra-detailed exploded view of a product, metallic parts and electronic components floating in mid-air, perfectly aligned, revealing inner structure, futuristic technology aesthetic, 8K resolution, soft cinematic lighting, highly realistic.')">✨ 复制提示词</button></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="footer">
+<p>🍌 Nano Banana 提示词参考手册</p>
+<p style="margin-top: 10px; opacity: 0.8;">来源：Fotor Blog - 整理于 2025</p>
+</div>
+</div>
+
+<!-- 回到顶部按钮 -->
+<button class="back-to-top show" id="backToTop" title="回到顶部" onclick="smoothScrollToTop(); return false;">↑</button>
+<div class="toast" id="toast">✅ 提示词已复制到剪贴板！</div>
+<!-- QWebChannel 支持 -->
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script>
+        // 初始化 QWebChannel
+        var bridge = null;
+        
+        if (typeof QWebChannel !== 'undefined') {
+            new QWebChannel(qt.webChannelTransport, function(channel) {
+                bridge = channel.objects.bridge;
+                console.log('QWebChannel 已连接');
+            });
+        }
+        
+        function copyPrompt(button, text) {
+            // 优先使用 Python 的复制功能（通过 QWebChannel）
+            if (bridge && bridge.copyToClipboard) {
+                bridge.copyToClipboard(text, function(success) {
+                    if (success) {
+                        showCopySuccess(button);
+                    } else {
+                        showCopyError();
+                    }
+                });
+            } else {
+                // 降级方案：使用浏览器的 Clipboard API
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(text).then(() => {
+                        showCopySuccess(button);
+                    }).catch(err => {
+                        console.error('Clipboard API 失败:', err);
+                        showCopyError();
+                    });
+                } else {
+                    // 最后的降级方案：使用 execCommand
+                    fallbackCopy(text, button);
+                }
+            }
+        }
+        
+        function showCopySuccess(button) {
+            // 显示提示
+            const toast = document.getElementById('toast');
+            toast.classList.add('show');
+            
+            // 按钮状态变化
+            const originalText = button.textContent;
+            button.textContent = '✅ 已复制';
+            button.classList.add('copied');
+            
+            // 3秒后恢复
+            setTimeout(() => {
+                toast.classList.remove('show');
+                button.textContent = originalText;
+                button.classList.remove('copied');
+            }, 3000);
+        }
+        
+        function showCopyError() {
+            alert('复制失败，请手动复制');
+        }
+        
+        function fallbackCopy(text, button) {
+            // 使用 execCommand 作为最后的降级方案
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    showCopySuccess(button);
+                } else {
+                    showCopyError();
+                }
+            } catch (err) {
+                console.error('execCommand 失败:', err);
+                showCopyError();
+            }
+            
+            document.body.removeChild(textarea);
+        }
+
+        // 平滑滚动（排除tag-filter）
+        document.querySelectorAll('a[href^="#"]:not(.tag-filter)').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+
+        // 标签筛选功能
+        let activeTag = 'all';
+        
+        // 为所有筛选标签（包括全部按钮）添加事件
+        document.querySelectorAll('.tag-filter, .btn-all').forEach(tagLink => {
+            tagLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                const tag = this.getAttribute('data-tag');
+                
+                // 移除所有激活状态
+                document.querySelectorAll('.tag-filter, .btn-all').forEach(link => {
+                    link.classList.remove('active');
+                });
+                
+                // 设置当前激活
+                this.classList.add('active');
+                activeTag = tag;
+                
+                if (tag === 'all') {
+                    // 显示所有卡片和分类容器
+                    document.querySelectorAll('.prompt-card').forEach(card => {
+                        card.style.display = '';
+                    });
+                    document.querySelectorAll('.category').forEach(category => {
+                        category.style.display = '';
+                    });
+                } else {
+                    // 筛选卡片
+                    document.querySelectorAll('.prompt-card').forEach(card => {
+                        const cardTag = card.querySelector('.prompt-tag');
+                        if (cardTag && cardTag.textContent.trim() === tag) {
+                            card.style.display = '';
+                        } else {
+                            card.style.display = 'none';
+                        }
+                    });
+                    
+                    // 隐藏没有可见卡片的整个分类容器
+                    document.querySelectorAll('.category').forEach(category => {
+                        const visibleCards = Array.from(category.querySelectorAll('.prompt-card')).filter(card => card.style.display !== 'none');
+                        
+                        if (visibleCards.length === 0) {
+                            category.style.display = 'none';
+                        } else {
+                            category.style.display = '';
+                        }
+                    });
+                }
+            });
+        });
+    </script>
+<script>
+// 平滑滚动到顶部函数
+var scrollingToTop = false; // 防止重复触发
+
+function smoothScrollToTop() {
+    if (scrollingToTop) {
+        return; // 如果正在滚动，直接返回
+    }
+    
+    scrollingToTop = true;
+    const startScroll = document.documentElement.scrollTop || document.body.scrollTop;
+    
+    if (startScroll > 0) {
+        const scrollStep = Math.PI / (500 / 15); // 500ms 完成滚动
+        const cosParameter = startScroll / 2;
+        let scrollCount = 0;
+        let scrollMargin;
+        
+        const scrollInterval = setInterval(function() {
+            const currentPos = document.documentElement.scrollTop || document.body.scrollTop;
+            
+            if (currentPos > 0) {
+                scrollCount++;
+                scrollMargin = cosParameter - cosParameter * Math.cos(scrollCount * scrollStep);
+                const newPos = startScroll - scrollMargin;
+                
+                document.documentElement.scrollTop = newPos;
+                document.body.scrollTop = newPos;
+                
+                // 如果已经到达顶部或滚动完成
+                if (newPos <= 0 || scrollCount * scrollStep >= Math.PI) {
+                    document.documentElement.scrollTop = 0;
+                    document.body.scrollTop = 0;
+                    clearInterval(scrollInterval);
+                    scrollingToTop = false;
+                }
+            } else {
+                clearInterval(scrollInterval);
+                scrollingToTop = false;
+            }
+        }, 15);
+    } else {
+        scrollingToTop = false;
+    }
+}
+
+// 高亮方括号中的占位符
+function highlightPlaceholders() {
+    // 选择所有提示词文本和翻译元素
+    const elements = document.querySelectorAll('.prompt-text, .prompt-translation');
+    
+    elements.forEach(element => {
+        // 获取原始文本内容
+        let text = element.textContent;
+        let html = '';
+        let lastIndex = 0;
+        
+        // 使用正则表达式匹配所有方括号内容
+        const bracketPattern = /\[([^\]]+)\]|［([^］]+)］/g;
+        let match;
+        
+        while ((match = bracketPattern.exec(text)) !== null) {
+            // 添加方括号之前的文本
+            html += escapeHtml(text.substring(lastIndex, match.index));
+            
+            const content = match[1] || match[2]; // 英文或中文方括号内容
+            const fullMatch = match[0];
+            
+            // 判断是否为图像引用（蓝色）
+            // 匹配: Image1, 图像1, upload image, 上传图片, Figure 1 等
+            if (/^(Image\d+|图像\d+|Figure\s*\d+|图\d+|upload\s+image|上传图片|上传图像)$/i.test(content)) {
+                html += '<span class="placeholder-ref">' + escapeHtml(fullMatch) + '</span>';
+            } else {
+                // 其他占位符（橙色）
+                html += '<span class="placeholder">' + escapeHtml(fullMatch) + '</span>';
+            }
+            
+            lastIndex = bracketPattern.lastIndex;
+        }
+        
+        // 添加剩余文本
+        html += escapeHtml(text.substring(lastIndex));
+        
+        // 更新元素内容
+        element.innerHTML = html;
+    });
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 回到顶部按钮功能
+document.addEventListener('DOMContentLoaded', function() {
+    // 高亮占位符
+    highlightPlaceholders();
+    
+    const backToTopBtn = document.getElementById('backToTop');
+    
+    if (!backToTopBtn) {
+        console.error('回到顶部按钮未找到');
+        return;
+    }
+    
+    console.log('回到顶部按钮已加载');
+    
+    // 监听滚动事件
+    window.addEventListener('scroll', function() {
+        if (window.pageYOffset > 300) {
+            backToTopBtn.classList.add('show');
+        } else {
+            backToTopBtn.classList.remove('show');
+        }
+    });
+    
+    // 测试：滚动一点后立即显示按钮
+    setTimeout(function() {
+        if (window.pageYOffset > 300) {
+            backToTopBtn.classList.add('show');
+        }
+    }, 100);
+});
+</script>
+</body>
+</html>

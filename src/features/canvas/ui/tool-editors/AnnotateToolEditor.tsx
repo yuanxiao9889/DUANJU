@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ArrowRight, Brush, Circle, Square, Type, Undo2, Trash2 } from 'lucide-react';
 import {
   Arrow,
@@ -36,6 +36,19 @@ const MAX_TEXT_SIZE_PERCENT = 30;
 const DEFAULT_LINE_WIDTH_PERCENT = 0.4;
 const MIN_LINE_WIDTH_PERCENT = 0.1;
 const MAX_LINE_WIDTH_PERCENT = 3;
+const ANNOTATION_LINE_WIDTH_RANGE_STYLE: CSSProperties = {
+  ['--ui-range-track-size' as string]: '8px',
+  ['--ui-range-thumb-size' as string]: '18px',
+  ['--ui-range-track' as string]: 'rgba(255, 255, 255, 0.18)',
+  ['--ui-range-track-fill-start' as string]: 'rgba(248, 250, 252, 0.9)',
+  ['--ui-range-track-fill-end' as string]: 'rgba(148, 163, 184, 0.86)',
+  ['--ui-range-thumb-bg' as string]: 'rgba(248, 250, 252, 0.98)',
+  ['--ui-range-thumb-border' as string]: 'rgba(255, 255, 255, 0.58)',
+  ['--ui-range-thumb-shadow' as string]:
+    '0 0 0 1px rgba(15, 23, 42, 0.45), 0 5px 14px rgba(0, 0, 0, 0.36)',
+  ['--ui-range-thumb-shadow-hover' as string]:
+    '0 0 0 5px rgba(255, 255, 255, 0.12), 0 7px 18px rgba(0, 0, 0, 0.42)',
+};
 
 type DraftState = {
   tool: Exclude<AnnotationToolType, 'text'>;
@@ -239,6 +252,18 @@ export function AnnotateToolEditor({ options, onOptionsChange, sourceImageUrl }:
     MAX_TEXT_SIZE_PERCENT
   );
   const fontSize = percentToFontSize(textSizePercent, textBaseSize);
+  const lineWidthRangeValue = Number(lineWidthPercent.toFixed(1));
+  const lineWidthRangeStyle = useMemo(
+    () => ({
+      ...ANNOTATION_LINE_WIDTH_RANGE_STYLE,
+      ...createUiRangeStyle(
+        lineWidthRangeValue,
+        MIN_LINE_WIDTH_PERCENT,
+        MAX_LINE_WIDTH_PERCENT
+      ),
+    }),
+    [lineWidthRangeValue]
+  );
 
   useEffect(() => {
     const nextAnnotations = parseAnnotationItems(options.annotations);
@@ -1020,23 +1045,22 @@ export function AnnotateToolEditor({ options, onOptionsChange, sourceImageUrl }:
               className="h-9 w-10 cursor-pointer rounded-md border border-[rgba(255,255,255,0.18)] bg-transparent p-1"
             />
             {activeStyleKind === 'shape' && (
-              <>
+              <div className="flex h-9 items-center gap-2 rounded-lg border border-[rgba(255,255,255,0.14)] bg-bg-dark/80 px-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                 <input
                   type="range"
                   min={MIN_LINE_WIDTH_PERCENT}
                   max={MAX_LINE_WIDTH_PERCENT}
                   step={0.1}
-                  value={Number(lineWidthPercent.toFixed(1))}
+                  value={lineWidthRangeValue}
                   onChange={(event) => handleStyleInputChange({ lineWidthPercent: Number(event.target.value) })}
-                  className="ui-range w-32"
-                  style={createUiRangeStyle(
-                    Number(lineWidthPercent.toFixed(1)),
-                    MIN_LINE_WIDTH_PERCENT,
-                    MAX_LINE_WIDTH_PERCENT,
-                  )}
+                  className="ui-range w-40"
+                  style={lineWidthRangeStyle}
+                  aria-label="Annotation line width"
                 />
-                <span className="w-10 text-xs text-text-muted">{lineWidthPercent.toFixed(1)}%</span>
-              </>
+                <span className="min-w-11 rounded-md bg-[rgba(255,255,255,0.08)] px-1.5 py-0.5 text-right text-xs font-medium tabular-nums text-text-dark">
+                  {lineWidthPercent.toFixed(1)}%
+                </span>
+              </div>
             )}
             {activeStyleKind === 'text' && (
               <div className="flex items-center gap-1">

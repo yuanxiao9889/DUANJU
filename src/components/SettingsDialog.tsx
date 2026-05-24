@@ -1376,11 +1376,11 @@ export function SettingsDialog({
 
   const handleOpenStorageFolder = useCallback(async () => {
     try {
-      await openStorageFolder();
+      await openStorageFolder(storageInfo?.currentPath);
     } catch (error) {
       console.error('Failed to open storage folder:', error);
     }
-  }, []);
+  }, [storageInfo?.currentPath]);
 
   const handleCreateDatabaseBackup = useCallback(async () => {
     if (isCreatingDatabaseBackup || isRestoringDatabaseBackup) {

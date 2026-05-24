@@ -1,0 +1,232 @@
+/* ============================================
+   更新对话框样式 (Light)
+   ============================================ */
+
+/* 主窗口 */
+#UpdateDialog {
+    background-color: #FFFFFF;
+    border-radius: 16px;
+}
+
+/* 标题栏 */
+#titleBar {
+    background-color: transparent;
+}
+#titleIcon {
+    border-radius: 12px;
+}
+#titleLabel {
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Source Han Sans CN";
+    font-size: 20px;
+    font-weight: bold;
+    color: #1A1A1A;
+}
+#closeButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px; /* 保持微圆角，视觉上更柔和但接近方形 */
+    color: #999999;
+    font-size: 16px;
+}
+#closeButton:hover {
+    background-color: #F5F5F5;
+    color: #333333;
+    border-radius: 4px;
+}
+
+/* 版本信息区 */
+#versionInfoContainer {
+    background-color: transparent;
+}
+#versionLabelTitle {
+    color: #999999;
+    font-size: 15px;
+}
+#versionLabelValue {
+    color: #1A1A1A;
+    font-size: 18px;
+    font-weight: 500;
+}
+#newVersionValue {
+    color: {{PRIMARY_COLOR}};
+    font-size: 18px;
+    font-weight: bold;
+}
+#majorVersionValue {
+    color: #FF6B00; /* Orange */
+    font-size: 18px;
+    font-weight: bold;
+}
+
+/* 内容区域容器 */
+#contentBox {
+    background-color: #F7F8FA;
+    border-radius: 12px;
+    padding: 12px 16px;
+}
+
+/* 详情标签样式 */
+#detailTitle {
+    color: #666666;
+    font-size: 16px;
+}
+#detailValue {
+    color: #1A1A1A;
+    font-size: 18px;
+    font-weight: 500;
+}
+#percentLabel {
+    color: {{PRIMARY_COLOR}};
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* 更新日志 */
+#changelogList {
+    background-color: transparent;
+    border: none;
+    font-size: 16px;
+    color: #333333;
+    line-height: 26px;
+}
+
+/* 警告框 (大版本更新/错误) */
+#warningBox {
+    background-color: #FFF7E6; /* Orange tint */
+    border: 1px solid #FFD591;
+    border-radius: 8px;
+    padding: 12px;
+}
+#warningLabel {
+    color: #D4380D;
+    font-size: 15px;
+    line-height: 22px;
+}
+
+#errorBox {
+    background-color: #FFF1F0; /* Red tint */
+    border: 1px solid #FFA39E;
+    border-radius: 8px;
+    padding: 24px;
+}
+#errorLabel {
+    color: #CF1322;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+/* 进度条 */
+QProgressBar#progressBar {
+    background-color: #e5e7eb;
+    border: none;
+    border-radius: 2px;
+    min-height: 4px;
+    max-height: 4px;
+}
+QProgressBar#progressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{GRADIENT_START}}, stop:1 {{GRADIENT_END}});
+    border-radius: 2px;
+}
+
+/* 下载详情文本 */
+#downloadDetailLabel {
+    color: #666666;
+    font-size: 15px;
+}
+#downloadValueLabel {
+    color: #1A1A1A;
+    font-size: 17px;
+    font-weight: 500;
+}
+
+/* 底部按钮 */
+#actionButtonPrimary {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{GRADIENT_START}}, stop:1 {{GRADIENT_END}});
+    color: white;
+    border: none;
+    border-radius: 18px;
+    min-height: 36px;
+    max-height: 36px;
+    padding: 0 24px;
+    font-size: 16px;
+    font-weight: bold;
+}
+#actionButtonPrimary:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{GRADIENT_HOVER_START}}, stop:1 {{GRADIENT_HOVER_END}});
+}
+#actionButtonPrimary:pressed {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {{GRADIENT_PRESSED_START}}, stop:1 {{GRADIENT_PRESSED_END}});
+}
+
+#actionButtonSecondary {
+    background-color: white;
+    color: #666666;
+    border: 1px solid #E0E0E0;
+    border-radius: 18px;
+    min-height: 36px;
+    max-height: 36px;
+    padding: 0 24px;
+    font-size: 16px;
+}
+#actionButtonSecondary:hover {
+    border-color: #BDBDBD;
+    color: #333333;
+    background-color: #F5F5F5;
+}
+
+/* 特殊状态按钮颜色覆盖 */
+
+/* 成功/完成 - 绿色 (更新就绪、已是最新) */
+#actionButtonPrimary[type="success"] {
+    background-color: #00C853;
+    color: white;
+    border: none;
+}
+#actionButtonPrimary[type="success"]:hover {
+    background-color: #00B248;
+}
+#actionButtonPrimary[type="success"]:pressed {
+    background-color: #009624;
+}
+
+/* 错误重试 - 红色边框 */
+#actionButtonPrimary[type="error"] {
+    background-color: white;
+    color: #F5222D;
+    border: 1px solid #F5222D;
+}
+#actionButtonPrimary[type="error"]:hover {
+    background-color: #FFF1F0;
+}
+
+/* 危险/错误 - 红色填充 */
+#actionButtonPrimary[type="danger"] {
+    background-color: #DC2626;
+    color: white;
+    border: none;
+}
+#actionButtonPrimary[type="danger"]:hover {
+    background-color: #B91C1C;
+}
+#actionButtonPrimary[type="danger"]:pressed {
+    background-color: #991B1B;
+}
+
+/* 警告 - 橙色填充 */
+#actionButtonPrimary[type="warning"] {
+    background-color: #F59E0B;
+    color: white;
+    border: none;
+}
+#actionButtonPrimary[type="warning"]:hover {
+    background-color: #D97706;
+}
+#actionButtonPrimary[type="warning"]:pressed {
+    background-color: #B45309;
+}
+
+/* 完成 - 绿色图标区域 */
+#successIconBox {
+    background-color: #00C853;
+    border-radius: 16px;
+}

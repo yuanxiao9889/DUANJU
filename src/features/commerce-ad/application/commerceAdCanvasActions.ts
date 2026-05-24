@@ -6,14 +6,16 @@ import {
   type CommerceBriefNodeData,
   type CommerceProductNodeData,
   type CommerceResultGroupNodeData,
+  type CommerceVisualPreferenceNodeData,
 } from '@/features/canvas/domain/canvasNodes';
 import type { CommerceAdAgentAction } from '@/features/commerce-ad/types';
 
 const STAGE_LAYOUT = {
   product: { x: 0, y: 0 },
   brief: { x: 420, y: 0 },
-  batch: { x: 840, y: 0 },
-  results: { x: 1260, y: 0 },
+  visualPreference: { x: 840, y: 0 },
+  batch: { x: 1260, y: 0 },
+  results: { x: 1680, y: 0 },
 } as const;
 
 export interface CommerceAdCanvasActionsContext {
@@ -61,6 +63,7 @@ export function applyCommerceAdAgentActions(
 ): string | null {
   let productId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceProduct)?.id ?? null;
   let briefId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceBrief)?.id ?? null;
+  let visualPreferenceId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceVisualPreference)?.id ?? null;
   let batchId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceBatchGenerate)?.id ?? null;
   let resultId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceResultGroup)?.id ?? null;
   let lastTouchedId: string | null = null;
@@ -87,6 +90,18 @@ export function applyCommerceAdAgentActions(
       lastTouchedId = briefId;
     }
 
+    if (action.type === 'upsertVisualPreference') {
+      visualPreferenceId = ensureStageNode(
+        context,
+        CANVAS_NODE_TYPES.commerceVisualPreference,
+        STAGE_LAYOUT.visualPreference,
+        action.data as Partial<CommerceVisualPreferenceNodeData>
+      );
+      ensureEdge(context, productId, briefId);
+      ensureEdge(context, briefId, visualPreferenceId);
+      lastTouchedId = visualPreferenceId;
+    }
+
     if (action.type === 'upsertBatchGenerate') {
       batchId = ensureStageNode(
         context,
@@ -95,7 +110,8 @@ export function applyCommerceAdAgentActions(
         action.data as Partial<CommerceBatchGenerateNodeData>
       );
       ensureEdge(context, productId, briefId);
-      ensureEdge(context, briefId, batchId);
+      ensureEdge(context, briefId, visualPreferenceId);
+      ensureEdge(context, visualPreferenceId ?? briefId, batchId);
       lastTouchedId = batchId;
     }
 
@@ -106,7 +122,8 @@ export function applyCommerceAdAgentActions(
         STAGE_LAYOUT.results,
         action.data as Partial<CommerceResultGroupNodeData>
       );
-      ensureEdge(context, briefId, batchId);
+      ensureEdge(context, briefId, visualPreferenceId);
+      ensureEdge(context, visualPreferenceId ?? briefId, batchId);
       ensureEdge(context, batchId, resultId);
       lastTouchedId = resultId;
     }

@@ -1,0 +1,58 @@
+/* 启动页面样式 - 亮色主题 */
+
+/* 启动页面容器 */
+QWidget#splashContainer {
+    background: #ffffff;
+}
+
+/* 启动页面标题 - 紫色渐变 */
+QLabel#splashTitle {
+    color: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 {{PRIMARY_COLOR}},
+        stop:1 {{PRIMARY_LIGHT}}
+    );
+    font-size: 28px;
+    font-weight: bold;
+}
+
+/* 启动页面副标题 - 灰色 */
+QLabel#splashSubtitle {
+    color: #6b7280;
+}
+
+/* 启动页面进度条 */
+QProgressBar#splashProgress {
+    background-color: #f3f4f6;
+    border-radius: 4px;
+    border: none;
+}
+
+QProgressBar#splashProgress::chunk {
+    background: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 {{PRIMARY_COLOR}},
+        stop:1 {{PRIMARY_LIGHT}}
+    );
+    border-radius: 4px;
+}
+
+/* 启动页面状态文本 */
+QLabel#splashStatus {
+    color: #9ca3af;
+}
+
+/* 启动页面版本信息 */
+QLabel#splashVersion {
+    color: #d1d5db;
+}
+
+/* 启动页面Logo容器背景 */
+QWidget#splashLogoContainer {
+    background: qlineargradient(
+        x1:0, y1:0, x2:1, y2:1,
+        stop:0 {{LOGO_BACKGROUND_LIGHT}},
+        stop:1 {{ULTRA_LIGHT_PURPLE}}
+    );
+    border-radius: 30px;
+}

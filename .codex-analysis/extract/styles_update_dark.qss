@@ -1,0 +1,238 @@
+/* AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
+ * Source: styles/templates/variant_update_dark.qss.template
+ * Regenerate: python scripts/sync_qss_from_templates.py
+ */
+
+/* ============================================
+   更新对话框样式 (Dark)
+   ============================================ */
+
+/* 主窗口 */
+#UpdateDialog {
+    background-color: #2B2B2B;
+    border-radius: 16px;
+    border: 1px solid #3D3D3D;
+}
+
+/* 标题栏 */
+#titleBar {
+    background-color: transparent;
+}
+#titleIcon {
+    border-radius: 12px;
+}
+#titleLabel {
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Source Han Sans CN";
+    font-size: 20px;
+    font-weight: bold;
+    color: #FFFFFF;
+}
+#closeButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    color: #AAAAAA;
+    font-size: 16px;
+}
+#closeButton:hover {
+    background-color: #3D3D3D;
+    color: #FFFFFF;
+    border-radius: 4px;
+}
+
+/* 版本信息区 */
+#versionInfoContainer {
+    background-color: transparent;
+}
+#versionLabelTitle {
+    color: #AAAAAA;
+    font-size: 15px;
+}
+#versionLabelValue {
+    color: #FFFFFF;
+    font-size: 18px;
+    font-weight: 500;
+}
+#newVersionValue {
+    color: #fd952d;
+    font-size: 18px;
+    font-weight: bold;
+}
+#majorVersionValue {
+    color: #FF9C4D; /* Lighter Orange for Dark Mode */
+    font-size: 18px;
+    font-weight: bold;
+}
+
+/* 内容区域容器 */
+#contentBox {
+    background-color: #363636;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+/* 详情标签样式 */
+#detailTitle {
+    color: #AAAAAA;
+    font-size: 16px;
+}
+#detailValue {
+    color: #FFFFFF;
+    font-size: 18px;
+    font-weight: 500;
+}
+#percentLabel {
+    color: #fd952d;
+    font-size: 16px;
+    font-weight: bold;
+}
+
+/* 更新日志 */
+#changelogList {
+    background-color: transparent;
+    border: none;
+    font-size: 16px;
+    color: #E0E0E0;
+    line-height: 26px;
+}
+
+/* 警告框 (大版本更新/错误) */
+#warningBox {
+    background-color: #4A3B2A; /* Dark Orange tint */
+    border: 1px solid #875F30;
+    border-radius: 8px;
+    padding: 12px;
+}
+#warningLabel {
+    color: #FFBB96;
+    font-size: 15px;
+    line-height: 22px;
+}
+
+#errorBox {
+    background-color: #4A2A2A; /* Dark Red tint */
+    border: 1px solid #873030;
+    border-radius: 8px;
+    padding: 24px;
+}
+#errorLabel {
+    color: #FF7875;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+/* 进度条 */
+QProgressBar#progressBar {
+    background-color: #333333;
+    border: none;
+    border-radius: 2px;
+    min-height: 4px;
+    max-height: 4px;
+}
+QProgressBar#progressBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e83ed5, stop:1 #fd952d);
+    border-radius: 2px;
+}
+
+/* 下载详情文本 */
+#downloadDetailLabel {
+    color: #AAAAAA;
+    font-size: 15px;
+}
+#downloadValueLabel {
+    color: #FFFFFF;
+    font-size: 17px;
+    font-weight: 500;
+}
+
+/* 底部按钮 */
+#actionButtonPrimary {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e83ed5, stop:1 #fd952d);
+    color: white;
+    border: none;
+    border-radius: 18px;
+    min-height: 36px;
+    max-height: 36px;
+    padding: 0 24px;
+    font-size: 16px;
+    font-weight: bold;
+}
+#actionButtonPrimary:hover {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #ed58dc, stop:1 #fda553);
+}
+#actionButtonPrimary:pressed {
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #d936c3, stop:1 #f1871f);
+}
+
+#actionButtonSecondary {
+    background-color: transparent;
+    color: #CCCCCC;
+    border: 1px solid #555555;
+    border-radius: 18px;
+    min-height: 36px;
+    max-height: 36px;
+    padding: 0 24px;
+    font-size: 16px;
+}
+#actionButtonSecondary:hover {
+    border-color: #777777;
+    color: #FFFFFF;
+    background-color: #3D3D3D;
+}
+
+/* 特殊状态按钮颜色覆盖 */
+
+/* 成功/完成 - 绿色 (更新就绪、已是最新) */
+#actionButtonPrimary[type="success"] {
+    background-color: #00C853;
+    color: white;
+    border: none;
+}
+#actionButtonPrimary[type="success"]:hover {
+    background-color: #00B248;
+}
+#actionButtonPrimary[type="success"]:pressed {
+    background-color: #009624;
+}
+
+/* 错误重试 - 红色边框 */
+#actionButtonPrimary[type="error"] {
+    background-color: transparent;
+    color: #FF7875;
+    border: 1px solid #FF7875;
+}
+#actionButtonPrimary[type="error"]:hover {
+    background-color: #4A2A2A;
+}
+
+/* 危险/错误 - 红色填充 */
+#actionButtonPrimary[type="danger"] {
+    background-color: #DC2626;
+    color: white;
+    border: none;
+}
+#actionButtonPrimary[type="danger"]:hover {
+    background-color: #B91C1C;
+}
+#actionButtonPrimary[type="danger"]:pressed {
+    background-color: #991B1B;
+}
+
+/* 警告 - 橙色填充 */
+#actionButtonPrimary[type="warning"] {
+    background-color: #F59E0B;
+    color: white;
+    border: none;
+}
+#actionButtonPrimary[type="warning"]:hover {
+    background-color: #D97706;
+}
+#actionButtonPrimary[type="warning"]:pressed {
+    background-color: #B45309;
+}
+
+/* 完成 - 绿色图标区域 */
+#successIconBox {
+    background-color: #00C853;
+    border-radius: 16px;
+}

@@ -214,6 +214,7 @@ fn should_persist_asset_path(images_dir: &Path, value: &str) -> bool {
 fn asset_media_context(media_type: &str, role: Option<&str>) -> storage::MediaPersistContext {
     storage::MediaPersistContext {
         project_id: None,
+        project_name: None,
         media_type: Some(media_type.to_string()),
         role: role.map(str::to_string),
     }

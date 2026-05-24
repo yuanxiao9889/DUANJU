@@ -10,7 +10,7 @@ import {
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   Aperture,
@@ -34,6 +34,8 @@ import {
   Maximize2,
   Move3D,
   Package,
+  Play,
+  Radio,
   Rotate3D,
   Save,
   Scale3D,
@@ -52,6 +54,9 @@ import { useTranslation } from 'react-i18next';
 import { UiButton, UiInput, UiSelect } from '@/components/ui';
 import type { DirectorStageNodeData } from '@/features/canvas/domain/canvasNodes';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
+import { prepareNodeVideoFromSource } from '@/features/canvas/application/videoData';
+import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
+import { transcodeDirectorStageRecordingToMp4 } from '@/commands/directorStage';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
@@ -68,6 +73,8 @@ import { DirectorStageNumberInput } from './DirectorStageNumberInput';
 import {
   createStageVector3,
   clampDirectorStageScale,
+  DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS,
+  DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE,
   DIRECTOR_STAGE_LIMB_POSE_KEYS,
   DIRECTOR_STAGE_LIMB_ROTATION_MAX,
   DIRECTOR_STAGE_LIMB_ROTATION_MIN,
@@ -78,6 +85,8 @@ import {
   DIRECTOR_STAGE_SNAPSHOT_ASPECT_RATIOS,
   normalizeDirectorStageProject,
   type DirectorStageBuiltInAsset,
+  type DirectorStageCameraKeyframe,
+  type DirectorStageCameraPath,
   type DirectorStageCameraShot,
   type DirectorStageConnectedEnvironment,
   type DirectorStageCrowdGroup,
@@ -114,9 +123,18 @@ import {
   DIRECTOR_STAGE_FOCAL_LENGTH_MIN,
   DIRECTOR_STAGE_FOCAL_LENGTH_PRESETS,
   focalLengthToFov,
+  fovToFocalLength,
   frameObjectInCamera,
   readCameraShot,
 } from '../engine/cameraManager';
+import {
+  applyCameraPathKeyframe,
+  calculateDirectorStageRecordingSize,
+  createDirectorStageCameraPath,
+  readCameraPathKeyframe,
+  resolveDirectorStageRecordingMimeType,
+  sampleDirectorStageCameraPath,
+} from '../engine/cameraPath';
 import { buildDirectorStageLight, disposeDirectorStageLightObject } from '../engine/lightManager';
 import {
   calculateDirectorStageSnapshotFrame,
@@ -196,6 +214,18 @@ interface CameraLensPanelState {
   top: number;
 }
 
+interface CameraPathRecordingState {
+  shotId: string;
+  startedAt: number;
+  elapsedMs: number;
+}
+
+interface CameraPathPlaybackState {
+  shotId: string;
+  startedAt: number;
+  durationMs: number;
+}
+
 const DIRECTOR_STAGE_CROWD_RENDER_STRATEGY_VERSION = 'static-full-v2';
 const DIRECTOR_STAGE_MODEL_LIBRARY_URL = 'https://sketchfab.com/feed';
 const DIRECTOR_STAGE_USER_POSE_PRESET_PREFIX = 'asset:';
@@ -210,6 +240,7 @@ const DIRECTOR_STAGE_GROUND_GRID_SHORTCUT = 'G';
 const DIRECTOR_STAGE_GROUND_SAMPLE_SIZE = 32;
 const CAMERA_LENS_PANEL_WIDTH = 260;
 const CAMERA_LENS_PANEL_HEIGHT = 206;
+const DIRECTOR_STAGE_RECORDING_PREVIEW_UPDATE_MS = 80;
 
 const SNAPSHOT_ASPECT_RATIO_LABEL_KEYS: Record<DirectorStageSnapshotAspectRatio, string> = {
   '16:9': 'directorStage.snapshot.ratios.r16x9',
@@ -565,6 +596,18 @@ function cameraShotFocalLengthValue(shot: DirectorStageCameraShot): number {
   return clampDirectorStageFocalLength(shot.focalLengthMm);
 }
 
+function cameraPathDurationSeconds(cameraPath: DirectorStageCameraPath): string {
+  return (Math.max(0, cameraPath.durationMs) / 1000).toFixed(1);
+}
+
+function sanitizeRecordingFileName(name: string): string {
+  const sanitized = name
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '')
+    .trim()
+    .replace(/[. ]+$/g, '');
+  return `${sanitized || 'director-stage-recording'}.mp4`;
+}
+
 function resolveCameraLensPanelPosition(rect: DOMRect): Omit<CameraLensPanelState, 'shotId'> {
   const margin = 12;
   const left = Math.max(
@@ -719,6 +762,42 @@ function buildCameraShotMarker(shot: DirectorStageCameraShot, isActive: boolean)
   targetDot.position.set(0, 0, -distance);
   targetDot.userData.cameraShotId = shot.id;
   marker.add(targetDot);
+
+  if (shot.cameraPath?.keyframes.length) {
+    const pathPoints = shot.cameraPath.keyframes.map(
+      (keyframe) => new THREE.Vector3(
+        keyframe.position.x - shot.position.x,
+        keyframe.position.y - shot.position.y,
+        keyframe.position.z - shot.position.z
+      )
+    );
+    if (pathPoints.length >= 2) {
+      const pathLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(pathPoints),
+        new THREE.LineBasicMaterial({
+          color: 0xfbbf24,
+          transparent: true,
+          opacity: isActive ? 0.82 : 0.48,
+        })
+      );
+      pathLine.raycast = () => undefined;
+      marker.add(pathLine);
+
+      const endPoint = pathPoints[pathPoints.length - 1];
+      const endDot = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06, 12, 12),
+        new THREE.MeshStandardMaterial({
+          color: 0xfbbf24,
+          emissive: 0xf59e0b,
+          emissiveIntensity: 0.45,
+          roughness: 0.5,
+        })
+      );
+      endDot.position.copy(endPoint);
+      endDot.userData.cameraShotId = shot.id;
+      marker.add(endDot);
+    }
+  }
   return marker;
 }
 
@@ -753,6 +832,7 @@ export function DirectorStageWorkspace({
   const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addDerivedExportNode = useCanvasStore((state) => state.addDerivedExportNode);
+  const addDerivedVideoNode = useCanvasStore((state) => state.addDerivedVideoNode);
   const hydrateAssets = useAssetStore((state) => state.hydrate);
   const libraries = useAssetStore((state) => state.libraries);
   const createLibrary = useAssetStore((state) => state.createLibrary);
@@ -781,6 +861,9 @@ export function DirectorStageWorkspace({
   const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
   const [crowdDialogAsset, setCrowdDialogAsset] = useState<DirectorStageBuiltInAsset | null>(null);
   const [cameraLensPanel, setCameraLensPanel] = useState<CameraLensPanelState | null>(null);
+  const [cameraPathRecording, setCameraPathRecording] = useState<CameraPathRecordingState | null>(null);
+  const [cameraPathPlayback, setCameraPathPlayback] = useState<CameraPathPlaybackState | null>(null);
+  const [exportingCameraPathShotId, setExportingCameraPathShotId] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -803,6 +886,20 @@ export function DirectorStageWorkspace({
   const pendingFrameCrowdGroupIdsRef = useRef(new Set<string>());
   const isScaleLockedRef = useRef(true);
   const isApplyingCameraShotViewRef = useRef(false);
+  const cameraPathRecordingRef = useRef<{
+    shotId: string;
+    startedAt: number;
+    lastSampleAt: number;
+    keyframes: DirectorStageCameraKeyframe[];
+    animationFrame: number;
+    statusTimer: number | null;
+  } | null>(null);
+  const cameraPathPlaybackRef = useRef<{
+    shotId: string;
+    startedAt: number;
+    durationMs: number;
+    animationFrame: number;
+  } | null>(null);
   const isTransformDraggingRef = useRef(false);
   const pendingExternalProjectRef = useRef<DirectorStageProject | null>(null);
   const syncedNodeIdRef = useRef(nodeId);
@@ -875,6 +972,9 @@ export function DirectorStageWorkspace({
     () => project.cameraShots.find((shot) => shot.id === project.activeCameraShotId) ?? null,
     [project.activeCameraShotId, project.cameraShots]
   );
+  const resolveCameraShotDisplayName = useCallback((shot: DirectorStageCameraShot): string => {
+    return shot.name === 'Shot 1' ? t('directorStage.camera.defaultShotName') : shot.name;
+  }, [t]);
   const cameraLensPanelShot = useMemo(
     () => cameraLensPanel
       ? project.cameraShots.find((shot) => shot.id === cameraLensPanel.shotId) ?? null
@@ -937,6 +1037,9 @@ export function DirectorStageWorkspace({
       height: frame.height,
     };
   }, [project.snapshot.aspectRatio, project.snapshot.showMask, viewportSize]);
+  const cameraPathRecordingProgress = cameraPathRecording
+    ? Math.max(0, Math.min(1, cameraPathRecording.elapsedMs / DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS))
+    : 0;
 
   const commitProject = useCallback((
     nextProject: DirectorStageProject,
@@ -1004,6 +1107,192 @@ export function DirectorStageWorkspace({
     return true;
   }, []);
 
+  const stopCameraPathPlayback = useCallback(() => {
+    const playback = cameraPathPlaybackRef.current;
+    if (!playback) {
+      return;
+    }
+    window.cancelAnimationFrame(playback.animationFrame);
+    cameraPathPlaybackRef.current = null;
+    setCameraPathPlayback(null);
+    isApplyingCameraShotViewRef.current = false;
+    const orbit = orbitRef.current;
+    if (orbit) {
+      orbit.enabled = !isTransformDraggingRef.current;
+    }
+  }, []);
+
+  const commitCameraPathRecording = useCallback((recording: NonNullable<typeof cameraPathRecordingRef.current>) => {
+    const cameraPath = createDirectorStageCameraPath(
+      recording.keyframes,
+      performance.now() - recording.startedAt
+    );
+    const current = projectRef.current;
+    const shot = current.cameraShots.find((item) => item.id === recording.shotId);
+    if (!shot || !cameraPath) {
+      isApplyingCameraShotViewRef.current = false;
+      setStatusText(t('directorStage.camera.recordingTooShort'));
+      return;
+    }
+    const firstKeyframe = cameraPath.keyframes[0];
+    const nextShot: DirectorStageCameraShot = {
+      ...shot,
+      position: firstKeyframe.position,
+      target: firstKeyframe.target,
+      fov: firstKeyframe.fov,
+      focalLengthMm: fovToFocalLength(firstKeyframe.fov),
+      cameraPath,
+      updatedAt: Date.now(),
+    };
+    commitProjectRef.current({
+      ...current,
+      cameraShots: current.cameraShots.map((item) => (item.id === shot.id ? nextShot : item)),
+      activeCameraShotId: shot.id,
+      isFreeView: false,
+      updatedAt: Date.now(),
+    });
+    applyCameraShotToView(nextShot);
+    setStatusText(t('directorStage.camera.recordingSaved', {
+      seconds: cameraPathDurationSeconds(cameraPath),
+    }));
+  }, [applyCameraShotToView, t]);
+
+  const stopCameraPathRecording = useCallback((shouldCommit = true) => {
+    const recording = cameraPathRecordingRef.current;
+    if (!recording) {
+      return;
+    }
+    window.cancelAnimationFrame(recording.animationFrame);
+    if (recording.statusTimer !== null) {
+      window.clearInterval(recording.statusTimer);
+    }
+    cameraPathRecordingRef.current = null;
+    setCameraPathRecording(null);
+    const orbit = orbitRef.current;
+    if (orbit) {
+      orbit.enabled = !isTransformDraggingRef.current;
+    }
+    if (shouldCommit) {
+      commitCameraPathRecording(recording);
+    } else {
+      isApplyingCameraShotViewRef.current = false;
+    }
+  }, [commitCameraPathRecording]);
+
+  const startCameraPathRecording = useCallback((shot: DirectorStageCameraShot) => {
+    const camera = cameraRef.current;
+    const orbit = orbitRef.current;
+    if (!camera || !orbit) {
+      return;
+    }
+    stopCameraPathPlayback();
+    stopCameraPathRecording(false);
+    applyCameraShotToView(shot);
+    isApplyingCameraShotViewRef.current = true;
+    orbit.enabled = true;
+    const startedAt = performance.now();
+    const firstKeyframe = readCameraPathKeyframe(camera, orbit.target, 0);
+    const recording = {
+      shotId: shot.id,
+      startedAt,
+      lastSampleAt: startedAt,
+      keyframes: [firstKeyframe],
+      animationFrame: 0,
+      statusTimer: null as number | null,
+    };
+
+    const sampleFrame = () => {
+      const currentRecording = cameraPathRecordingRef.current;
+      if (!currentRecording || currentRecording.shotId !== shot.id) {
+        return;
+      }
+      const now = performance.now();
+      const elapsedMs = Math.min(DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS, now - currentRecording.startedAt);
+      const sampleIntervalMs = 1000 / DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE;
+      if (now - currentRecording.lastSampleAt >= sampleIntervalMs || elapsedMs >= DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS) {
+        currentRecording.keyframes.push(readCameraPathKeyframe(camera, orbit.target, elapsedMs));
+        currentRecording.lastSampleAt = now;
+      }
+      requestRenderRef.current(120);
+      if (elapsedMs >= DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS) {
+        stopCameraPathRecording(true);
+        return;
+      }
+      currentRecording.animationFrame = window.requestAnimationFrame(sampleFrame);
+    };
+
+    recording.statusTimer = window.setInterval(() => {
+      const currentRecording = cameraPathRecordingRef.current;
+      if (!currentRecording) {
+        return;
+      }
+      setCameraPathRecording({
+        shotId: currentRecording.shotId,
+        startedAt: currentRecording.startedAt,
+        elapsedMs: Math.min(
+          DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS,
+          performance.now() - currentRecording.startedAt
+        ),
+      });
+    }, DIRECTOR_STAGE_RECORDING_PREVIEW_UPDATE_MS);
+    cameraPathRecordingRef.current = recording;
+    setCameraPathRecording({ shotId: shot.id, startedAt, elapsedMs: 0 });
+    setStatusText(t('directorStage.camera.recordingStarted'));
+    recording.animationFrame = window.requestAnimationFrame(sampleFrame);
+  }, [applyCameraShotToView, stopCameraPathPlayback, stopCameraPathRecording, t]);
+
+  const playCameraPath = useCallback((shot: DirectorStageCameraShot) => {
+    if (!shot.cameraPath) {
+      return;
+    }
+    const camera = cameraRef.current;
+    const orbit = orbitRef.current;
+    if (!camera || !orbit) {
+      return;
+    }
+    stopCameraPathRecording(false);
+    stopCameraPathPlayback();
+    isApplyingCameraShotViewRef.current = true;
+    orbit.enabled = false;
+    const startedAt = performance.now();
+    const playback = {
+      shotId: shot.id,
+      startedAt,
+      durationMs: shot.cameraPath.durationMs,
+      animationFrame: 0,
+    };
+
+    const runFrame = () => {
+      const currentPlayback = cameraPathPlaybackRef.current;
+      if (!currentPlayback || currentPlayback.shotId !== shot.id || !shot.cameraPath) {
+        return;
+      }
+      const elapsedMs = Math.min(shot.cameraPath.durationMs, performance.now() - currentPlayback.startedAt);
+      applyCameraPathKeyframe(
+        camera,
+        orbit.target,
+        sampleDirectorStageCameraPath(shot.cameraPath, elapsedMs)
+      );
+      orbit.update();
+      requestRenderRef.current();
+      setCameraPathPlayback({
+        shotId: shot.id,
+        startedAt: currentPlayback.startedAt,
+        durationMs: currentPlayback.durationMs,
+      });
+      if (elapsedMs >= shot.cameraPath.durationMs) {
+        isApplyingCameraShotViewRef.current = false;
+        stopCameraPathPlayback();
+        return;
+      }
+      currentPlayback.animationFrame = window.requestAnimationFrame(runFrame);
+    };
+
+    cameraPathPlaybackRef.current = playback;
+    setCameraPathPlayback(playback);
+    runFrame();
+  }, [stopCameraPathPlayback, stopCameraPathRecording]);
+
   const commitActiveCameraShotFromView = useCallback((): boolean => {
     if (isApplyingCameraShotViewRef.current) {
       return false;
@@ -1031,6 +1320,10 @@ export function DirectorStageWorkspace({
       return false;
     }
 
+    const preservedPath = activeShot.cameraPath;
+    if (preservedPath) {
+      (nextShot as DirectorStageCameraShot).cameraPath = preservedPath;
+    }
     cameraViewBindingRef.current = {
       shotId: activeShot.id,
       isFreeView: false,
@@ -1351,7 +1644,12 @@ export function DirectorStageWorkspace({
 
     let cameraShotCommitTimer: number | null = null;
     const scheduleActiveCameraShotCommit = () => {
-      if (isApplyingCameraShotViewRef.current || projectRef.current.isFreeView) {
+      if (
+        isApplyingCameraShotViewRef.current
+        || cameraPathRecordingRef.current
+        || cameraPathPlaybackRef.current
+        || projectRef.current.isFreeView
+      ) {
         return;
       }
       if (cameraShotCommitTimer !== null) {
@@ -2839,6 +3137,13 @@ export function DirectorStageWorkspace({
     return () => window.removeEventListener('keydown', handleStageShortcut);
   }, [frameSelectedEntityInView, setTransformMode, toggleGroundGrid]);
 
+  useEffect(() => {
+    return () => {
+      stopCameraPathRecording(false);
+      stopCameraPathPlayback();
+    };
+  }, [stopCameraPathPlayback, stopCameraPathRecording]);
+
   const addLight = useCallback((kind: DirectorStageLight['kind']) => {
     const now = Date.now();
     const light: DirectorStageLight = {
@@ -3035,6 +3340,24 @@ export function DirectorStageWorkspace({
     });
   }, [applyCameraShotToView, commitActiveCameraShotFromView, patchProject]);
 
+  const clearCameraPath = useCallback((shotId: string) => {
+    stopCameraPathRecording(false);
+    stopCameraPathPlayback();
+    const current = projectRef.current;
+    const shot = current.cameraShots.find((item) => item.id === shotId);
+    if (!shot?.cameraPath) {
+      return;
+    }
+    const nextShot: DirectorStageCameraShot = {
+      ...shot,
+      cameraPath: undefined,
+      updatedAt: Date.now(),
+    };
+    patchProject({
+      cameraShots: current.cameraShots.map((item) => (item.id === shotId ? nextShot : item)),
+    });
+  }, [patchProject, stopCameraPathPlayback, stopCameraPathRecording]);
+
   const openCameraLensPanel = useCallback((
     shotId: string,
     event: ReactMouseEvent<HTMLButtonElement>
@@ -3173,6 +3496,179 @@ export function DirectorStageWorkspace({
     }
   }, [addDerivedExportNode, isCapturing, nodeId, t, updateNodeData]);
 
+  const renderCameraPathToWebm = useCallback(async (
+    cameraPath: DirectorStageCameraPath,
+    aspectRatio: DirectorStageSnapshotAspectRatio
+  ): Promise<Uint8Array> => {
+    const scene = sceneRef.current;
+    const sourceCamera = cameraRef.current;
+    if (!scene || !sourceCamera) {
+      throw new Error('Director stage scene is not ready');
+    }
+    if (typeof MediaRecorder === 'undefined') {
+      throw new Error('MediaRecorder is not supported in this runtime');
+    }
+
+    const size = calculateDirectorStageRecordingSize(aspectRatio);
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: false,
+      preserveDrawingBuffer: true,
+    });
+    renderer.setClearColor(0x15171b, 1);
+    renderer.setPixelRatio(1);
+    renderer.setSize(size.width, size.height, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+
+    const exportCamera = sourceCamera.clone() as THREE.PerspectiveCamera;
+    exportCamera.aspect = size.width / size.height;
+    exportCamera.updateProjectionMatrix();
+    const exportTarget = new THREE.Vector3();
+    const hiddenObjects: THREE.Object3D[] = [];
+    const transformHelper = transformRef.current?.getHelper();
+    if (transformHelper) {
+      hiddenObjects.push(transformHelper);
+    }
+    if (cameraShotGroupRef.current) {
+      hiddenObjects.push(cameraShotGroupRef.current);
+    }
+    const previousVisibility = hiddenObjects.map((object) => ({
+      object,
+      visible: object.visible,
+    }));
+    hiddenObjects.forEach((object) => {
+      object.visible = false;
+    });
+
+    const stream = renderer.domElement.captureStream(DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE);
+    const chunks: Blob[] = [];
+    const recorder = new MediaRecorder(stream, {
+      mimeType: resolveDirectorStageRecordingMimeType(),
+      videoBitsPerSecond: 6_000_000,
+    });
+
+    try {
+      scene.updateMatrixWorld(true);
+      const recorderDone = new Promise<Blob>((resolve, reject) => {
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            chunks.push(event.data);
+          }
+        };
+        recorder.onerror = () => reject(new Error('Failed to record director stage video'));
+        recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+      });
+
+      recorder.start();
+      const startedAt = performance.now();
+      const frameInterval = 1000 / DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE;
+      await new Promise<void>((resolve) => {
+        const renderNextFrame = () => {
+          const elapsedMs = Math.min(cameraPath.durationMs, performance.now() - startedAt);
+          applyCameraPathKeyframe(
+            exportCamera,
+            exportTarget,
+            sampleDirectorStageCameraPath(cameraPath, elapsedMs)
+          );
+          renderer.render(scene, exportCamera);
+          if (elapsedMs >= cameraPath.durationMs) {
+            resolve();
+            return;
+          }
+          window.setTimeout(renderNextFrame, frameInterval);
+        };
+        renderNextFrame();
+      });
+
+      recorder.stop();
+      const blob = await recorderDone;
+      return new Uint8Array(await blob.arrayBuffer());
+    } finally {
+      stream.getTracks().forEach((track) => track.stop());
+      previousVisibility.forEach(({ object, visible }) => {
+        object.visible = visible;
+      });
+      renderer.dispose();
+      requestRenderRef.current();
+    }
+  }, []);
+
+  const exportCameraPathVideo = useCallback(async (shot: DirectorStageCameraShot) => {
+    if (!shot.cameraPath || exportingCameraPathShotId) {
+      return;
+    }
+    stopCameraPathRecording(false);
+    stopCameraPathPlayback();
+    const defaultFileName = sanitizeRecordingFileName(resolveCameraShotDisplayName(shot));
+    const outputPath = await save({
+      defaultPath: defaultFileName,
+      filters: [
+        {
+          name: 'MP4',
+          extensions: ['mp4'],
+        },
+      ],
+    });
+    if (!outputPath) {
+      return;
+    }
+
+    setExportingCameraPathShotId(shot.id);
+    setStatusText(t('directorStage.camera.exporting'));
+    try {
+      const webmBytes = await renderCameraPathToWebm(
+        shot.cameraPath,
+        projectRef.current.snapshot.aspectRatio
+      );
+      const result = await transcodeDirectorStageRecordingToMp4({
+        webmBytes,
+        outputPath,
+        outputFileName: defaultFileName,
+        mediaContext: createCurrentProjectMediaContext('video'),
+      });
+      const recordingSize = calculateDirectorStageRecordingSize(projectRef.current.snapshot.aspectRatio);
+      const preparedVideo = await prepareNodeVideoFromSource(
+        result.videoUrl,
+        createCurrentProjectMediaContext('video')
+      ).catch(() => ({
+        videoUrl: result.videoUrl,
+        previewImageUrl: null,
+        aspectRatio: recordingSize.aspectRatioText,
+        duration: shot.cameraPath ? shot.cameraPath.durationMs / 1000 : 0,
+      }));
+      addDerivedVideoNode(
+        nodeId,
+        preparedVideo.videoUrl,
+        preparedVideo.previewImageUrl,
+        preparedVideo.aspectRatio,
+        preparedVideo.duration,
+        {
+          defaultTitle: t('directorStage.camera.recordingNodeTitle', {
+            name: resolveCameraShotDisplayName(shot),
+          }),
+          videoFileName: result.outputFileName,
+          connectToSource: true,
+        }
+      );
+      setStatusText(t('directorStage.camera.exported'));
+    } catch (error) {
+      console.error('Failed to export director stage camera recording', error);
+      setStatusText(t('directorStage.camera.exportFailed'));
+    } finally {
+      setExportingCameraPathShotId(null);
+    }
+  }, [
+    addDerivedVideoNode,
+    exportingCameraPathShotId,
+    nodeId,
+    renderCameraPathToWebm,
+    stopCameraPathPlayback,
+    stopCameraPathRecording,
+    t,
+  ]);
+
   const compatiblePosePresets = selectedEntity
     ? [
         ...DIRECTOR_STAGE_BUILT_IN_POSE_PRESETS
@@ -3186,9 +3682,6 @@ export function DirectorStageWorkspace({
     : [];
   const showPoseControls = Boolean(selectedEntity && selectedEntity.source !== 'geometry');
   const selectedObjectTransform = selectedCrowdGroup?.transform ?? selectedEntity?.transform ?? null;
-  const resolveCameraShotDisplayName = useCallback((shot: DirectorStageCameraShot): string => {
-    return shot.name === 'Shot 1' ? t('directorStage.camera.defaultShotName') : shot.name;
-  }, [t]);
   const resolveLightDisplayName = useCallback((light: DirectorStageLight): string => {
     if (light.id === 'light-ambient' && light.name === 'Ambient') {
       return t('directorStage.lightKinds.ambient');
@@ -3579,10 +4072,17 @@ export function DirectorStageWorkspace({
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold">{t('directorStage.title')}</div>
             <div className="truncate text-xs text-white/48">
-              {t('directorStage.headerMeta', {
-                objects: visibleObjectItems.length,
-                shots: project.cameraShots.length,
-              })}
+              {cameraPathRecording
+                ? t('directorStage.camera.recordingStatus', {
+                    seconds: (cameraPathRecording.elapsedMs / 1000).toFixed(1),
+                    max: DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS / 1000,
+                  })
+                : cameraPathPlayback
+                  ? t('directorStage.camera.playingStatus')
+                  : t('directorStage.headerMeta', {
+                      objects: visibleObjectItems.length,
+                      shots: project.cameraShots.length,
+                    })}
             </div>
           </div>
         </div>
@@ -3950,6 +4450,20 @@ export function DirectorStageWorkspace({
 
         <section className="relative min-h-0 overflow-hidden bg-[#101114]">
           <div ref={containerRef} className="absolute inset-0" />
+          {cameraPathRecording ? (
+            <div className="pointer-events-none absolute left-1/2 top-4 z-30 w-[280px] -translate-x-1/2 rounded-md border border-red-300/25 bg-red-950/70 px-3 py-2 shadow-xl shadow-black/35 backdrop-blur">
+              <div className="flex items-center justify-between text-xs text-red-50">
+                <span>{t('directorStage.camera.recording')}</span>
+                <span className="font-mono">{(cameraPathRecording.elapsedMs / 1000).toFixed(1)}s</span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/12">
+                <div
+                  className="h-full rounded-full bg-red-300"
+                  style={{ width: `${Math.round(cameraPathRecordingProgress * 100)}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
           {snapshotFrameStyle ? (
             <div
               className="pointer-events-none absolute z-10 border border-emerald-200/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.46)] ring-1 ring-black/35"
@@ -4481,11 +4995,15 @@ export function DirectorStageWorkspace({
               const isActiveShot = !project.isFreeView && project.activeCameraShotId === shot.id;
               const canDeleteShot = project.cameraShots.length > 1;
               const isLensPanelOpen = cameraLensPanel?.shotId === shot.id;
+              const isRecordingShot = cameraPathRecording?.shotId === shot.id;
+              const isPlayingShot = cameraPathPlayback?.shotId === shot.id;
+              const isExportingShot = exportingCameraPathShotId === shot.id;
+              const hasCameraPath = Boolean(shot.cameraPath);
               const focalLength = cameraShotFocalLengthValue(shot);
               return (
                 <div
                   key={shot.id}
-                  className={`group flex min-w-[172px] items-start rounded-md border transition-colors ${
+                  className={`group flex min-w-[220px] items-start rounded-md border transition-colors ${
                     isActiveShot
                       ? 'border-emerald-300/50 bg-emerald-300/10 text-white'
                       : 'border-white/10 bg-white/[0.035] text-white/58 hover:text-white'
@@ -4504,8 +5022,88 @@ export function DirectorStageWorkspace({
                       })}
                     </div>
                     <div className="mt-0.5 truncate text-[10px] text-white/32">
-                      {cameraShotPositionSummary(shot)}
+                      {shot.cameraPath
+                        ? t('directorStage.camera.pathSummary', {
+                            seconds: cameraPathDurationSeconds(shot.cameraPath),
+                          })
+                        : cameraShotPositionSummary(shot)}
                     </div>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(cameraPathRecording && !isRecordingShot) || Boolean(exportingCameraPathShotId)}
+                    className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/42 transition-colors ${
+                      isRecordingShot
+                        ? 'bg-red-400/18 text-red-100'
+                        : 'hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-35'
+                    }`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (isRecordingShot) {
+                        stopCameraPathRecording(true);
+                      } else {
+                        startCameraPathRecording(shot);
+                      }
+                    }}
+                    title={isRecordingShot
+                      ? t('directorStage.camera.stopRecording')
+                      : t('directorStage.camera.recordPath')}
+                    aria-label={isRecordingShot
+                      ? t('directorStage.camera.stopRecording')
+                      : t('directorStage.camera.recordPath')}
+                  >
+                    <Radio className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!hasCameraPath || Boolean(cameraPathRecording) || Boolean(exportingCameraPathShotId)}
+                    className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/42 transition-colors ${
+                      isPlayingShot
+                        ? 'bg-emerald-300/14 text-emerald-100'
+                        : 'hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-35'
+                    }`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (isPlayingShot) {
+                        stopCameraPathPlayback();
+                      } else {
+                        playCameraPath(shot);
+                      }
+                    }}
+                    title={t('directorStage.camera.playPath')}
+                    aria-label={t('directorStage.camera.playPath')}
+                  >
+                    <Play className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!hasCameraPath || Boolean(cameraPathRecording) || Boolean(exportingCameraPathShotId)}
+                    className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/42 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void exportCameraPathVideo(shot);
+                    }}
+                    title={t('directorStage.camera.exportPath')}
+                    aria-label={t('directorStage.camera.exportPath')}
+                  >
+                    {isExportingShot ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!hasCameraPath || Boolean(cameraPathRecording) || Boolean(exportingCameraPathShotId)}
+                    className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/42 transition-colors hover:bg-red-400/12 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-35"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      clearCameraPath(shot.id);
+                    }}
+                    title={t('directorStage.camera.clearPath')}
+                    aria-label={t('directorStage.camera.clearPath')}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"

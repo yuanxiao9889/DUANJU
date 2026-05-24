@@ -104,6 +104,9 @@ const projectUpsertsInFlight = new Set<string>();
 const graphBackupTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const graphBackupInFlight = new Set<string>();
 const graphWarmupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const graphWarmupsInFlight = new Map<string, number>();
+const backgroundHistoryLoadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const backgroundHistoryLoadsInFlight = new Map<string, number>();
 const queuedViewportUpserts = new Map<string, string>();
 const viewportUpsertTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const viewportUpsertsInFlight = new Set<string>();
@@ -158,6 +161,12 @@ type PersistedProject = Project & {
 
 interface PersistedNodesPayload {
   nodes: CanvasNode[];
+  imagePool?: string[];
+}
+
+interface PersistedHistoryPayload {
+  past: CanvasHistoryState["past"];
+  future: CanvasHistoryState["future"];
   imagePool?: string[];
 }
 
@@ -576,6 +585,16 @@ function encodeProjectForPersistence(project: Project): PersistedProject {
   return encodeProject(nextProject);
 }
 
+function toPersistedHistoryPayload(
+  encodedProject: PersistedProject,
+): PersistedHistoryPayload {
+  return {
+    past: encodedProject.history?.past ?? [],
+    future: encodedProject.history?.future ?? [],
+    imagePool: encodedProject.imagePool ?? [],
+  };
+}
+
 function parsePersistedNodesPayload(value: unknown): PersistedNodesPayload {
   if (Array.isArray(value)) {
     return { nodes: value as CanvasNode[] };
@@ -595,6 +614,48 @@ function parsePersistedNodesPayload(value: unknown): PersistedNodesPayload {
     nodes,
     imagePool,
   };
+}
+
+function hasEncodedImageReferencesInValue(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some(hasEncodedImageReferencesInValue);
+  }
+
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  for (const [key, nestedValue] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (
+      MEDIA_REFERENCE_KEYS.has(key) &&
+      typeof nestedValue === "string" &&
+      nestedValue.startsWith(IMAGE_REF_PREFIX)
+    ) {
+      return true;
+    }
+
+    if (hasEncodedImageReferencesInValue(nestedValue)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function recoverImagePoolFromDecodedNodes(nodes: CanvasNode[]): string[] | undefined {
+  if (hasEncodedImageReferencesInValue(nodes)) {
+    return undefined;
+  }
+
+  const imagePool: string[] = [];
+  const imageIndexMap = new Map<string, number>();
+  const encode = (imageUrl: string | null | undefined) =>
+    encodeImageReference(imageUrl, imagePool, imageIndexMap);
+
+  mapNodeImageReferences(nodes, encode);
+  return imagePool;
 }
 
 function decodeProject(project: PersistedProject): Project {
@@ -736,7 +797,7 @@ export function toProjectRecord(project: Project): ProjectRecord {
     nodesJson: JSON.stringify(persistedNodesPayload),
     edgesJson: JSON.stringify(encodedProject.edges),
     viewportJson: JSON.stringify(encodedProject.viewport),
-    historyJson: JSON.stringify(encodedProject.history),
+    historyJson: JSON.stringify(toPersistedHistoryPayload(encodedProject)),
     colorLabelsJson: JSON.stringify(encodedProject.colorLabels),
     scriptWelcomeSkipped: encodedProject.scriptWelcomeSkipped ?? false,
   };
@@ -752,7 +813,10 @@ export function toProjectRecord(project: Project): ProjectRecord {
   return record;
 }
 
-export function fromProjectRecord(record: ProjectRecord): Project {
+export function fromProjectRecord(
+  record: ProjectRecord,
+  options?: { recoverImagePoolFromDecodedNodes?: boolean },
+): Project {
   const startedAt = performance.now();
   const parsedNodesPayload = parsePersistedNodesPayload(
     safeParseJson<unknown>(record.nodesJson, []),
@@ -786,11 +850,19 @@ export function fromProjectRecord(record: ProjectRecord): Project {
   const historyImagePool =
     normalizePersistedImagePool(parsedHistoryPayload.imagePool) ??
     extractImagePoolFromHistoryJson(record.historyJson);
+  const shouldRecoverImagePoolFromNodes =
+    options?.recoverImagePoolFromDecodedNodes === true ||
+    parsedNodesPayload.imagePool == null;
+  const nodesImagePool =
+    parsedNodesPayload.imagePool ??
+    (shouldRecoverImagePoolFromNodes
+      ? recoverImagePoolFromDecodedNodes(parsedNodes)
+      : undefined);
   const imagePool = resolvePersistedImagePool(
     record.id,
     parsedNodes,
     parsedHistory,
-    parsedNodesPayload.imagePool,
+    nodesImagePool,
     historyImagePool,
   );
 
@@ -842,7 +914,9 @@ export function fromProjectRecord(record: ProjectRecord): Project {
 }
 
 function fromProjectGraphRecord(graphRecord: ProjectGraphRecord): Project {
-  const project = fromProjectRecord(graphRecord.record) as PersistedProject;
+  const project = fromProjectRecord(graphRecord.record, {
+    recoverImagePoolFromDecodedNodes: true,
+  }) as PersistedProject;
   const persistedProject: PersistedProject = {
     ...project,
     graphRevision: graphRecord.graphRevision,
@@ -1061,6 +1135,9 @@ function buildProjectGraphPatch(
     previousProject.history ?? createEmptyHistory(),
     nextProject.history ?? createEmptyHistory(),
   );
+  const encodedProject = historyChanged
+    ? encodeProjectForPersistence(nextProject)
+    : null;
   const viewportChanged = hasViewportMeaningfulDelta(
     previousProject.viewport ?? DEFAULT_VIEWPORT,
     nextProject.viewport ?? DEFAULT_VIEWPORT,
@@ -1106,7 +1183,7 @@ function buildProjectGraphPatch(
       ? JSON.stringify(nextProject.viewport ?? DEFAULT_VIEWPORT)
       : undefined,
     history: historyChanged
-      ? { historyJson: JSON.stringify(nextProject.history ?? createEmptyHistory()) }
+      ? { historyJson: JSON.stringify(toPersistedHistoryPayload(encodedProject!)) }
       : undefined,
     meta: metaChanged
       ? {
@@ -1242,6 +1319,33 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, ms);
   });
+}
+
+function incrementInFlightCount(
+  counts: Map<string, number>,
+  projectId: string,
+): void {
+  counts.set(projectId, (counts.get(projectId) ?? 0) + 1);
+}
+
+function decrementInFlightCount(
+  counts: Map<string, number>,
+  projectId: string,
+): void {
+  const nextCount = (counts.get(projectId) ?? 0) - 1;
+  if (nextCount <= 0) {
+    counts.delete(projectId);
+    return;
+  }
+
+  counts.set(projectId, nextCount);
+}
+
+function hasInFlightCount(
+  counts: Map<string, number>,
+  projectId: string,
+): boolean {
+  return (counts.get(projectId) ?? 0) > 0;
 }
 
 function formatSaveError(error: unknown): string {
@@ -1603,22 +1707,36 @@ async function persistProjectImmediatelyWithPrevious(
 async function waitForProjectPersistenceIdle(
   projectId: string,
   timeoutMs = MAX_PERSIST_DRAIN_WAIT_MS,
+  options?: { throwOnTimeout?: boolean },
 ): Promise<void> {
   const startedAt = performance.now();
   while (
     queuedProjectUpserts.has(projectId) ||
     queuedViewportUpserts.has(projectId) ||
     projectUpsertsInFlight.has(projectId) ||
-    viewportUpsertsInFlight.has(projectId)
+    viewportUpsertsInFlight.has(projectId) ||
+    graphBackupInFlight.has(projectId) ||
+    hasInFlightCount(graphWarmupsInFlight, projectId) ||
+    hasInFlightCount(backgroundHistoryLoadsInFlight, projectId)
   ) {
     if (performance.now() - startedAt > timeoutMs) {
-      console.warn("Timed out while waiting for project persistence to settle", {
+      const detail = {
         projectId,
         queuedProject: queuedProjectUpserts.has(projectId),
         queuedViewport: queuedViewportUpserts.has(projectId),
         projectInFlight: projectUpsertsInFlight.has(projectId),
         viewportInFlight: viewportUpsertsInFlight.has(projectId),
-      });
+        graphBackupInFlight: graphBackupInFlight.has(projectId),
+        graphWarmupInFlight: hasInFlightCount(graphWarmupsInFlight, projectId),
+        backgroundHistoryLoadInFlight:
+          hasInFlightCount(backgroundHistoryLoadsInFlight, projectId),
+      };
+      console.warn("Timed out while waiting for project persistence to settle", detail);
+      if (options?.throwOnTimeout) {
+        throw new Error(
+          `Timed out while waiting for project ${projectId} persistence to settle`,
+        );
+      }
       return;
     }
     await delay(FLUSH_WAIT_INTERVAL_MS);
@@ -1800,8 +1918,22 @@ function scheduleBackgroundHistoryLoad(
   requestSeq: number,
 ): void {
   const historySeq = ++projectHistoryLoadSeq;
+  const existingTimer = backgroundHistoryLoadTimers.get(projectId);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    backgroundHistoryLoadTimers.delete(projectId);
+  }
 
-  setTimeout(() => {
+  const timer = setTimeout(() => {
+    backgroundHistoryLoadTimers.delete(projectId);
+    if (
+      requestSeq !== openProjectRequestSeq ||
+      useProjectStore.getState().currentProjectId !== projectId
+    ) {
+      return;
+    }
+
+    incrementInFlightCount(backgroundHistoryLoadsInFlight, projectId);
     void (async () => {
       try {
         const graphHistoryRecord = await getProjectGraphHistory(projectId)
@@ -1860,9 +1992,20 @@ function scheduleBackgroundHistoryLoad(
         }
       } catch (error) {
         console.error("Failed to load project history in background", error);
+      } finally {
+        decrementInFlightCount(backgroundHistoryLoadsInFlight, projectId);
       }
     })();
   }, PROJECT_HISTORY_BACKGROUND_LOAD_DELAY_MS);
+  backgroundHistoryLoadTimers.set(projectId, timer);
+}
+
+function cancelBackgroundHistoryLoad(projectId: string): void {
+  const timer = backgroundHistoryLoadTimers.get(projectId);
+  if (timer) {
+    clearTimeout(timer);
+    backgroundHistoryLoadTimers.delete(projectId);
+  }
 }
 
 function scheduleBackgroundGraphWarmup(
@@ -1884,10 +2027,15 @@ function scheduleBackgroundGraphWarmup(
       return;
     }
 
-    void getProjectGraphRecord(projectId).catch((error) => {
-      console.warn("Skipped background project graph warmup", error);
-      return null;
-    });
+    incrementInFlightCount(graphWarmupsInFlight, projectId);
+    void getProjectGraphRecord(projectId)
+      .catch((error) => {
+        console.warn("Skipped background project graph warmup", error);
+        return null;
+      })
+      .finally(() => {
+        decrementInFlightCount(graphWarmupsInFlight, projectId);
+      });
   }, PROJECT_GRAPH_BACKGROUND_WARMUP_DELAY_MS);
   graphWarmupTimers.set(projectId, timer);
 }
@@ -2091,7 +2239,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       currentProject: project,
       isOpeningProject: false,
     }));
-    setActiveMediaProjectId(id);
+    setActiveMediaProjectId(id, name);
     persistProject(project, { immediate: true, previousProject: null });
     return id;
   },
@@ -2166,6 +2314,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const nextCurrentProject =
       get().currentProject?.id === id ? get().currentProject : null;
     if (nextCurrentProject) {
+      setActiveMediaProjectId(id, nextCurrentProject.name);
       persistProject(nextCurrentProject, {
         immediate: true,
         previousProject: previousCurrentProject,
@@ -2480,7 +2629,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         lastSaveReason: null,
       };
     });
-    setActiveMediaProjectId(id);
+    setActiveMediaProjectId(id, get().currentProject?.name ?? null);
 
     void (async () => {
       try {
@@ -2498,7 +2647,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               projectToSummary(cachedProject),
             ),
           }));
-          setActiveMediaProjectId(id);
+          setActiveMediaProjectId(id, cachedProject.name);
           scheduleBackgroundHistoryLoad(id, reqSeq);
           logProjectTrace("open:memory-cache-hit", {
             projectId: id,
@@ -2570,7 +2719,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             projectToSummary(project),
           ),
         }));
-        setActiveMediaProjectId(id);
+        setActiveMediaProjectId(id, project.name);
         scheduleBackgroundHistoryLoad(id, reqSeq);
         if (!graphRecord) {
           scheduleBackgroundGraphWarmup(id, reqSeq);
@@ -3173,8 +3322,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return;
     }
 
+    cancelBackgroundHistoryLoad(currentProjectId);
     cancelBackgroundGraphWarmup(currentProjectId);
     cancelGraphBackupCompact(currentProjectId);
+    await waitForProjectPersistenceIdle(currentProjectId, undefined, {
+      throwOnTimeout: true,
+    });
     await get().saveCurrentProjectFully({ reason: "close" });
 
     try {
@@ -3184,6 +3337,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       throw error;
     }
 
-    await waitForProjectPersistenceIdle(currentProjectId);
+    await waitForProjectPersistenceIdle(currentProjectId, undefined, {
+      throwOnTimeout: true,
+    });
   },
 }));

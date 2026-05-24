@@ -8,12 +8,16 @@ import {
   type CommerceAdDesignDirection,
   type CommerceAdGuidanceQuestion,
   type CommerceAdProductState,
+  type CommerceAdVisualPreferenceState,
+  createDefaultCommerceAdVisualPreferenceState,
+  normalizeCommerceAdVisualPreferenceState,
 } from '@/features/commerce-ad/types';
 
 export interface CommerceAdAgentTurnInput {
   userMessage: string;
   product: CommerceAdProductState | null;
   brief: CommerceAdBriefState | null;
+  visualPreference: CommerceAdVisualPreferenceState | null;
   batch: CommerceAdBatchGenerateState | null;
   referenceImages: string[];
   canUseVisionModel: boolean;
@@ -298,25 +302,129 @@ function buildFallbackBrief(product: CommerceAdProductState | null, userMessage:
 }
 
 function buildFallbackCorePrompt(product: CommerceAdProductState | null, brief: Partial<CommerceAdBriefState>): string {
-  const productName = product?.productName || product?.inference?.productType || product?.category || 'the product';
-  const style = brief.style || 'clean premium ecommerce advertising';
-  const headline = brief.headline ? `Include clear readable ad text: "${brief.headline}".` : '';
-  const sellingPoints = brief.sellingPoints?.length ? `Selling points: ${brief.sellingPoints.join(', ')}.` : '';
+  const productName = product?.productName || product?.inference?.productType || product?.category || '该商品';
+  const style = brief.style || '干净、高级、有电商转化感';
+  const headline = brief.headline ? `画面中可加入清晰可读的广告文案：“${brief.headline}”。` : '';
+  const sellingPoints = brief.sellingPoints?.length ? `重点卖点：${brief.sellingPoints.join('、')}。` : '';
 
   return [
-    `Create a polished ecommerce advertising image for ${productName}.`,
-    `Style: ${style}.`,
+    `为${productName}生成一张高完成度的电商广告图。`,
+    `画面风格：${style}。`,
     sellingPoints,
     headline,
-    brief.cta ? `CTA text: ${brief.cta}.` : '',
-    brief.constraints ? `Constraints: ${brief.constraints}.` : '',
-    'Keep the referenced product appearance faithful. Use high-end commercial lighting, balanced layout, and direct model-rendered text only when requested.',
+    brief.cta ? `行动号召文案：${brief.cta}。` : '',
+    brief.constraints ? `限制要求：${brief.constraints}。` : '',
+    '严格保持参考商品的外观、比例、结构和关键细节一致；使用高级商业布光、清晰构图和真实材质表现；只有在明确要求时才生成画面文字。',
   ].filter(Boolean).join(' ');
 }
 
-export function isLikelyVisionTextModel(provider: string | null | undefined, model: string | null | undefined): boolean {
-  const haystack = `${provider ?? ''} ${model ?? ''}`.toLowerCase();
+function composeVisualPreferencePromptFragment(
+  visualPreference: CommerceAdVisualPreferenceState
+): string {
+  const accent = visualPreference.brandAccentColor.toLowerCase() === 'auto'
+    ? '品牌强调色自动从商品主色或品牌识别中提取'
+    : `品牌强调色使用 ${visualPreference.brandAccentColor}`;
   return [
+    '视觉与排版偏好：',
+    `设计风格为${visualPreference.designStyle}`,
+    `整体配色为${visualPreference.colorPalette}`,
+    `平台视觉偏好为${visualPreference.platformVisual}`,
+    `画面语言为${visualPreference.language}`,
+    accent,
+    visualPreference.summary ? `偏好摘要：${visualPreference.summary}` : '',
+  ].filter(Boolean).join('，') + '。';
+}
+
+function buildFallbackVisualPreference(
+  product: CommerceAdProductState | null,
+  brief: Partial<CommerceAdBriefState> | null,
+  current: CommerceAdVisualPreferenceState | null
+): CommerceAdVisualPreferenceState {
+  const base = normalizeCommerceAdVisualPreferenceState(current ?? null);
+  const inferredPlatform = brief?.platform?.trim();
+  const inferredStyle = brief?.style?.trim();
+  const inferredProduct = product?.productName || product?.inference?.productType || product?.category || '商品';
+  const next: CommerceAdVisualPreferenceState = {
+    ...base,
+    designStyle: inferredStyle || base.designStyle,
+    platformVisual: inferredPlatform || base.platformVisual,
+    summary: base.summary || `围绕${inferredProduct}自动匹配视觉风格、配色层级和平台版式。`,
+    updatedAt: Date.now(),
+  };
+  return {
+    ...next,
+    promptFragment: composeVisualPreferencePromptFragment(next),
+  };
+}
+
+function appendVisualPreferenceToPrompt(
+  prompt: string,
+  visualPreference: CommerceAdVisualPreferenceState
+): string {
+  const fragment = visualPreference.promptFragment || composeVisualPreferencePromptFragment(visualPreference);
+  if (!fragment.trim()) {
+    return prompt;
+  }
+  if (prompt.includes(fragment)) {
+    return prompt;
+  }
+  return [prompt.trim(), fragment.trim()].filter(Boolean).join(' ');
+}
+
+function hasCjkText(value: string): boolean {
+  return /[\u3400-\u9fff]/u.test(value);
+}
+
+function isMostlyEnglishText(value: string): boolean {
+  const letters = value.match(/[a-z]/gi)?.length ?? 0;
+  const cjk = value.match(/[\u3400-\u9fff]/gu)?.length ?? 0;
+  return letters >= 8 && cjk === 0;
+}
+
+function extractChineseSellingPoints(...texts: string[]): string[] {
+  const candidates: string[] = [];
+
+  for (const text of texts) {
+    const normalized = text.trim();
+    if (!normalized || !hasCjkText(normalized)) {
+      continue;
+    }
+
+    const focusedMatch = normalized.match(/(?:优势|卖点|特点|亮点)(?:是|包括|为)?[:：]([^。！？\n]+)/u);
+    const source = focusedMatch?.[1] ?? normalized;
+    source
+      .split(/[、，,；;\n]/u)
+      .map((item) => item.replace(/^[\s：:.-]+|[\s。.!?；;，,]+$/gu, '').trim())
+      .filter((item) => hasCjkText(item) && item.length >= 2 && item.length <= 18)
+      .forEach((item) => candidates.push(item));
+  }
+
+  return Array.from(new Set(candidates)).slice(0, 6);
+}
+
+function preferChineseSellingPoints(values: string[], fallbackTexts: string[]): string[] {
+  const chineseValues = values.filter((item) => hasCjkText(item) || !isMostlyEnglishText(item));
+  if (chineseValues.length === values.length) {
+    return values;
+  }
+
+  const extracted = extractChineseSellingPoints(...fallbackTexts);
+  return extracted.length > 0 ? extracted : chineseValues;
+}
+
+export function isLikelyVisionTextModel(provider: string | null | undefined, model: string | null | undefined): boolean {
+  const normalizedProvider = (provider ?? '').trim().toLowerCase();
+  const normalizedModel = (model ?? '').trim().toLowerCase();
+  const haystack = `${normalizedProvider} ${normalizedModel}`;
+
+  if (
+    normalizedProvider === 'oopii'
+    && /^(all|gpt)-5(?:\.\d+)?(?:[-_].*)?$/.test(normalizedModel)
+  ) {
+    return true;
+  }
+
+  const knownVisionKeywords = [
     'vision',
     'vl',
     'qwen-vl',
@@ -330,7 +438,23 @@ export function isLikelyVisionTextModel(provider: string | null | undefined, mod
     'doubao',
     'seed',
     'multimodal',
-  ].some((keyword) => haystack.includes(keyword));
+  ];
+
+  if (knownVisionKeywords.some((keyword) => haystack.includes(keyword))) {
+    return true;
+  }
+
+  return [
+    /\bgpt-4o(?:\b|[-_])/,
+    /\bgpt-4\.1(?:\b|[-_])/,
+    /\bgpt-4\.5(?:\b|[-_])/,
+    /\bclaude-(?:3|3\.5|3\.7|4)(?:\b|[-_])/,
+    /\bclaude-(?:sonnet|opus|haiku)-4(?:\b|[-_])/,
+    /\bgemini-(?:1\.5|2|2\.0|2\.5|3|3\.0|3\.1)(?:\b|[-_])/,
+    /\bqwen(?:2|2\.5|3|3\.5)?[-_.]?(?:vl|omni)(?:\b|[-_])/,
+    /\bdoubao-(?:.*-)?(?:vision|thinking-vision|seed)(?:\b|[-_])/,
+    /\b(?:glm-4v|glm-4\.5v|kimi-vl|step-1v|internvl|llava|pixtral)(?:\b|[-_])/,
+  ].some((pattern) => pattern.test(haystack));
 }
 
 export async function runCommerceAdAgentTurn(
@@ -355,7 +479,7 @@ export async function runCommerceAdAgentTurn(
   }
 
   const prompt = [
-    'You are the ecommerce ad image design strategist inside a node-canvas app.',
+    'You are the ecommerce ad image design strategist inside a node-canvas app for Chinese users.',
     'Return strict JSON only.',
     '',
     'JSON schema:',
@@ -414,6 +538,15 @@ export async function runCommerceAdAgentTurn(
         constraints: '',
         normalizedBrief: '',
       },
+      visualPreference: {
+        designStyle: '智能匹配',
+        colorPalette: '商品主色延展',
+        platformVisual: '全平台通用',
+        language: '中文（简体）',
+        brandAccentColor: 'auto',
+        summary: '',
+        promptFragment: '',
+      },
       batch: {
         aspectRatios: ['1:1', '4:5', '9:16'],
         variantsPerRatio: 4,
@@ -425,23 +558,31 @@ export async function runCommerceAdAgentTurn(
     }),
     '',
     'Rules:',
-    '- Write all JSON values in the same language as the user.',
+    '- 默认用简体中文输出所有面向用户展示的 JSON 值，包括 assistant、guidance、product.inference、brief、batch.corePrompt、batch.ratioPrompts。',
+    '- 如果用户明确用其他语言要求输出，再跟随用户语言；但用户没有输入或只是上传图片时，必须输出简体中文。',
+    '- 品牌名、型号名、平台名、必要的英文广告文案可以保留原文，其余说明尽量中文。',
+    '- batch.corePrompt 和 batch.ratioPrompts 也要尽量写中文，保持可读、可直接用于出图。',
     '- Product inference may use the reference image when provided.',
-    '- Act like a visual design consultant, not a command executor.',
-    '- Every assistant reply must explain what is understood, what is uncertain, and what the user can choose next.',
+    '- Act like a Chinese visual design consultant, not a command executor.',
+    '- Every assistant reply must explain in Chinese what is understood, what is uncertain, and what the user can choose next.',
     '- Always populate guidance with structured cards for the UI.',
-    '- If key information is missing, ask 2-4 high-impact follow-up questions in guidance.questions and product.inference.followUpQuestions.',
-    '- Include 2-3 concrete designDirections when the product is understood or partially understood.',
-    '- Before platform, audience, selling points, and style are clear, prioritize brief refinement instead of pushing generation settings.',
-    '- guidance.quickReplies should be short phrases users can click and edit before sending.',
+    '- If key information is missing, ask 2-4 high-impact Chinese follow-up questions in guidance.questions and product.inference.followUpQuestions.',
+    '- Include 2-3 concrete Chinese designDirections when the product is understood or partially understood.',
+    '- Before platform, audience, selling points, and style are clear, prioritize Chinese brief refinement instead of pushing generation settings.',
+    '- guidance.quickReplies should be short Chinese phrases users can click and edit before sending.',
     '- The image text strategy is baked into the generated image, not editable overlay layers.',
-    '- Keep corePrompt production-ready for ecommerce image generation with faithful product preservation.',
+    '- Keep corePrompt production-ready for ecommerce image generation with faithful product preservation, but write it in Chinese by default.',
+    '- visualPreference must be Chinese by default and include designStyle, colorPalette, platformVisual, language, brandAccentColor, summary, and a production-ready promptFragment.',
+    '- batch.corePrompt and every batch.ratioPrompts value must explicitly include visualPreference.promptFragment constraints.',
     '',
     'Current product state:',
     JSON.stringify(input.product, null, 2),
     '',
     'Current brief state:',
     JSON.stringify(input.brief, null, 2),
+    '',
+    'Current visual preference state:',
+    JSON.stringify(input.visualPreference, null, 2),
     '',
     'Current batch state:',
     JSON.stringify(input.batch, null, 2),
@@ -465,8 +606,20 @@ export async function runCommerceAdAgentTurn(
     const productRecord = readRecord(parsed, 'product');
     const inferenceRecord = readRecord(productRecord, 'inference');
     const briefRecord = readRecord(parsed, 'brief');
+    const visualPreferenceRecord = readRecord(parsed, 'visualPreference');
     const batchRecord = readRecord(parsed, 'batch');
-    const ratioPrompts = batchRecord.ratioPrompts && typeof batchRecord.ratioPrompts === 'object'
+    const inferenceSummary = readString(inferenceRecord, 'summary');
+    const inferenceVisualDescription = readString(inferenceRecord, 'visualDescription');
+    const briefNormalizedBrief = readString(briefRecord, 'normalizedBrief');
+    const visibleSellingPoints = preferChineseSellingPoints(
+      readStringArray(inferenceRecord, 'visibleSellingPoints'),
+      [inferenceSummary, inferenceVisualDescription, briefNormalizedBrief]
+    );
+    const briefSellingPoints = preferChineseSellingPoints(
+      readStringArray(briefRecord, 'sellingPoints'),
+      [briefNormalizedBrief, inferenceSummary, inferenceVisualDescription]
+    );
+    const ratioPrompts: Record<string, string> = batchRecord.ratioPrompts && typeof batchRecord.ratioPrompts === 'object'
       ? Object.fromEntries(
           Object.entries(batchRecord.ratioPrompts as Record<string, unknown>)
             .map(([key, value]) => [key, typeof value === 'string' ? value.trim() : ''])
@@ -480,10 +633,10 @@ export async function runCommerceAdAgentTurn(
       category: readString(productRecord, 'category') || input.product?.category || '',
       userInfo: readString(productRecord, 'userInfo') || input.product?.userInfo || message,
       inference: {
-        summary: readString(inferenceRecord, 'summary'),
+        summary: inferenceSummary,
         productType: readString(inferenceRecord, 'productType'),
-        visualDescription: readString(inferenceRecord, 'visualDescription'),
-        visibleSellingPoints: readStringArray(inferenceRecord, 'visibleSellingPoints'),
+        visualDescription: inferenceVisualDescription,
+        visibleSellingPoints,
         suggestedUseCases: readStringArray(inferenceRecord, 'suggestedUseCases'),
         uncertaintyNotes: readStringArray(inferenceRecord, 'uncertaintyNotes'),
         followUpQuestions: readStringArray(inferenceRecord, 'followUpQuestions'),
@@ -497,11 +650,11 @@ export async function runCommerceAdAgentTurn(
       audience: readString(briefRecord, 'audience'),
       style: readString(briefRecord, 'style'),
       headline: readString(briefRecord, 'headline'),
-      sellingPoints: readStringArray(briefRecord, 'sellingPoints'),
+      sellingPoints: briefSellingPoints,
       cta: readString(briefRecord, 'cta'),
       mustInclude: readString(briefRecord, 'mustInclude'),
       constraints: readString(briefRecord, 'constraints'),
-      normalizedBrief: readString(briefRecord, 'normalizedBrief'),
+      normalizedBrief: briefNormalizedBrief,
       updatedAt: Date.now(),
     };
     const fallbackBrief = buildFallbackBrief(input.product, message);
@@ -511,7 +664,27 @@ export async function runCommerceAdAgentTurn(
         Array.isArray(value) ? value.length > 0 : Boolean(value)
       ))),
     };
-    const corePrompt = readString(batchRecord, 'corePrompt') || buildFallbackCorePrompt(input.product, mergedBrief);
+    const parsedVisualPreference = normalizeCommerceAdVisualPreferenceState({
+      ...(input.visualPreference ?? createDefaultCommerceAdVisualPreferenceState()),
+      designStyle: readString(visualPreferenceRecord, 'designStyle') || input.visualPreference?.designStyle,
+      colorPalette: readString(visualPreferenceRecord, 'colorPalette') || input.visualPreference?.colorPalette,
+      platformVisual: readString(visualPreferenceRecord, 'platformVisual') || input.visualPreference?.platformVisual,
+      language: readString(visualPreferenceRecord, 'language') || input.visualPreference?.language,
+      brandAccentColor: readString(visualPreferenceRecord, 'brandAccentColor') || input.visualPreference?.brandAccentColor,
+      summary: readString(visualPreferenceRecord, 'summary') || input.visualPreference?.summary,
+      promptFragment: readString(visualPreferenceRecord, 'promptFragment') || input.visualPreference?.promptFragment,
+      updatedAt: Date.now(),
+    });
+    const visualPreferenceData = {
+      ...parsedVisualPreference,
+      promptFragment: readString(visualPreferenceRecord, 'promptFragment')
+        || composeVisualPreferencePromptFragment(parsedVisualPreference),
+      updatedAt: Date.now(),
+    };
+    const corePrompt = appendVisualPreferenceToPrompt(
+      readString(batchRecord, 'corePrompt') || buildFallbackCorePrompt(input.product, mergedBrief),
+      visualPreferenceData
+    );
     const guidanceProduct: CommerceAdProductState = {
       images: input.product?.images ?? [],
       brand: productData.brand ?? input.product?.brand ?? '',
@@ -533,6 +706,7 @@ export async function runCommerceAdAgentTurn(
 
     actions.push({ type: 'upsertProduct', data: productData });
     actions.push({ type: 'upsertBrief', data: mergedBrief });
+    actions.push({ type: 'upsertVisualPreference', data: visualPreferenceData });
     actions.push({
       type: 'upsertBatchGenerate',
       data: {
@@ -541,7 +715,12 @@ export async function runCommerceAdAgentTurn(
           : input.batch?.aspectRatios ?? ['1:1', '4:5', '9:16'],
         variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(batchRecord.variantsPerRatio) || input.batch?.variantsPerRatio || 4))),
         corePrompt,
-        ratioPrompts,
+        ratioPrompts: Object.fromEntries(
+          Object.entries(ratioPrompts).map(([ratio, prompt]) => [
+            ratio,
+            appendVisualPreferenceToPrompt(prompt, visualPreferenceData),
+          ])
+        ),
         status: corePrompt ? 'ready' : 'idle',
       },
     });
@@ -556,12 +735,21 @@ export async function runCommerceAdAgentTurn(
     };
   } catch (error) {
     const fallbackBrief = buildFallbackBrief(input.product, message);
+    const fallbackVisualPreference = buildFallbackVisualPreference(
+      input.product,
+      fallbackBrief,
+      input.visualPreference
+    );
     const guidance = buildFallbackGuidance(input.product, fallbackBrief, 'brief');
     actions.push({ type: 'upsertBrief', data: fallbackBrief });
+    actions.push({ type: 'upsertVisualPreference', data: fallbackVisualPreference });
     actions.push({
       type: 'upsertBatchGenerate',
       data: {
-        corePrompt: buildFallbackCorePrompt(input.product, fallbackBrief),
+        corePrompt: appendVisualPreferenceToPrompt(
+          buildFallbackCorePrompt(input.product, fallbackBrief),
+          fallbackVisualPreference
+        ),
         status: 'ready',
       },
     });

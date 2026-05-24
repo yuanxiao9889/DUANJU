@@ -1,0 +1,299 @@
+/* AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
+ * Source: styles/templates/variant_grid.qss.template
+ * Regenerate: python scripts/sync_qss_from_templates.py
+ */
+
+/* ============================================
+   网格模式专用样式
+   使用 #gridModeContainer 作为父选择器确保样式隔离
+   ============================================ */
+
+/* ============================================
+   网格模式 - QSpinBox 样式
+   ============================================ */
+#gridModeContainer QSpinBox {
+    border: 2px solid #e1e5e9;
+    border-radius: 12px;
+    padding: 10px 15px;
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #f8f9fa);
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    min-height: 20px;
+}
+
+#gridModeContainer QSpinBox:hover {
+    border: 2px solid #94a3b8;
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #f1f5f9);
+}
+
+#gridModeContainer QSpinBox:focus {
+    border: 2px solid #64748b;
+    background: white;
+    outline: none;
+}
+
+#gridModeContainer QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 30px;
+    height: 20px;
+    border-left-width: 1px;
+    border-left-color: #e1e5e9;
+    border-left-style: solid;
+    border-top-right-radius: 10px;
+    background: transparent;
+    margin: 2px 2px 1px 1px;
+}
+
+#gridModeContainer QSpinBox::up-button:hover {
+    background: rgba(226, 232, 240, 0.3);
+}
+
+#gridModeContainer QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 30px;
+    height: 20px;
+    border-left-width: 1px;
+    border-top-width: 1px;
+    border-top-color: #e1e5e9;
+    border-top-style: solid;
+    border-left-color: #e1e5e9;
+    border-left-style: solid;
+    border-bottom-right-radius: 10px;
+    background: transparent;
+    margin: 1px 2px 2px 1px;
+}
+
+#gridModeContainer QSpinBox::down-button:hover {
+    background: rgba(226, 232, 240, 0.3);
+}
+
+/* ============================================
+   网格模式 - QComboBox 样式
+   ============================================ */
+#gridModeContainer QComboBox {
+    border: none;
+    border-radius: 12px;
+    padding: 10px 15px;
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #f8f9fa);
+    font-size: 14px;
+    font-weight: 500;
+    color: #374151;
+    min-height: 20px;
+}
+
+#gridModeContainer QComboBox:hover {
+    border: none;
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:1 #f1f5f9);
+}
+
+#gridModeContainer QComboBox:focus {
+    border: none;
+    background: white;
+    outline: none;
+}
+
+#gridModeContainer QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 30px;
+    border-left-width: 0px;
+    border-left-style: none;
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+    background: transparent;
+    margin: 2px 2px 2px 1px;
+}
+
+#gridModeContainer QComboBox::drop-down:hover {
+    background: rgba(226, 232, 240, 0.3);
+}
+
+#gridModeContainer QComboBox::down-arrow {
+    image: url(down_arrow.png);
+    width: 14px;
+    height: 14px;
+}
+
+/* 下拉列表样式 */
+#gridModeContainer QComboBox QAbstractItemView {
+    border: none;
+    border-radius: 8px;
+    background: white;
+    selection-background-color: rgba(59, 130, 246, 0.1);
+    selection-color: #374151;
+    padding: 5px;
+    font-size: 14px;
+    outline: none;
+}
+
+#gridModeContainer QComboBox QAbstractItemView::item {
+    height: 35px;
+    padding: 8px 15px;
+    border-radius: 6px;
+    margin: 2px;
+}
+
+#gridModeContainer QComboBox QAbstractItemView::item:hover {
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #f1f5f9, stop:1 #e2e8f0);
+    color: #1e293b;
+}
+
+#gridModeContainer QComboBox QAbstractItemView::item:selected {
+    background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #64748b, stop:1 #475569);
+    color: white;
+    font-weight: 600;
+}
+
+/* ============================================
+   网格模式 - 卡片样式
+   ============================================ */
+#gridModeContainer QWidget#uploadCard {
+    background: rgba(240, 253, 244, 0.8);
+    border: 2px dashed #10b981;
+    border-radius: 12px;
+}
+
+#gridModeContainer QWidget#promptCard,
+#gridModeContainer QWidget#settingsCard {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, 
+        stop:0 rgba(248, 250, 252, 0.9), stop:1 rgba(224, 242, 254, 0.9));
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 12px;
+}
+
+/* ============================================
+   网格模式 - 按钮样式
+   ============================================ */
+#gridModeContainer QPushButton#generateBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+    color: white;
+    border: none;
+    border-radius: 24px;
+    font-size: 20px;
+    font-weight: 700;
+    padding: 16px 28px;
+}
+
+#gridModeContainer QPushButton#generateBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #ed58dc, stop:1 #fda553);
+}
+
+#gridModeContainer QPushButton#generateBtn:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #d936c3, stop:1 #f1871f);
+}
+
+#gridModeContainer QPushButton#generateBtn:disabled {
+    background: #94a3b8;
+    color: #64748b;
+}
+
+/* ============================================
+   网格模式 - 图片网格样式
+   ============================================ */
+#gridModeContainer QWidget#imageGrid QWidget {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+/* 标签容器不应用imageGrid的边框样式 */
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0px !important;
+    padding: 0px;
+    min-height: 36px;  /* 确保容器高度足够显示按钮 */
+}
+
+/* 图像索引标签样式 */
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer QLabel#imageIndexLabel {
+    background: #e5e7eb;
+    color: #374151;
+    font-size: 13px;
+    font-weight: 600;
+    padding:4px;
+    border-radius: 6px;
+    border: none;
+    min-width: 26px;
+    min-height: 26px;
+    max-height: 26px;
+}
+
+/* 添加到上传区按钮样式 - 使用主按钮渐变 */
+/* 使用更具体的选择器提高优先级 */
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer QPushButton#addToUploadBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 10px;
+}
+
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer QPushButton#addToUploadBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #ed58dc, stop:1 #fda553);
+}
+
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer QPushButton#addToUploadBtn:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #d936c3, stop:1 #f1871f);
+}
+
+/* 下载图片按钮样式 - 使用更具体的选择器 */
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer QPushButton#presetBtn {
+    background-color: #f3f4f6 !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 4px;
+    min-width: 26px;
+    min-height: 26px;
+}
+
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer QPushButton#presetBtn:hover {
+    background-color: #e5e7eb !important;
+}
+
+#gridModeContainer QWidget#imageGrid QWidget#labelContainer QPushButton#presetBtn:pressed {
+    background-color: #d1d5db !important;
+}
+
+#gridModeContainer QLabel#imageTitle {
+    color: #374151;
+    font-weight: 600;
+}
+
+#gridModeContainer QWidget#imageInfo {
+    border-top: none;
+}
+
+/* 图像按钮样式 */
+#gridModeContainer QWidget#imageInfo QPushButton {
+    background: #f5f5f5;
+    color: #374151;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 10px 20px;
+    min-height: 24px;
+}
+
+#gridModeContainer QWidget#imageInfo QPushButton:hover {
+    background: #e5e7eb;
+    border: 1px solid #d1d5db;
+    color: #1f2937;
+}
+
+#gridModeContainer QWidget#imageInfo QPushButton:pressed {
+    background: #d1d5db;
+    border: 1px solid #9ca3af;
+}

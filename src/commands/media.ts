@@ -5,6 +5,7 @@ export type MediaPersistRole = 'original' | 'preview' | 'thumbnail' | 'cache';
 
 export interface MediaPersistContext {
   projectId?: string | null;
+  projectName?: string | null;
   mediaType: MediaPersistType;
   role?: MediaPersistRole;
 }
@@ -29,6 +30,7 @@ function normalizeMediaContext(
 ): MediaPersistContext {
   return {
     projectId: context?.projectId?.trim() || null,
+    projectName: context?.projectName?.trim() || null,
     mediaType: context?.mediaType ?? fallbackMediaType,
     role: context?.role ?? fallbackRole,
   };

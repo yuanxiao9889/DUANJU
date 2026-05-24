@@ -168,6 +168,7 @@ async function getVideoMetadataAndPoster(
 function createVideoPosterMediaContext(mediaContext: MediaPersistContext): MediaPersistContext {
   return {
     projectId: mediaContext.projectId?.trim() || null,
+    projectName: mediaContext.projectName?.trim() || null,
     mediaType: 'image',
     role: 'preview',
   };

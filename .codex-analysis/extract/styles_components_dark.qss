@@ -1,0 +1,1025 @@
+/* AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
+ * Source: styles/templates/variant_components_dark.qss.template
+ * Regenerate: python scripts/sync_qss_from_templates.py
+ */
+
+/* 现代化复选框样式 */
+QCheckBox {
+    spacing: 8px;
+    font-size: 13px;
+    color: #999999;
+}
+
+QCheckBox:disabled {
+    color: #A0A0A0;
+}
+
+QCheckBox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #3A3A3A;
+    border-radius: 4px;
+    background-color: #2B2B2B;
+}
+
+QCheckBox::indicator:unchecked {
+    image: none;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #7B8CFF;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #7B8CFF;
+    border: 2px solid #7B8CFF;
+    image: url(assits/icon_confirm_white.svg);
+}
+
+QCheckBox::indicator:disabled {
+    background-color: #3A3A3A;
+    border-color: #3A3A3A;
+}
+
+/* 特定ID的复选框应用样式（如果需要覆盖默认样式，可以使用ID选择器） */
+#savePromptCheckbox,
+#autoSaveCheckbox,
+#appSettingsCheckbox,
+#presetCheckbox {
+    /* 继承上述通用样式，无需额外定义，除非有特殊覆盖 */
+}
+
+#presetCheckbox {
+    spacing: 0px;
+    padding: 0px;
+    margin: 0px;
+}
+
+#appSettingsCheckbox::indicator:checked,
+#presetCheckbox::indicator:checked {
+    background-color: #4338ca;
+    border: 2px solid #4338ca;
+    image: url(assits/icon_confirm_white.svg);
+}
+
+/* ============================================
+   设置对话框 - Tab 与目录选择样式（暗色主题）
+   ============================================ */
+
+QLabel#settingsTabActive {
+    font-size: 17px;
+    font-weight: 600;
+    color: #e83ed5;
+    background-color: transparent;
+    padding-bottom: 5px;
+    margin-bottom: -2px;
+    border: none;
+    border-bottom: 3px solid #e83ed5;
+}
+
+QLabel#settingsTab {
+    font-size: 16px;
+    font-weight: 500;
+    color: #A0A0A0;
+    background-color: transparent;
+    padding-bottom: 5px;
+    margin-bottom: -2px;
+    border: none;
+    border-bottom: 3px solid transparent;
+}
+
+QFrame#appSettingsTabBlock {
+    border: none;
+    border-bottom: 2px solid #3A3A3A;
+    background-color: transparent;
+}
+
+QLabel#appSettingsHint {
+    color: #acadaf;
+    font-size: 13px;
+    line-height: 20px;
+    margin-top: 6px;
+}
+
+QLineEdit#appSettingsDirInput {
+    background-color: #2B2B2B;
+    border: 1px solid #3A3A3A;
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #E5E7EB;
+}
+
+QLineEdit#appSettingsDirInput:disabled {
+    color: #A0A0A0;
+}
+
+QPushButton#appSettingsDirButton {
+    background-color: #2B2B2B;
+    border: 1px solid #3A3A3A;
+    border-radius: 8px;
+    padding: 0 16px;
+    color: #E5E7EB;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+QPushButton#appSettingsDirButton:hover {
+    background-color: #3A3A3A;
+    border-color: #505050;
+}
+
+QPushButton#appSettingsDirButton:pressed {
+    background-color: #404040;
+    border-color: #505050;
+}
+
+/* 右键菜单项（暗色主题） - 使用更具体的选择器覆盖所有状态 */
+QPushButton#modernMenuAction,
+QPushButton#modernMenuAction:flat,
+QPushButton#modernMenuAction:!default {
+    background-color: transparent;
+    border-radius: 6px;
+    border: none;
+    color: #e5e5e5;
+    text-align: left;
+    padding-left: 16px;
+    padding-right: 16px;
+    font-size: 14px;
+    font-weight: normal;  /* ✅ 去掉加粗 */
+    outline: none;
+}
+
+QPushButton#modernMenuAction:hover,
+QPushButton#modernMenuAction:flat:hover {
+    background-color: #404040;
+}
+
+QPushButton#modernMenuAction:pressed,
+QPushButton#modernMenuAction:flat:pressed {
+    background-color: #404040;
+}
+
+/* 菜单项焦点状态（暗色主题）- 移除蓝色背景 */
+QPushButton#modernMenuAction:focus,
+QPushButton#modernMenuAction:flat:focus {
+    background-color: transparent;
+    border: none;
+    outline: none;
+}
+
+/* 确保默认按钮状态也不显示蓝色 */
+QPushButton#modernMenuAction:default {
+    background-color: transparent;
+    border: none;
+}
+
+QPushButton#modernMenuAction:disabled {
+    color: #A0A0A0;
+}
+
+QPushButton#modernMenuAction[danger="true"] {
+    color: #ef4444;
+}
+
+QPushButton#modernMenuAction[danger="true"]:hover {
+    background-color: #404040;
+}
+
+/* 无图标的菜单项居中显示 */
+QPushButton#modernMenuAction[noIcon="true"] {
+    text-align: center;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+/* Toast通知组件 */
+#toastNotification {
+    background-color: rgba(45, 45, 45, 0.95);
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid #3A3A3A;
+}
+
+#toastNotification QLabel {
+    color: #e5e5e5;
+    font-size: 13px;
+}
+
+/* 加载图标组件 */
+#loadingIcon {
+    background-color: transparent;
+}
+
+/* 图片瓦片组件 */
+#imageTile {
+    background-color: #2d2d2d;
+    border: 2px solid transparent;
+    border-radius: 8px;
+}
+
+#imageTile:hover {
+    border-color: #5B7FFF;
+}
+
+#imageTileSelected {
+    border-color: #5B7FFF;
+    background-color: #2d4a7c;
+}
+
+/* 尺寸显示标签 - 暗色主题（无需特殊处理，本身自带半透明底） */
+QLabel#dimsLabel {
+    background-color: rgba(0, 0, 0, 0.4);
+    color: white;
+    font-size: 14px;
+    padding: 4px 8px;
+    border-radius: 4px;
+}
+
+/* 等待状态组件 */
+#waitingStateWidget {
+    background-color: #2d2d2d;
+    border-radius: 12px;
+}
+
+/* 生成状态组件 */
+#generatingStateWidget {
+    background-color: #2d2d2d;
+    border-radius: 12px;
+}
+
+/* 现代化卡片组件 */
+#modernCard {
+    background-color: #2d2d2d;
+    border: 1px solid #3A3A3A;
+    border-radius: 12px;
+    padding: 16px;
+}
+
+#modernCard:hover {
+    border-color: #404040;
+}
+
+/* ===== 现代化组件样式 ===== */
+
+/* 现代化按钮组件 - 主题色 */
+#modernButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #f43f5e, stop:0.5 #e83ed5, stop:1 #fd952d);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 12px 24px;
+}
+
+#modernButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e11d48, stop:0.5 #fd952d, stop:1 #fd952d);
+}
+
+#modernButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #be123c, stop:0.5 #e83ed5, stop:1 #e83ed5);
+}
+
+#modernButton:disabled {
+    background-color: #3a3a3a;
+    color: #606060;
+}
+
+/* 现代化浮动工具栏 - 暗色底色 */
+#modernFloatingToolbar {
+    background-color: #2d2d2d;
+    border: 1px solid #3A3A3A;
+    border-radius: 12px;
+}
+
+/* 现代化图标按钮 */
+#modernIconButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 18px;
+    color: #e5e5e5;
+    font-size: 15px;
+    text-align: left;
+    icon-size: 24px;
+}
+
+#modernIconButton:hover {
+    background-color: #3A3A3A;
+    color: #5B7FFF;
+}
+
+#modernIconButton:checked {
+    background-color: #2d4a7c;
+    color: #5B7FFF;
+    font-weight: 500;
+}
+
+#modernIconButton:pressed {
+    background-color: #404040;
+    color: #5B7FFF;
+}
+
+/* 现代化标签 - 蓝色 */
+#modernLabelBlue {
+    background-color: #5B7FFF;
+    color: white;
+    border-radius: 14px;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 4px 12px;
+}
+
+/* 现代化标签 - 绿色 */
+#modernLabelGreen {
+    background-color: #10b981;
+    color: white;
+    border-radius: 14px;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 4px 12px;
+}
+
+/* 现代化标签 - 红色 */
+#modernLabelRed {
+    background-color: #ef4444;
+    color: white;
+    border-radius: 14px;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 4px 12px;
+}
+
+/* 现代化标签 - 紫色 */
+#modernLabelPurple {
+    background-color: #e83ed5;
+    color: white;
+    border-radius: 14px;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 4px 12px;
+}
+
+/* 现代化标签 - 灰色 */
+#modernLabelGray {
+    background-color: #505050;
+    color: white;
+    border-radius: 14px;
+    font-weight: 500;
+    font-size: 13px;
+    padding: 4px 12px;
+}
+
+/* ============================================
+   网格模式组件样式
+   ============================================ */
+
+/* 网格结果标题 */
+#gridResultHeader {
+    font-size: 18px;
+    font-weight: bold;
+    color: #e5e5e5;
+    padding: 12px 20px;
+}
+
+/* 图片序号标签 - 黑色底色，减小宽度 */
+#imageNumberLabel {
+    background-color: rgba(0, 0, 0, 0.85);  /* 黑色半透明 */
+    color: white;
+    border-radius: 6px;
+    padding: 4px 8px;  /* 减小内边距 */
+    font-size: 12px;
+    font-weight: 600;
+}
+
+/* 移除图片按钮 - 红色圆形 */
+QPushButton#removeBtn {
+    background-color: #ef4444;  /* 红色背景 */
+    border: 2px solid white;  /* 白色边框 */
+    border-radius: 16px;  /* 圆形 (32px / 2) */
+    padding: 0px;
+}
+
+QPushButton#removeBtn:hover {
+    background-color: #dc2626;  /* 悬停时颜色加深 */
+}
+
+QPushButton#removeBtn:pressed {
+    background-color: #b91c1c;  /* 按下时颜色更深 */
+}
+
+/* 错误占位符 */
+#errorPlaceholder {
+    font-size: 16px;
+    color: #ef4444;
+    font-weight: 500;
+    background: #2d1f1f;
+    border: 2px dashed #7f2020;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+/* 批量处理状态标签 - 处理中 */
+#batchStatusProcessing {
+    color: #5B7FFF;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 8px 16px;
+    background: #1e2a4a;
+    border-radius: 6px;
+}
+
+/* 批量处理状态标签 - 完成 */
+#batchStatusComplete {
+    color: #10b981;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 8px 16px;
+    background: #1a2e25;
+    border-radius: 6px;
+}
+
+/* 批量日志信息 */
+#batchLogInfo {
+    color: #e83ed5;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 4px 8px;
+}
+
+/* 冲突列表标签 */
+#conflictList {
+    color: #b0b0b0;
+    margin: 10px 0;
+    padding: 10px;
+    background: #252525;
+    border-radius: 4px;
+}
+
+/* ============================================
+   模式切换组件样式
+   ============================================ */
+
+/* 模式切换容器 - 深灰色圆角底框 */
+QWidget#modeSwitchContainer {
+    background: #252525;
+    border: none;
+    border-radius: 20px;
+}
+
+/* 模式切换按钮 - 通用样式 */
+QPushButton#modeSwitchBtn {
+    background: transparent;
+    color: #808080;
+    border: none;
+    padding: 3px 8px;
+    font-size: 15px;
+    font-weight: 500;
+    min-width: 100px;
+    min-height: 38px;
+}
+
+/* 左侧按钮圆角 */
+QPushButton#modeSwitchBtn[position="left"] {
+    border-radius: 20px;
+    margin-right: 1px;
+}
+
+/* 右侧按钮圆角 */
+QPushButton#modeSwitchBtn[position="right"] {
+    border-radius: 20px;
+    margin-left: 1px;
+}
+
+/* 选中状态 - 深色圆角底 */
+QPushButton#modeSwitchBtn:checked {
+    background: #3a3a3a;
+    color: #e5e5e5;
+    font-weight: 600;
+    border: none;
+}
+
+/* 按下状态（未选中） */
+QPushButton#modeSwitchBtn:pressed:!checked {
+    background: rgba(58, 58, 58, 0.8);
+}
+
+/* ============================================
+   批量处理组件样式（暗色主题）
+   ============================================ */
+
+/* 只读路径输入框 - 浅灰色文字 */
+#batchFolderInput,
+#batchOutputInput,
+#batchPromptFileInput {
+    color: #e0e0e0;
+    background-color: #2d2d2d; /* 深色背景 */
+    border: 1px solid #404040;
+    border-radius: 6px;
+    padding: 6px 12px;
+}
+
+/* ============================================
+   下载管理器组件样式（暗色主题）
+   ============================================ */
+
+/* 批量参考图选择组件 */
+QFrame#batchReferenceWidget {
+    background: transparent;
+    border: none;
+}
+
+QFrame#batchInnerCard {
+    border: 1px solid #3A3A3A;
+    border-radius: 8px;
+    background-color: #2B2B2B;
+}
+
+QFrame#batchInnerCard QLabel {
+    border: none;
+    background: transparent;
+}
+
+QLabel#batchReferenceTitleBadge {
+    background-color: #374151;
+    color: #E5E7EB;
+    font-weight: bold;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+QLabel#batchReferencePathLabel {
+    color: #e5e5e5;
+    font-size: 13px;
+}
+
+QLabel#batchReferenceEmptyLabel,
+QLabel#batchReferenceCountLabel {
+    color: #acadaf;
+    font-size: 13px;
+}
+
+QPushButton#batchReferenceBrowseBtn {
+    background-color: #2B2B2B;
+    border: 1px solid #3A3A3A;
+    border-radius: 4px;
+    color: #e5e5e5;
+    font-size: 13px;
+    font-weight: normal;
+    padding: 0;
+}
+
+QPushButton#batchReferenceBrowseBtn:hover {
+    background-color: #404040;
+    border-color: #acadaf;
+}
+
+QPushButton#batchReferenceRemoveBtn {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+}
+
+QPushButton#batchReferenceRemoveBtn:hover {
+    background-color: #3f1f1f;
+}
+
+QLabel#batchThumbnail {
+    border-radius: 4px;
+    border: 1px solid transparent;
+    background-color: #1f1f1f;
+}
+
+QWidget#downloadPanelHeader {
+    background-color: #1f1f1f;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+QLabel#downloadPanelTitle {
+    color: #e5e5e5;
+    background: transparent;
+}
+
+QPushButton#downloadPanelCloseBtn {
+    background-color: transparent;
+    border: none;
+    border-radius: 4px;
+}
+
+QPushButton#downloadPanelCloseBtn:hover {
+    background-color: #1f1f1f;
+}
+
+QWidget#downloadPanelToolbar,
+QWidget#downloadPanelViewport,
+QWidget#downloadPanelContent {
+    background-color: #2a2a2a;
+}
+
+QWidget#downloadPanelDivider {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+QScrollArea#downloadPanelScroll {
+    background-color: #2a2a2a;
+    border: none;
+}
+
+QWidget#downloadPanelViewport {
+    background-color: #2a2a2a;
+}
+
+QScrollArea#downloadPanelScroll QScrollBar:vertical,
+QScrollBar#downloadPanelVScrollBar {
+    background-color: #2a2a2a;
+    width: 8px;
+    border-radius: 4px;
+}
+
+QScrollArea#downloadPanelScroll QScrollBar::handle:vertical,
+QScrollBar#downloadPanelVScrollBar::handle:vertical {
+    background-color: #3A3A3A;
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+QScrollArea#downloadPanelScroll QScrollBar::handle:vertical:hover,
+QScrollBar#downloadPanelVScrollBar::handle:vertical:hover {
+    background-color: #acadaf;
+}
+
+QScrollArea#downloadPanelScroll QScrollBar::add-line:vertical,
+QScrollArea#downloadPanelScroll QScrollBar::sub-line:vertical,
+QScrollBar#downloadPanelVScrollBar::add-line:vertical,
+QScrollBar#downloadPanelVScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QWidget#downloadPanelFooter {
+    background-color: #1f1f1f;
+    border-bottom-left-radius: 12px;
+    border-bottom-right-radius: 12px;
+}
+
+QLabel#downloadPanelStatus {
+    color: #acadaf;
+    background: transparent;
+}
+
+/* 工具栏按钮（清除已完成、打开文件夹） */
+QPushButton#downloadToolbarBtn {
+    color: #e5e5e5;
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+QPushButton#downloadToolbarBtn:hover {
+    background-color: #1f1f1f;
+}
+
+QWidget#downloadTaskItem {
+    background-color: #2a2a2a;
+    border-bottom: 1px solid #3A3A3A;
+}
+
+QWidget#downloadTaskItem:hover {
+    background-color: #1f1f1f;
+}
+
+QWidget#downloadTaskInfo {
+    background: transparent;
+}
+
+QLabel#downloadTaskTitle {
+    color: #e5e5e5;
+    background: transparent;
+    font-size: 13px;
+}
+
+QLabel#downloadTaskStatus {
+    color: #acadaf;
+    background: transparent;
+    font-size: 12px;
+}
+
+QLabel#downloadTaskStatus[downloadStatus="failed"] {
+    color: #ef4444;
+}
+
+QLabel#downloadTaskStatus[downloadStatus="finished"] {
+    color: #10b981;
+}
+
+QLabel#downloadTaskStatus[downloadStatus="downloading"] {
+    color: #3b82f6;
+}
+
+QLabel#downloadTaskStatus[downloadStatus="paused"] {
+    color: #f59e0b;
+}
+
+QLabel#downloadTaskThumb {
+    background-color: #1f1f1f;
+    border-radius: 6px;
+}
+
+QProgressBar#downloadTaskProgress {
+    background-color: #1f1f1f;
+    border-radius: 2px;
+}
+
+QProgressBar#downloadTaskProgress::chunk {
+    background-color: #4338ca;
+    border-radius: 2px;
+}
+
+QPushButton#downloadCopyLinkBtn {
+    padding: 0 4px;
+    border: none;
+    background: transparent;
+    color: #3b82f6;
+    font-size: 12px;
+}
+
+QPushButton#downloadCopyLinkBtn[downloadLinkState="warning"] {
+    color: #f59e0b;
+}
+
+QPushButton#downloadCopyLinkBtn[downloadLinkState="expired"] {
+    color: #9ca3af;
+}
+
+/* 任务项操作按钮（打开文件、删除） */
+QPushButton#downloadTaskBtn {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 4px;
+}
+
+QPushButton#downloadTaskBtn:hover {
+    background-color: #1f1f1f;
+}
+
+/* 小号文本按钮 */
+QPushButton#smallTextBtn {
+    border-radius: 4px;
+    padding: 0 8px;
+    background-color: transparent;
+    color: #A0A0A0;
+    border: 1px solid transparent;
+}
+QPushButton#smallTextBtn[compact="true"] {
+    padding: 0 4px;
+    min-width: 0;
+}
+QPushButton#smallTextBtn:hover {
+    background-color: #3A3A3A;
+    color: #E5E7EB;
+}
+
+/* ============================================
+   缩略图删除按钮样式（暗色主题）
+   用于：画布侧边栏参考图、网格模式上传预览
+   ============================================ */
+
+QPushButton#thumbnailDeleteBtn {
+    background-color: #ef4444;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+QPushButton#thumbnailDeleteBtn:hover {
+    background-color: #dc2626;
+}
+
+QPushButton#thumbnailDeleteBtn:pressed {
+    background-color: #b91c1c;
+}
+
+/* ============================================
+   快捷标签栏组件样式（暗色）
+   ============================================ */
+
+/* 标签按钮 */
+QPushButton#quickTagBtn {
+    background-color: rgba(255, 255, 255, 0.08);
+    color: #E5E7EB;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 13px;
+    padding: 2px 12px;
+    font-size: 12px;
+    font-weight: normal;
+}
+
+QPushButton#quickTagBtn:hover {
+    background-color: rgba(255, 255, 255, 0.12);
+    border-color: #E5E7EB;
+}
+
+QFrame#quickTagPopup {
+    background-color: #2B2B2B;
+    border: 2px solid #3A3A3A;
+    border-radius: 15px;
+}
+
+/* 设置按钮 */
+QPushButton#quickTagSettingBtn {
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+}
+
+QPushButton#quickTagSettingBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+QPushButton#quickTagSettingBtn:pressed {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+QPushButton#quickTagExpandBtn {
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+}
+
+QPushButton#quickTagExpandBtn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+QPushButton#quickTagExpandBtn:pressed {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+/* API config component */
+QWidget#apiConfigWidget QLabel#apiConfigTitle {
+    color: #999999;
+}
+
+QWidget#apiConfigWidget QLabel#apiCfgKeyLabel,
+QWidget#apiConfigWidget QLabel#apiCfgAccountTitle {
+    color: #808080;
+}
+
+QWidget#apiConfigWidget QLabel#apiCfgKeySummary,
+QWidget#apiConfigWidget QLabel#apiCfgAccountMeta {
+    color: #acadaf;
+}
+
+QWidget#apiConfigWidget QLabel#apiCfgAccountTitle,
+QWidget#apiConfigWidget QLabel#apiCfgAccountName,
+QWidget#apiConfigWidget QLabel#apiCfgAccountMeta {
+    font-size: 16px;
+}
+
+QWidget#apiConfigWidget QLabel#apiCfgAccountName {
+    color: #e5e5e5;
+    font-weight: 600;
+}
+
+QWidget#apiConfigWidget QLabel#apiCfgAccountRoleBadge {
+    color: #CBD5E1;
+    background-color: #1E293B;
+    border: 1px solid #475569;
+    border-radius: 2px;
+    padding: 2px 8px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+QWidget#apiConfigWidget QLabel#apiCfgAccountRoleBadge[accountRole="enterprise"] {
+    color: #86EFAC;
+    background-color: #052E2B;
+    border: 1px solid #047857;
+}
+
+QWidget#apiConfigWidget QLabel#apiCfgAccountRoleBadge[accountRole="agent"],
+QWidget#apiConfigWidget QLabel#apiCfgAccountRoleBadge[accountRole="admin"] {
+    color: #FDBA74;
+    background-color: #431407;
+    border: 1px solid #C2410C;
+}
+
+QWidget#apiConfigWidget QPushButton#apiCfgExpandBtn,
+QWidget#apiConfigWidget QPushButton#apiCfgUsageBtn,
+QWidget#apiConfigWidget QPushButton#apiCfgUsageHistoryBtn {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+    padding: 0px;
+}
+
+QWidget#apiConfigWidget QPushButton#apiCfgExpandBtn:hover,
+QWidget#apiConfigWidget QPushButton#apiCfgUsageBtn:hover,
+QWidget#apiConfigWidget QPushButton#apiCfgUsageHistoryBtn:hover,
+QWidget#apiConfigWidget QPushButton#apiCfgExpandBtn:pressed,
+QWidget#apiConfigWidget QPushButton#apiCfgUsageBtn:pressed,
+QWidget#apiConfigWidget QPushButton#apiCfgUsageHistoryBtn:pressed {
+    background: transparent;
+    border: none;
+}
+
+QWidget#apiConfigWidget QPushButton#apiCfgManageModelsBtn,
+QWidget#apiConfigWidget QPushButton#toggleBtn {
+    background-color: #2f2f2f;
+    border: 1px solid #525252;
+    border-radius: 8px;
+}
+
+QWidget#apiConfigWidget QPushButton#apiCfgManageModelsBtn:hover,
+QWidget#apiConfigWidget QPushButton#toggleBtn:hover {
+    background-color: #3a3a3a;
+}
+
+QWidget#apiConfigWidget QPushButton#apiCfgManageModelsBtn:pressed,
+QWidget#apiConfigWidget QPushButton#toggleBtn:pressed {
+    background-color: #262626;
+}
+
+QWidget#apiConfigWidget QPushButton#clearBtn,
+QWidget#apiConfigWidget QPushButton#cancelEditBtn {
+    background-color: #2f2f2f;
+    border: 1px solid #525252;
+    border-radius: 18px;
+    padding: 0px 8px !important;
+    margin: 0px !important;
+    color: #ffffff;
+    font-weight: 400;
+    font-size: 13px;
+}
+
+QWidget#apiConfigWidget QPushButton#clearBtn:hover,
+QWidget#apiConfigWidget QPushButton#cancelEditBtn:hover {
+    background-color: #3a3a3a;
+}
+
+QWidget#apiConfigWidget QPushButton#clearBtn:pressed,
+QWidget#apiConfigWidget QPushButton#cancelEditBtn:pressed {
+    background-color: #262626;
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn {
+    border: none;
+    border-radius: 18px;
+    padding: 0px 8px !important;
+    margin: 0px !important;
+    color: #FFFFFF;
+    font-size: 13px;
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn[authMode="api_token"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn[authMode="api_token"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #ed58dc, stop:1 #fda553);
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn[authMode="api_token"]:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #d936c3, stop:1 #f1871f);
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn[authMode="user_account"] {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #B44AE6, stop:0.45 #E24CCB, stop:1 #FF6A1F);
+    font-weight: 700;
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn[authMode="user_account"]:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #BD58EA, stop:0.45 #EA5DD1, stop:1 #FF7A35);
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn[authMode="user_account"]:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #A63FDC, stop:0.45 #D642BE, stop:1 #F45E16);
+}
+
+QWidget#apiConfigWidget QPushButton#saveBtn[authMode="user_account"]:disabled {
+    background: #E7E2DE;
+    color: #B2AAA4;
+}
+
+/* ============================================
+   快速标签管理组件样式 (QuickTagManager) - 暗色模式
+   ============================================ */
+
+/* 样式已迁移至 dialogs_dark.qss */
+
+
+/* 设置按钮 */

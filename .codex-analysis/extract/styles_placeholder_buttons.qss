@@ -1,0 +1,71 @@
+/* 占位符错误状态按钮样式 */
+
+/* 容器 */
+QWidget#placeholderErrorContainer {
+    background: transparent;
+    border: none;
+}
+
+QWidget#placeholderBtnContainer {
+    background: transparent;
+}
+
+/* 错误标签 */
+QLabel#placeholderErrorLabel {
+    background: transparent;
+    border: none;
+}
+
+/* 重试按钮（主按钮） */
+QPushButton#placeholderRetryBtn[buttonType="primary"] {
+    background-color: #3b82f6;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-weight: 500;
+}
+
+QPushButton#placeholderRetryBtn[buttonType="primary"]:hover {
+    background-color: #2563eb;
+}
+
+QPushButton#placeholderRetryBtn[buttonType="primary"]:pressed {
+    background-color: #1d4ed8;
+}
+
+/* 修改后重试按钮（次要按钮） */
+QPushButton#placeholderRetryEditBtn[buttonType="secondary"] {
+    background-color: #6b7280;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-weight: 500;
+}
+
+QPushButton#placeholderRetryEditBtn[buttonType="secondary"]:hover {
+    background-color: #4b5563;
+}
+
+QPushButton#placeholderRetryEditBtn[buttonType="secondary"]:pressed {
+    background-color: #374151;
+}
+
+/* 删除按钮（危险按钮） */
+QPushButton#placeholderDeleteBtn[buttonType="danger"] {
+    background-color: #ef4444;
+    color: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-weight: 500;
+}
+
+QPushButton#placeholderDeleteBtn[buttonType="danger"]:hover {
+    background-color: #dc2626;
+}
+
+QPushButton#placeholderDeleteBtn[buttonType="danger"]:pressed {
+    background-color: #b91c1c;
+}

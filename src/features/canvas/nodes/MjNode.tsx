@@ -298,6 +298,7 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
   const resolvedHeight = hasExplicitHeight
     ? Math.max(MJ_NODE_MIN_HEIGHT, Math.round(explicitHeight))
     : null;
+  const resolvedNodeHeight = resolvedHeight ?? MJ_NODE_DEFAULT_HEIGHT;
   const apiKey = mjApiKeys[mjProviderEnabled]?.trim() ?? "";
   const providerLabel = resolveMidjourneyProviderLabel(
     mjProviderEnabled,
@@ -963,17 +964,17 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
     <div
       ref={containerRef}
       className={`
-        group relative flex flex-col overflow-visible rounded-[var(--node-radius)] border bg-surface-dark/90 p-2 transition-colors duration-150
+        canvas-node-selection-pass-through group relative flex flex-col overflow-visible rounded-[var(--node-radius)] bg-transparent p-0 transition-all duration-150
         ${
           selected
-            ? "border-accent shadow-[0_0_0_1px_rgba(59,130,246,0.32)]"
-            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)]"
+            ? "shadow-[0_4px_20px_rgba(59,130,246,0.16)]"
+            : ""
         }
       `}
       style={{
         width: `${resolvedWidth}px`,
+        height: `${resolvedNodeHeight}px`,
         minHeight: `${MJ_NODE_MIN_HEIGHT}px`,
-        ...(resolvedHeight ? { height: `${resolvedHeight}px` } : {}),
       }}
       onClick={() => setSelectedNode(id)}
     >
@@ -987,12 +988,14 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
         }
       />
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div
-          className="relative min-h-0 rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/45 p-2"
-          onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
+      <div
+        className={`relative min-h-0 flex-1 rounded-[var(--node-radius)] border bg-surface-dark/90 px-3 py-3 transition-colors duration-150 ${
+          selected
+            ? "border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]"
+            : "border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]"
+        }`}
+      >
+        <div className="relative h-full min-h-[132px]">
           <textarea
             value={displayedPrompt}
             readOnly={isPromptLockedByUpstream}
@@ -1008,11 +1011,21 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
               }
             }}
             onBlur={commitPromptDraft}
+            onFocus={() => setSelectedNode(id)}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              setSelectedNode(id);
+            }}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              setSelectedNode(id);
+            }}
+            onClick={(event) => event.stopPropagation()}
             placeholder={t("node.midjourney.promptPlaceholder")}
-            className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative block min-h-[132px] w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-1 py-0.5 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/80 focus-visible:ring-0 ${
+            className={`canvas-textarea-wrap ui-scrollbar nodrag nowheel relative block h-full w-full resize-none overflow-y-auto overflow-x-hidden border-none bg-transparent px-0.5 py-0 text-sm leading-6 text-text-dark outline-none placeholder:text-text-muted/80 focus-visible:ring-0 ${
               isPromptLockedByUpstream
                 ? "cursor-default caret-transparent"
-                : "caret-text-dark focus:border-transparent"
+                : "cursor-text caret-text-dark focus:border-transparent"
             }`}
             style={{ scrollbarGutter: "stable" }}
           />
@@ -1020,58 +1033,46 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
           {isPromptLockedByUpstream ? (
             <UpstreamPromptLockOverlay
               empty={!hasNonEmptyConnectedText}
-              className="rounded-lg"
             />
           ) : null}
         </div>
+      </div>
 
+      {selected ? (
         <div
-          className="mt-2 rounded-[var(--node-radius)] border border-[rgba(255,255,255,0.06)] bg-bg-dark/60 p-2"
+          className="nodrag nowheel nopan pointer-events-auto absolute left-1/2 top-[calc(100%+10px)] z-30 w-max max-w-[166.6667%] -translate-x-1/2 rounded-[var(--node-radius)] border border-[rgba(15,23,42,0.24)] bg-surface-dark/95 p-2 shadow-[0_16px_34px_rgba(15,23,42,0.18)] dark:border-[rgba(255,255,255,0.22)] dark:shadow-[0_18px_42px_rgba(0,0,0,0.34)]"
           onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onWheelCapture={(event) => event.stopPropagation()}
         >
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">
-              {t("node.midjourney.referencesTitle")}
-            </div>
-            <div className="text-[11px] text-text-muted">
-              {syncedReferences.length > 0
-                ? t("node.midjourney.referencesCount", {
-                    count: syncedReferences.length,
-                  })
-                : t("node.midjourney.referencesEmpty")}
-            </div>
-          </div>
+          <div className="mb-2 flex min-h-[44px] flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/10 px-2 py-2">
+            {syncedReferences.length > 0 ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {syncedReferences.map((reference) => {
+                  const displayUrl =
+                    reference.previewImageUrl?.trim() || reference.imageUrl;
+                  const isStyleReference =
+                    reference.role === "styleReference";
 
-          {syncedReferences.length > 0 ? (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {syncedReferences.map((reference) => {
-                const displayUrl =
-                  reference.previewImageUrl?.trim() || reference.imageUrl;
-                const isStyleReference = reference.role === "styleReference";
-
-                return (
-                  <div
-                    key={reference.imageUrl}
-                    className="w-[108px] shrink-0 rounded-xl border border-[rgba(255,255,255,0.06)] bg-white/[0.03] p-1.5"
-                  >
-                    <div className="overflow-hidden rounded-lg bg-black/40">
+                  return (
+                    <div
+                      key={reference.imageUrl}
+                      className="flex h-9 max-w-[170px] items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-1.5 py-1"
+                    >
                       <CanvasNodeImage
                         src={displayUrl}
                         alt={t("node.midjourney.referenceAlt")}
                         viewerSourceUrl={reference.imageUrl}
                         viewerImageList={[displayUrl]}
-                        className="h-[72px] w-full object-cover"
+                        className="h-7 w-7 shrink-0 rounded object-cover"
                         draggable={false}
                       />
-                    </div>
-                    <div className="mt-1.5 flex items-center justify-between gap-1">
-                      <span className="truncate text-[10px] text-text-muted">
+                      <span className="min-w-0 truncate text-[10px] text-text-muted">
                         {reference.sortIndex + 1}
                       </span>
                       <button
                         type="button"
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                        className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium leading-4 transition-colors ${
                           isStyleReference
                             ? "bg-amber-500/16 text-amber-200"
                             : "bg-sky-500/14 text-sky-200"
@@ -1088,315 +1089,331 @@ export const MjNode = memo(({ id, data, selected, width }: MjNodeProps) => {
                           : t("node.midjourney.referenceRoleReference")}
                       </button>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-lg border border-dashed border-[rgba(255,255,255,0.06)] bg-white/[0.02] px-3 py-4 text-sm text-text-muted">
-              {t("node.midjourney.referencesHint")}
-            </div>
-          )}
-        </div>
-
-        <div
-          className="mt-2 flex items-center gap-2"
-          onClick={(event) => event.stopPropagation()}
-          onPointerDown={(event) => event.stopPropagation()}
-        >
-          <FixedControlChip
-            label={t("node.midjourney.aspectRatio")}
-            value={resolvedAspectRatio}
-            options={aspectRatioOptions}
-            onChange={handleAspectRatioChange}
-          />
-
-          <UiChipButton
-            type="button"
-            active={resolvedRawMode}
-            className={NODE_CONTROL_CHIP_CLASS}
-            onClick={handleToggleRawMode}
-          >
-            {t("node.midjourney.raw")}
-          </UiChipButton>
-
-          <FixedControlChip
-            label={t("node.midjourney.version")}
-            value={resolvedVersionPreset}
-            options={versionOptions}
-            onChange={handleVersionPresetChange}
-          />
-
-          <UiChipButton
-            type="button"
-            active={isStyleCodeDialogOpen || personalizationCodeCount > 0}
-            className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 gap-1 px-2`}
-            aria-label={t("node.midjourney.personalization.button")}
-            title={t("node.midjourney.personalization.button")}
-            onClick={(event) => {
-              event.stopPropagation();
-              setIsStyleCodeDialogOpen(true);
-            }}
-          >
-            <span className="text-[11px] font-semibold uppercase">P</span>
-            {personalizationCodeCount > 0 ? (
-              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] leading-none text-text-dark">
-                {personalizationCodeCount}
-              </span>
-            ) : null}
-          </UiChipButton>
-
-          <UiChipButton
-            type="button"
-            active={isOptimizingPrompt}
-            disabled={
-              isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt
-            }
-            className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-            aria-label={
-              isOptimizingPrompt
-                ? t("node.midjourney.optimizingPrompt")
-                : t("node.midjourney.optimizePrompt")
-            }
-            title={
-              isOptimizingPrompt
-                ? t("node.midjourney.optimizingPrompt")
-                : t("node.midjourney.optimizePrompt")
-            }
-            onClick={() => void handleOptimizePrompt()}
-          >
-            <Wand2
-              className="h-4 w-4 origin-center scale-[1.18]"
-              strokeWidth={2.45}
-            />
-          </UiChipButton>
-
-          <UiChipButton
-            type="button"
-            active={isTranslatingPrompt}
-            disabled={
-              isPromptLockedByUpstream || isPromptBusy || !canRewritePrompt
-            }
-            className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-            aria-label={
-              isTranslatingPrompt
-                ? t("node.midjourney.translatingPrompt")
-                : t("node.midjourney.translatePrompt")
-            }
-            title={
-              isTranslatingPrompt
-                ? t("node.midjourney.translatingPrompt")
-                : t("node.midjourney.translatePrompt")
-            }
-            onClick={() => void handleTranslatePrompt()}
-          >
-            <Languages
-              className="h-4 w-4 origin-center scale-[1.1]"
-              strokeWidth={2.25}
-            />
-          </UiChipButton>
-
-          <UiChipButton
-            type="button"
-            disabled={
-              isPromptLockedByUpstream || isPromptBusy || !canUndoPromptRewrite
-            }
-            className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
-            aria-label={t("node.midjourney.undoPromptRewrite")}
-            title={t("node.midjourney.undoPromptRewrite")}
-            onClick={handleUndoPromptRewrite}
-          >
-            <Undo2
-              className="h-4 w-4 origin-center scale-[1.08]"
-              strokeWidth={2.3}
-            />
-          </UiChipButton>
-
-          <div
-            ref={advancedParamsTriggerRef}
-            className="relative flex shrink-0"
-          >
-            <UiChipButton
-              type="button"
-              title={t("node.midjourney.advancedParamsButton")}
-              aria-label={t("node.midjourney.advancedParamsButton")}
-              className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center ${
-                isAdvancedParamsOpen
-                  ? "!bg-white/[0.06] !text-text-dark hover:!bg-white/[0.08]"
-                  : "!text-text-dark hover:!bg-white/[0.06]"
-              }`}
-              onClick={(event) => {
-                event.stopPropagation();
-                setAdvancedParamsDraft(
-                  parseMidjourneyAdvancedParams(
-                    data.advancedParams || lastMidjourneyAdvancedParams,
-                  ),
-                );
-                setIsAdvancedParamsOpen((current) => !current);
-              }}
-            >
-              <SlidersHorizontal
-                className="h-4 w-4 origin-center scale-[1.04]"
-                strokeWidth={2.25}
-              />
-            </UiChipButton>
-
-            {isAdvancedParamsOpen ? (
-              <div
-                ref={advancedParamsPanelRef}
-                className="absolute right-0 top-[calc(100%+10px)] z-20 w-[372px]"
-                onClick={(event) => event.stopPropagation()}
-                onPointerDown={(event) => event.stopPropagation()}
-              >
-                <UiPanel className="overflow-hidden rounded-[22px] border border-border-dark/95 bg-[linear-gradient(180deg,rgba(30,33,40,0.98),rgba(20,22,28,0.98))] p-0 shadow-[0_24px_56px_rgba(0,0,0,0.46)] backdrop-blur-xl">
-                  <div className="relative border-b border-border-dark/95 px-5 py-4 text-center">
-                    <div className="text-[18px] font-semibold tracking-[-0.01em] text-text-dark">
-                      {t("node.midjourney.advancedParamsTitle")}
-                    </div>
-                    <button
-                      type="button"
-                      className="absolute right-5 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-white/[0.04] hover:text-text-dark"
-                      onClick={() =>
-                        setAdvancedParamsDraft({
-                          stylize: MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.min,
-                          chaos: MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.min,
-                          weird: MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.min,
-                          preservedSeed: null,
-                          passthroughTokens: [],
-                        })
-                      }
-                    >
-                      {t("node.midjourney.advancedParamsReset")}
-                    </button>
-                  </div>
-
-                  <AdvancedParamSlider
-                    label={t("node.midjourney.advancedParamStylize")}
-                    value={advancedParamsDraft.stylize}
-                    min={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.min}
-                    max={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.max}
-                    step={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.step}
-                    onChange={(nextValue) =>
-                      setAdvancedParamsDraft((current) => ({
-                        ...current,
-                        stylize: nextValue,
-                      }))
-                    }
-                  />
-
-                  <AdvancedParamSlider
-                    label={t("node.midjourney.advancedParamWeird")}
-                    value={advancedParamsDraft.weird}
-                    min={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.min}
-                    max={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.max}
-                    step={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.step}
-                    onChange={(nextValue) =>
-                      setAdvancedParamsDraft((current) => ({
-                        ...current,
-                        weird: nextValue,
-                      }))
-                    }
-                  />
-
-                  <AdvancedParamSlider
-                    label={t("node.midjourney.advancedParamChaos")}
-                    value={advancedParamsDraft.chaos}
-                    min={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.min}
-                    max={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.max}
-                    step={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.step}
-                    onChange={(nextValue) =>
-                      setAdvancedParamsDraft((current) => ({
-                        ...current,
-                        chaos: nextValue,
-                      }))
-                    }
-                  />
-
-                  <div className="border-t border-border-dark/95 px-5 py-4">
-                    <div className="text-[11px] leading-6 text-text-muted/85">
-                      {t("node.midjourney.advancedParamsHint")}
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 border-t border-border-dark/95 bg-black/10 px-5 py-4">
-                    <UiButton
-                      type="button"
-                      size="sm"
-                      variant="muted"
-                      onClick={() => {
-                        setAdvancedParamsDraft(
-                          parseMidjourneyAdvancedParams(
-                            data.advancedParams || lastMidjourneyAdvancedParams,
-                          ),
-                        );
-                        setIsAdvancedParamsOpen(false);
-                      }}
-                    >
-                      {t("common.cancel")}
-                    </UiButton>
-                    <UiButton
-                      type="button"
-                      size="sm"
-                      variant="primary"
-                      onClick={() => void handleApplyAdvancedParams()}
-                    >
-                      {t("common.confirm")}
-                    </UiButton>
-                  </div>
-                </UiPanel>
+                  );
+                })}
               </div>
-            ) : null}
+            ) : (
+              <div className="flex min-h-[28px] w-full items-center text-[11px] text-text-muted">
+                {t("node.midjourney.referencesHint")}
+              </div>
+            )}
           </div>
 
-          <UiButton
-            type="button"
-            size="sm"
-            variant="primary"
-            disabled={isPromptBusy}
-            className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} ml-auto shrink-0`}
-            onClick={() => void handleGenerate()}
-          >
-            {isSubmitting ? (
-              <Loader2
-                className={`${NODE_CONTROL_GENERATE_ICON_CLASS} animate-spin`}
-              />
-            ) : (
-              <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} />
-            )}
-            {t("canvas.generate")}
-          </UiButton>
-        </div>
+          <div className="flex shrink-0 items-center justify-start gap-2">
+            <div className="ui-scrollbar nodrag nowheel nopan max-w-full shrink-0 cursor-default overflow-x-auto overflow-y-hidden">
+              <div className="flex w-max items-center gap-1.5 pr-1">
+                <FixedControlChip
+                  label={t("node.midjourney.aspectRatio")}
+                  value={resolvedAspectRatio}
+                  options={aspectRatioOptions}
+                  onChange={handleAspectRatioChange}
+                />
 
-        <div className="mt-2 min-h-[20px] text-[11px] text-text-muted">
-          {promptRewriteError ? (
-            <span className="text-rose-300">{promptRewriteError}</span>
-          ) : data.lastError ? (
-            <span className="text-rose-300">{data.lastError}</span>
-          ) : isOptimizingPrompt ? (
-            <span>{t("node.midjourney.optimizingPrompt")}</span>
-          ) : isTranslatingPrompt ? (
-            <span>{t("node.midjourney.translatingPrompt")}</span>
-          ) : isSubmitting ? (
-            <span>{t("node.midjourney.statusSubmitting")}</span>
-          ) : pendingBatchCount > 0 ? (
-            <span>
-              {t("node.midjourney.statusPollingBatches", {
-                count: pendingBatchCount,
-              })}
-            </span>
-          ) : isPromptLockedByUpstream ? (
-            <span>
-              {hasNonEmptyConnectedText
-                ? t("common.upstreamTextDisconnectHint")
-                : t("common.upstreamTextEmpty")}
-            </span>
-          ) : !apiKey ? (
-            <span>{t("node.midjourney.apiKeyHint")}</span>
-          ) : (
-            <span>{t("node.midjourney.statusIdle")}</span>
-          )}
+                <UiChipButton
+                  type="button"
+                  active={resolvedRawMode}
+                  className={NODE_CONTROL_CHIP_CLASS}
+                  onClick={handleToggleRawMode}
+                >
+                  {t("node.midjourney.raw")}
+                </UiChipButton>
+
+                <FixedControlChip
+                  label={t("node.midjourney.version")}
+                  value={resolvedVersionPreset}
+                  options={versionOptions}
+                  onChange={handleVersionPresetChange}
+                />
+
+                <UiChipButton
+                  type="button"
+                  active={isStyleCodeDialogOpen || personalizationCodeCount > 0}
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 gap-1 px-2`}
+                  aria-label={t("node.midjourney.personalization.button")}
+                  title={t("node.midjourney.personalization.button")}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setIsStyleCodeDialogOpen(true);
+                  }}
+                >
+                  <span className="text-[11px] font-semibold uppercase">P</span>
+                  {personalizationCodeCount > 0 ? (
+                    <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] leading-none text-text-dark">
+                      {personalizationCodeCount}
+                    </span>
+                  ) : null}
+                </UiChipButton>
+
+                <UiChipButton
+                  type="button"
+                  active={isOptimizingPrompt}
+                  disabled={
+                    isPromptLockedByUpstream ||
+                    isPromptBusy ||
+                    !canRewritePrompt
+                  }
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  aria-label={
+                    isOptimizingPrompt
+                      ? t("node.midjourney.optimizingPrompt")
+                      : t("node.midjourney.optimizePrompt")
+                  }
+                  title={
+                    isOptimizingPrompt
+                      ? t("node.midjourney.optimizingPrompt")
+                      : t("node.midjourney.optimizePrompt")
+                  }
+                  onClick={() => void handleOptimizePrompt()}
+                >
+                  <Wand2
+                    className="h-4 w-4 origin-center scale-[1.18]"
+                    strokeWidth={2.45}
+                  />
+                </UiChipButton>
+
+                <UiChipButton
+                  type="button"
+                  active={isTranslatingPrompt}
+                  disabled={
+                    isPromptLockedByUpstream ||
+                    isPromptBusy ||
+                    !canRewritePrompt
+                  }
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  aria-label={
+                    isTranslatingPrompt
+                      ? t("node.midjourney.translatingPrompt")
+                      : t("node.midjourney.translatePrompt")
+                  }
+                  title={
+                    isTranslatingPrompt
+                      ? t("node.midjourney.translatingPrompt")
+                      : t("node.midjourney.translatePrompt")
+                  }
+                  onClick={() => void handleTranslatePrompt()}
+                >
+                  <Languages
+                    className="h-4 w-4 origin-center scale-[1.1]"
+                    strokeWidth={2.25}
+                  />
+                </UiChipButton>
+
+                <UiChipButton
+                  type="button"
+                  disabled={
+                    isPromptLockedByUpstream ||
+                    isPromptBusy ||
+                    !canUndoPromptRewrite
+                  }
+                  className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center`}
+                  aria-label={t("node.midjourney.undoPromptRewrite")}
+                  title={t("node.midjourney.undoPromptRewrite")}
+                  onClick={handleUndoPromptRewrite}
+                >
+                  <Undo2
+                    className="h-4 w-4 origin-center scale-[1.08]"
+                    strokeWidth={2.3}
+                  />
+                </UiChipButton>
+
+                <div
+                  ref={advancedParamsTriggerRef}
+                  className="relative flex shrink-0"
+                >
+                  <UiChipButton
+                    type="button"
+                    title={t("node.midjourney.advancedParamsButton")}
+                    aria-label={t("node.midjourney.advancedParamsButton")}
+                    className={`${NODE_CONTROL_CHIP_CLASS} shrink-0 !w-8 !px-0 justify-center ${
+                      isAdvancedParamsOpen
+                        ? "!bg-white/[0.06] !text-text-dark hover:!bg-white/[0.08]"
+                        : "!text-text-dark hover:!bg-white/[0.06]"
+                    }`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setAdvancedParamsDraft(
+                        parseMidjourneyAdvancedParams(
+                          data.advancedParams || lastMidjourneyAdvancedParams,
+                        ),
+                      );
+                      setIsAdvancedParamsOpen((current) => !current);
+                    }}
+                  >
+                    <SlidersHorizontal
+                      className="h-4 w-4 origin-center scale-[1.04]"
+                      strokeWidth={2.25}
+                    />
+                  </UiChipButton>
+
+                  {isAdvancedParamsOpen ? (
+                    <div
+                      ref={advancedParamsPanelRef}
+                      className="absolute right-0 top-[calc(100%+10px)] z-40 w-[372px]"
+                      onClick={(event) => event.stopPropagation()}
+                      onPointerDown={(event) => event.stopPropagation()}
+                    >
+                      <UiPanel className="overflow-hidden rounded-[22px] border border-border-dark/95 bg-[linear-gradient(180deg,rgba(30,33,40,0.98),rgba(20,22,28,0.98))] p-0 shadow-[0_24px_56px_rgba(0,0,0,0.46)] backdrop-blur-xl">
+                        <div className="relative border-b border-border-dark/95 px-5 py-4 text-center">
+                          <div className="text-[18px] font-semibold tracking-[-0.01em] text-text-dark">
+                            {t("node.midjourney.advancedParamsTitle")}
+                          </div>
+                          <button
+                            type="button"
+                            className="absolute right-5 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-[12px] font-medium text-text-muted transition-colors hover:bg-white/[0.04] hover:text-text-dark"
+                            onClick={() =>
+                              setAdvancedParamsDraft({
+                                stylize:
+                                  MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.min,
+                                chaos:
+                                  MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.min,
+                                weird:
+                                  MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.min,
+                                preservedSeed: null,
+                                passthroughTokens: [],
+                              })
+                            }
+                          >
+                            {t("node.midjourney.advancedParamsReset")}
+                          </button>
+                        </div>
+
+                        <AdvancedParamSlider
+                          label={t("node.midjourney.advancedParamStylize")}
+                          value={advancedParamsDraft.stylize}
+                          min={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.min}
+                          max={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.max}
+                          step={MIDJOURNEY_ADVANCED_PARAM_RANGES.stylize.step}
+                          onChange={(nextValue) =>
+                            setAdvancedParamsDraft((current) => ({
+                              ...current,
+                              stylize: nextValue,
+                            }))
+                          }
+                        />
+
+                        <AdvancedParamSlider
+                          label={t("node.midjourney.advancedParamWeird")}
+                          value={advancedParamsDraft.weird}
+                          min={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.min}
+                          max={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.max}
+                          step={MIDJOURNEY_ADVANCED_PARAM_RANGES.weird.step}
+                          onChange={(nextValue) =>
+                            setAdvancedParamsDraft((current) => ({
+                              ...current,
+                              weird: nextValue,
+                            }))
+                          }
+                        />
+
+                        <AdvancedParamSlider
+                          label={t("node.midjourney.advancedParamChaos")}
+                          value={advancedParamsDraft.chaos}
+                          min={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.min}
+                          max={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.max}
+                          step={MIDJOURNEY_ADVANCED_PARAM_RANGES.chaos.step}
+                          onChange={(nextValue) =>
+                            setAdvancedParamsDraft((current) => ({
+                              ...current,
+                              chaos: nextValue,
+                            }))
+                          }
+                        />
+
+                        <div className="border-t border-border-dark/95 px-5 py-4">
+                          <div className="text-[11px] leading-6 text-text-muted/85">
+                            {t("node.midjourney.advancedParamsHint")}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 border-t border-border-dark/95 bg-black/10 px-5 py-4">
+                          <UiButton
+                            type="button"
+                            size="sm"
+                            variant="muted"
+                            onClick={() => {
+                              setAdvancedParamsDraft(
+                                parseMidjourneyAdvancedParams(
+                                  data.advancedParams ||
+                                    lastMidjourneyAdvancedParams,
+                                ),
+                              );
+                              setIsAdvancedParamsOpen(false);
+                            }}
+                          >
+                            {t("common.cancel")}
+                          </UiButton>
+                          <UiButton
+                            type="button"
+                            size="sm"
+                            variant="primary"
+                            onClick={() => void handleApplyAdvancedParams()}
+                          >
+                            {t("common.confirm")}
+                          </UiButton>
+                        </div>
+                      </UiPanel>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <UiButton
+              type="button"
+              size="sm"
+              variant="primary"
+              disabled={isPromptBusy}
+              className={`${NODE_CONTROL_PRIMARY_BUTTON_CLASS} shrink-0`}
+              onClick={() => void handleGenerate()}
+            >
+              {isSubmitting ? (
+                <Loader2
+                  className={`${NODE_CONTROL_GENERATE_ICON_CLASS} animate-spin`}
+                />
+              ) : (
+                <Sparkles className={NODE_CONTROL_GENERATE_ICON_CLASS} />
+              )}
+              {t("canvas.generate")}
+            </UiButton>
+          </div>
+
+          <div
+            className={`mt-1 min-h-[16px] truncate text-[10px] leading-4 ${
+              promptRewriteError || data.lastError
+                ? "text-rose-300"
+                : "text-text-muted"
+            }`}
+          >
+            {promptRewriteError ? (
+              <span>{promptRewriteError}</span>
+            ) : data.lastError ? (
+              <span>{data.lastError}</span>
+            ) : isOptimizingPrompt ? (
+              <span>{t("node.midjourney.optimizingPrompt")}</span>
+            ) : isTranslatingPrompt ? (
+              <span>{t("node.midjourney.translatingPrompt")}</span>
+            ) : isSubmitting ? (
+              <span>{t("node.midjourney.statusSubmitting")}</span>
+            ) : pendingBatchCount > 0 ? (
+              <span>
+                {t("node.midjourney.statusPollingBatches", {
+                  count: pendingBatchCount,
+                })}
+              </span>
+            ) : isPromptLockedByUpstream ? (
+              <span>
+                {hasNonEmptyConnectedText
+                  ? t("common.upstreamTextDisconnectHint")
+                  : t("common.upstreamTextEmpty")}
+              </span>
+            ) : !apiKey ? (
+              <span>{t("node.midjourney.apiKeyHint")}</span>
+            ) : (
+              <span>{t("node.midjourney.statusIdle")}</span>
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <CanvasHandle type="target" position={Position.Left} id="target" />
       <CanvasHandle type="source" position={Position.Right} id="source" />

@@ -1,0 +1,1507 @@
+/* AUTO-GENERATED FILE. DO NOT EDIT DIRECTLY.
+ * Source: styles/templates/variant_canvas_dark.qss.template
+ * Regenerate: python scripts/sync_qss_from_templates.py
+ */
+
+﻿/* ============================================
+   鏆楄壊涓婚 - 鐢诲竷妯″紡涓撶敤鏍峰紡
+   浣跨敤 #canvasModeContainer 浣滀负鐖堕€夋嫨鍣ㄧ‘淇濇牱寮忛殧绂?
+   ============================================ */
+
+/* 鐢诲竷瀹瑰櫒 - 娣辩伆鑹茬綉鏍艰儗鏅?*/
+#canvasModeContainer #canvasContainer {
+    background-color: #1e1e1e;
+    border: none;
+}
+
+/* 鐢诲竷妯″紡椤甸潰 */
+#canvasModeContainer {
+    background-color: #1a1a1a;
+}
+
+/* 宸︿晶宸ュ叿闈㈡澘 */
+#canvasModeContainer #toolPanel {
+    background-color: #252525;
+    border-right: 1px solid #3a3a3a;
+    padding: 8px;
+}
+
+#canvasModeContainer #toolPanel QPushButton {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 8px;
+    min-width: 40px;
+    min-height: 40px;
+}
+
+#canvasModeContainer #toolPanel QPushButton:hover {
+    background-color: #2d4a7c;
+    border-color: #5B7FFF;
+}
+
+#canvasModeContainer #toolPanel QPushButton:checked {
+    background-color: #5B7FFF;
+    color: white;
+    border-color: #5B7FFF;
+}
+
+#canvasModeContainer #toolPanel QPushButton:disabled {
+    background-color: transparent;
+    color: #606060;
+}
+
+/* 鍙充晶灞炴€ч潰鏉?*/
+#propertyPanel {
+    background-color: #252525;
+    border-left: 1px solid #3a3a3a;
+    padding: 12px;
+}
+
+#propertyPanel QLabel {
+    color: #e5e5e5;
+    font-size: 13px;
+}
+
+#propertyPanel QSlider {
+    min-height: 20px;
+}
+
+#propertyPanel QSlider::groove:horizontal {
+    border: 1px solid #3a3a3a;
+    height: 4px;
+    background: #2d2d2d;
+    border-radius: 2px;
+}
+
+#propertyPanel QSlider::handle:horizontal {
+    background: #5B7FFF;
+    border: 1px solid #4c6edb;
+    width: 16px;
+    margin: -6px 0;
+    border-radius: 8px;
+}
+
+#propertyPanel QSlider::handle:horizontal:hover {
+    background: #4c6edb;
+}
+
+/* 搴曢儴鍏冪礌宸ュ叿鏍?*/
+#elementToolbar {
+    background-color: rgba(45, 45, 45, 0.95);
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 8px 12px;
+}
+
+#elementToolbar QPushButton {
+    background-color: transparent;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: #e5e5e5;
+}
+
+#elementToolbar QPushButton:hover {
+    background-color: #2d4a7c;
+    border-color: #5B7FFF;
+}
+
+#elementToolbar QPushButton:pressed {
+    background-color: #3d5ec7;
+}
+
+/* 鐢诲竷鍥剧墖鍏冪礌 - 鍦嗚杈圭紭 */
+#canvasImage {
+    border: 2px solid transparent;
+    border-radius: 12px;
+}
+
+#canvasImage:hover {
+    border-color: #5B7FFF;
+}
+
+#canvasImageSelected {
+    border: 2px solid #5B7FFF;
+}
+
+/* 鍥剧墖搴忓彿鏍囩 - 钃濊壊鍦嗗舰鏍囩锛堝乏涓婅锛?4x24锛?*/
+#canvasImageOrderLabel {
+    background-color: #5B7FFF;
+    color: white;
+    border-radius: 12px;  /* 鍦嗚12px锛岄厤鍚?4x24灏哄褰㈡垚鍦嗗舰 */
+    font-weight: 600;     /* 鍔犵矖浠ユ彁楂樺彲璇绘€?*/
+    font-size: 12px;      /* 瀛楀彿12px */
+    padding: 0px;         /* 鏃犲唴杈硅窛锛屽畬鍏ㄥ眳涓?*/
+}
+
+/* 鍥剧墖灏哄鏍囩 - 宸︿笅瑙掞紝鏃犺儗鏅紝鐧借壊鏂囧瓧 */
+#canvasImageDimsLabel {
+    background-color: transparent;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 4px;
+}
+
+/* 缁樺埗灞?*/
+#drawingLayer {
+    background-color: transparent;
+}
+
+/* 棰滆壊閫夋嫨鍣?*/
+#colorPicker {
+    border: 2px solid #3a3a3a;
+    border-radius: 4px;
+    min-width: 40px;
+    min-height: 40px;
+}
+
+#colorPicker:hover {
+    border-color: #5B7FFF;
+}
+
+/* ============================================
+   鐢诲竷宸ュ叿鏍忥紙椤堕儴锛?
+   ============================================ */
+#canvasTopToolbar {
+    background-color: #2d2d2d;
+    border-bottom: 1px solid #3a3a3a;
+    padding: 8px 16px;
+}
+
+#canvasFloatingToolbar {
+    background: transparent;
+    border: none;
+    border-radius: 14px;
+}
+
+#canvasFloatingToolbarShadowWrap {
+    background: transparent;
+    border: none;
+}
+
+#canvasFloatingToolbarOuter {
+    background-color: #272727;
+    border-radius: 14px;
+}
+
+#canvasFloatingToolbarSeparator {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+#canvasFloatingToolbarOuter QPushButton#canvasToolbarButton {
+    background: transparent;
+    border: 1px solid transparent;
+    border-style: solid;
+    border-radius: 10px;
+    padding: 0px;
+    margin: 0px;
+    min-width: 30px;
+    min-height: 30px;
+}
+
+#canvasFloatingToolbarOuter QPushButton#canvasToolbarButton:hover {
+    background: transparent;
+    border: 2px solid #525252;
+    border-radius: 10px;
+}
+
+#canvasFloatingToolbarOuter QPushButton#themeToggleBtn {
+    background: transparent;
+    border: 1px solid transparent;
+    border-style: solid;
+    border-radius: 10px;
+}
+
+#canvasFloatingToolbarOuter QPushButton#themeToggleBtn:hover {
+    background: transparent;
+    border: 2px solid #525252;
+    border-radius: 10px;
+}
+
+#canvasToolHoverCard {
+    background-color: #2f2f2f;
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    border-radius: 14px;
+}
+
+#canvasToolHoverTitle {
+    color: #FFFFFF;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#canvasToolHoverDesc {
+    color: #999999;
+    font-size: 13px;
+}
+
+#canvasToolHoverPreview {
+    border-radius: 12px;
+}
+
+/* 蹇嵎閿彍鍗?- 鏆楄壊涓婚 */
+#shortcutMenu {
+    background: transparent;
+    border: none;
+    padding: 0px;
+    margin: 0px;
+}
+
+#shortcutMenuContainer {
+    background-color: #2d2d2d;
+    border: none;
+    border-radius: 12px;
+}
+
+#shortcutMenuTitle {
+    color: #e5e5e5;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#shortcutName {
+    color: #b0b0b0;
+    font-size: 14px;
+}
+
+#shortcutKey {
+    background-color: #3a3a3a;
+    color: #e5e5e5;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: "Consolas", "Monaco", monospace;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #505050;
+}
+
+#shortcutPlus {
+    color: #6b7280;
+    font-size: 12px;
+}
+
+#shortcutMacHint {
+    color: #808080;
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* 宸ュ叿鏍?- 杩斿洖鎸夐挳 */
+#canvasBackButton {
+    background-color: #252525;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: #e5e5e5;
+}
+
+#canvasBackButton:hover {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+/* 宸ュ叿鏍?- 宸ュ叿鎸夐挳锛堝彲閫変腑锛?*/
+#canvasTopToolbar QPushButton[checkable="true"] {
+    background-color: #252525;
+    border: 2px solid #3a3a3a;
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 13px;
+    color: #b0b0b0;
+}
+
+#canvasTopToolbar QPushButton[checkable="true"]:hover {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+#canvasTopToolbar QPushButton[checkable="true"]:checked {
+    background-color: #5B7FFF;
+    border-color: #4c6edb;
+    color: white;
+    font-weight: bold;
+}
+
+/* 宸ュ叿鏍?- 鎾ら攢/閲嶅仛鎸夐挳 */
+#canvasTopToolbar QPushButton[objectName^="btn_undo"],
+#canvasTopToolbar QPushButton[objectName^="btn_redo"] {
+    background-color: #252525;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    padding: 8px;
+    font-size: 16px;
+    color: #b0b0b0;
+}
+
+#canvasTopToolbar QPushButton[objectName^="btn_undo"]:hover,
+#canvasTopToolbar QPushButton[objectName^="btn_redo"]:hover {
+    background-color: #2a2a2a;
+    border-color: #404040;
+}
+
+#canvasTopToolbar QPushButton[objectName^="btn_undo"]:disabled,
+#canvasTopToolbar QPushButton[objectName^="btn_redo"]:disabled {
+    background-color: #252525;
+    color: #505050;
+    border-color: #2d2d2d;
+}
+
+/* ============================================
+   鐢诲竷宸ュ叿鏍忔寜閽牱寮?- 鐜颁唬鍖栬璁?
+   ============================================ */
+
+/* 鏅€氬伐鍏锋爮鎸夐挳 */
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarButton {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: #b0b0b0;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 6px 16px;
+    margin: 4px 3px;
+    min-height: 36px;
+}
+
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarButton:hover {
+    background: #3a3a3a;
+    color: #e5e5e5;
+}
+
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarButton:pressed {
+    background: #404040;
+}
+
+/* 鍚堝苟鎸夐挳婵€娲荤姸鎬?*/
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarButton[merge_active="true"] {
+    color: #3b82f6;
+}
+
+/* 鍗遍櫓鎸夐挳锛堟竻绌猴級 */
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarButtonDanger {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 16px;
+    margin: 4px 3px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #ef4444;
+    min-height: 36px;
+}
+
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarButtonDanger:hover {
+    background: #2d1f1f;
+    color: #ff5555;
+}
+
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarButtonDanger:pressed {
+    background: #3a2020;
+}
+
+/* 鍥炬爣鎸夐挳锛堟挙閿€/閲嶅仛锛?*/
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarIconButton {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 6px;
+    margin: 4px 3px;
+    font-size: 18px;
+    color: #808080;
+    min-width: 36px;
+    min-height: 36px;
+}
+
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarIconButton:hover {
+    background: #3a3a3a;
+    color: #b0b0b0;
+}
+
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarIconButton:pressed {
+    background: #404040;
+}
+
+#canvasModeContainer #canvasTopToolbar QPushButton#canvasToolbarIconButton:disabled {
+    color: #505050;
+    background: transparent;
+}
+
+/* ============================================
+   鐢诲竷渚ц竟鏍忔牱寮?
+   ============================================ */
+
+/* 鐢诲竷渚ц竟鏍?- 娴姩闈㈡澘鏍峰紡锛堝簳閮ㄥ眳涓級 */
+#canvasSidebar {
+    background-color: transparent;
+    border: none;
+}
+
+/* 渚ц竟鏍忔爣棰?*/
+#sidebarTitle {
+    font-size: 18px;
+    font-weight: bold;
+    color: #e5e5e5;
+}
+
+/* 渚ц竟鏍忓叧闂寜閽?*/
+#sidebarCloseButton {
+    background: transparent;
+    border: none;
+    border-radius: 16px;
+    font-size: 18px;
+    color: #808080;
+}
+
+#sidebarCloseButton:hover {
+    background: #3a3a3a;
+    color: #e5e5e5;
+}
+
+/* 渚ц竟鏍忔彁绀烘枃瀛?*/
+#sidebarHint {
+    color: #808080;
+    font-size: 12px;
+    padding: 4px;
+}
+
+/* 鍙傝€冨浘鐗囨暟閲忔爣绛?*/
+#referenceCountLabel {
+    color: #808080;
+    font-size: 13px;
+    padding: 8px;
+    background: #252525;
+    border-radius: 4px;
+}
+
+/* 渚ц竟鏍忕敓鎴愭寜閽?*/
+#sidebarGenerateButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+    border: none;
+    border-radius: 6px;
+    padding: 12px;
+    font-size: 14px;
+    color: white;
+    font-weight: bold;
+}
+
+#sidebarGenerateButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+}
+
+#sidebarGenerateButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+}
+
+/* 灞炴€ч潰鏉挎彁绀轰俊鎭?*/
+#propertyInfo {
+    color: #808080;
+    font-size: 14px;
+    padding: 20px;
+    background: #252525;
+    border-radius: 8px;
+}
+
+/* 渚ц竟鏍忓鍣?*/
+QWidget#sidebarContainer {
+    background: #212121;
+    border: none;
+    border-radius: 12px;
+}
+
+/* 灞曞紑鎸夐挳鏍峰紡澧炲己 (澶嶇敤 sidebarContainer ID) */
+QPushButton#sidebarContainer {
+    background: #212121;
+    border: none;
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+    color: #90a1b9;
+    font-weight: 600;
+    text-align: center;
+}
+
+QPushButton#sidebarContainer:hover {
+    background: #3a3a3a;
+    border-color: #505050;
+    color: #e5e5e5;
+}
+
+QPushButton#sidebarContainer:pressed {
+    background: #404040;
+    border-color: #606060;
+    color: #ffffff;
+}
+
+/* 渚ц竟鏍忔粴鍔ㄥ尯鍩?*/
+QScrollArea#sidebarScrollArea {
+    border: none;
+    background: transparent;
+}
+
+QScrollArea#sidebarScrollArea QWidget {
+    background: transparent;
+}
+
+QScrollArea#sidebarScrollArea QScrollBar:vertical {
+    background: #252525;
+    width: 8px;
+    border-radius: 4px;
+    margin: 0;
+}
+
+QScrollArea#sidebarScrollArea QScrollBar::handle:vertical {
+    background: #505050;
+    border-radius: 4px;
+    min-height: 30px;
+}
+
+QScrollArea#sidebarScrollArea QScrollBar::handle:vertical:hover {
+    background: #606060;
+}
+
+QScrollArea#sidebarScrollArea QScrollBar::add-line:vertical,
+QScrollArea#sidebarScrollArea QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* 渚ц竟鏍忔爣棰樺浘鏍?*/
+QLabel#sidebarTitleIcon {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 #e83ed5, stop:1 #fd952d);
+    border-radius: 8px;
+    font-size: 16px;
+}
+
+/* 渚ц竟鏍忔爣绛?*/
+QLabel#sidebarLabel {
+    font-size: 13px;
+    font-weight: 500;
+    color: #90a1b9;
+}
+
+/* 渚ц竟鏍忔枃鏈緭鍏ユ */
+QWidget#sidebarContainer QTextEdit#sidebarTextEdit {
+    background-color: #252525 !important;
+    background: #252525 !important;
+    border: 1px solid #3a3a3a !important;
+    border-radius: 8px !important;
+    padding: 16px !important;
+    font-size: 14px !important;
+    color: #e5e5e5 !important;
+    min-height: 120px !important;
+}
+
+QWidget#sidebarContainer QTextEdit#sidebarTextEdit:focus {
+    border: 2px solid #5B7FFF !important;
+    background-color: #252525 !important;
+    background: #252525 !important;
+    outline: 4px solid rgba(91, 127, 255, 0.3);
+    outline-offset: 0px;
+}
+
+/* 渚ц竟鏍忎笅鎷夋 */
+QWidget#sidebarContainer QComboBox#sidebarComboBox {
+    background-color: #252525 !important;
+    background: #252525 !important;
+    border: 1px solid #3a3a3a !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    color: #e5e5e5 !important;
+    min-height: 36px !important;
+    max-height: 44px !important;
+}
+
+QWidget#sidebarContainer QComboBox#sidebarComboBox:hover {
+    border: 1px solid #404040 !important;
+}
+
+QWidget#sidebarContainer QComboBox#sidebarComboBox:focus {
+    border: 2px solid #5B7FFF !important;
+    background-color: #252525 !important;
+    background: #252525 !important;
+    outline: 4px solid rgba(91, 127, 255, 0.3);
+    outline-offset: 0px;
+}
+
+QComboBox#sidebarComboBox QAbstractItemView {
+    background: #252525;
+    border: 1px solid #3a3a3a;
+    border-radius: 4px;
+    selection-background-color: #2d4a7c;
+    selection-color: #e5e5e5;
+    padding: 8px;
+    outline: none;
+}
+
+QComboBox#sidebarComboBox QAbstractItemView::item {
+    padding: 12px 16px;
+    min-height: 40px;
+    border-radius: 4px;
+    background: transparent;
+    color: #e5e5e5;
+}
+
+QComboBox#sidebarComboBox QAbstractItemView::item:selected {
+    background: #2d4a7c;
+    color: #e5e5e5;
+}
+
+QComboBox#sidebarComboBox QAbstractItemView::item:hover {
+    background: #3a3a3a;
+}
+
+/* 渚ц竟鏍忔暟瀛楄緭鍏ユ */
+QWidget#sidebarContainer QSpinBox#sidebarSpinBox {
+    background-color: #252525 !important;
+    background: #252525 !important;
+    border: 1px solid #3a3a3a !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    color: #e5e5e5 !important;
+    min-height: 36px !important;
+    max-height: 44px !important;
+}
+
+QWidget#sidebarContainer QSpinBox#sidebarSpinBox:hover {
+    border: 1px solid #404040 !important;
+}
+
+QWidget#sidebarContainer QSpinBox#sidebarSpinBox:focus {
+    border: 2px solid #5B7FFF !important;
+    background-color: #252525 !important;
+    background: #252525 !important;
+    outline: 4px solid rgba(91, 127, 255, 0.3);
+    outline-offset: 0px;
+}
+
+QSpinBox#sidebarSpinBox::up-button,
+QSpinBox#sidebarSpinBox::down-button {
+    background: transparent;
+    border: none;
+    width: 24px;
+}
+
+QSpinBox#sidebarSpinBox::up-arrow,
+QSpinBox#sidebarSpinBox::down-arrow {
+    /* 绉婚櫎榛樿绠ご锛屼娇鐢?IconSpinBox 鐨勫浘鏍?*/
+    image: none;
+    width: 0px;
+    height: 0px;
+}
+
+/* 渚ц竟鏍忓弬鑰冨浘鐗囨彁绀?*/
+QLabel#sidebarReferenceHint {
+    font-size: 13px;
+    font-weight: 600;
+    color: #5B7FFF;
+    background: #1e2a4a;
+    border: 1px solid #2d4a7c;
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin: 8px 0;
+}
+
+/* 缂╃暐鍥惧崰浣嶇瀹瑰櫒 */
+QWidget#thumbnailPlaceholder {
+    background: transparent;
+}
+
+/* 缂╃暐鍥惧崰浣嶇椤?- 鏆楄壊涓婚鏃犺櫄绾胯竟妗?*/
+QLabel#thumbnailPlaceholderItem {
+    background: #3a3a3a;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+    color: #888888;
+    font-size: 11px;
+}
+
+/* 缂╃暐鍥惧浘鐗?*/
+QLabel#thumbnailImage {
+    background: transparent;
+    border: none;
+}
+
+/* 缂╃暐鍥惧簭鍙?*/
+QLabel#thumbnailIndex {
+    background: #3b82f6;
+    color: white;
+    border-radius: 5px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+/* 缂╃暐鍥鹃伄缃╁眰 */
+QLabel#thumbnailOverlay {
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 5px;
+}
+
+/* 缂╃暐鍥惧垹闄ゆ爣绛撅紙X锛?*/
+QLabel#thumbnailRemoveLabel {
+    background: transparent;
+    color: white;
+    font-size: 36px;
+    font-weight: bold;
+}
+
+/* 鐢诲竷渚ц竟鏍?- 鎻愮ず璇嶈緭鍏ユ锛堟棤杈规锛?*/
+#canvasSidebar QTextEdit#promptInput {
+    background: #2a2a2a;
+    border: none;
+    border-radius: 8px;
+    padding: 8px;
+    font-size: 16px;
+    color: #e5e5e5;
+}
+
+#canvasSidebar QTextEdit#promptInput:focus {
+    background: #2a2a2a;
+    border: 2px solid #7a7a7a;
+}
+
+/* 鐢诲竷渚ц竟鏍?- 涓嬫媺妗嗭紙鏃犺竟妗嗭級 */
+#canvasSidebar QComboBox#comboBox {
+    background: #2a2a2a;
+    border: none;
+    border-radius: 8px;
+    padding: 6px 12px;
+    font-size: 14px;
+    color: #e5e5e5;
+    height: 36px;
+    max-height: 36px;
+}
+
+#canvasSidebar QComboBox#comboBox:hover {
+    background: #2a2a2a;
+    border: none;
+}
+
+#canvasSidebar QComboBox#comboBox:focus {
+    background: #2a2a2a;
+    border: 2px solid #7a7a7a;
+}
+
+#canvasSidebar QComboBox#comboBox::drop-down {
+    border: none;
+    width: 30px;
+    background: transparent;
+}
+
+#canvasSidebar QComboBox#comboBox QAbstractItemView {
+    background: #2a2a2a;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    selection-background-color: #3a3a3a;
+    selection-color: #e5e5e5;
+    padding: 4px;
+    outline: none;
+}
+
+#canvasSidebar QComboBox#comboBox QAbstractItemView::item {
+    padding: 12px 16px;
+    min-height: 40px;
+    border-radius: 6px;
+    background: transparent;
+}
+
+#canvasSidebar QComboBox#comboBox QAbstractItemView::item:selected {
+    background: #3a3a3a;
+    color: #e5e5e5;
+}
+
+#canvasSidebar QComboBox#comboBox QAbstractItemView::item:hover {
+    background: #323232;
+}
+
+#canvasSidebar QFrame#generationSettingsSummary {
+    background: #212121;
+    border: 2px solid #3A3A3A;
+    border-radius: 15px;
+}
+
+#canvasSidebar QLabel#genSettingsModelName {
+    color: #e5e5e5;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+#canvasSidebar QLabel#genSettingsBatchText {
+    color: #9aa4b2;
+    font-size: 14px;
+}
+
+#canvasSidebar QLabel#genSettingsBatchValue {
+    color: #e5e5e5;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+#canvasSidebar QLabel#genSettingsResolutionText {
+    color: #e5e5e5;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+#canvasSidebar QLabel#genSettingsAspectText {
+    color: #9aa4b2;
+    font-size: 14px;
+}
+
+#canvasSidebar QPushButton#genSettingsOpenBtn {
+    background: transparent;
+    border: 2px solid #3A3A3A;
+    border-radius: 10px;
+    padding: 0px;
+}
+
+#canvasSidebar QPushButton#genSettingsOpenBtn[selected="true"] {
+    background: #404040;
+    border-color: #ffffff;
+}
+
+#canvasSidebar QPushButton#genSettingsOpenBtn:hover {
+    border-color: #ffffff;
+    background: rgba(255, 255, 255, 0.06);
+}
+
+QFrame#generationSettingsPopup {
+    background-color: #2B2B2B;
+    border: 2px solid #3A3A3A;
+    border-radius: 15px;
+}
+
+QLabel#genSettingsSectionTitle {
+    color: rgba(229, 229, 229, 0.6);
+    font-size: 12px;
+    font-weight: 600;
+    image: none;
+}
+
+QPushButton#genSettingsOptionBtn {
+    background: transparent;
+    border: 2px solid #2B2B2B;
+    border-radius: 14px;
+    padding: 8px 12px;
+    color: #e5e5e5;
+    font-size: 13px;
+}
+
+QPushButton#genSettingsOptionBtn:hover {
+    border-color: #ffffff;
+}
+
+QPushButton#genSettingsOptionBtn[selected="true"] {
+    border-color: #ffffff;
+}
+
+QPushButton#genSettingsModelBtn {
+    background: transparent;
+    border: 2px solid #2B2B2B;
+    border-radius: 14px;
+    padding: 8px 10px;
+    color: #8A8A8A;
+    font-size: 13px;
+    text-align: left;
+}
+
+QPushButton#genSettingsModelBtn[selected="true"] {
+    border-color: #ffffff;
+    color: #ffffff;
+}
+
+QPushButton#genSettingsCompactOptionBtn {
+    background: transparent;
+    border: 2px solid transparent;
+    border-radius: 14px;
+    padding: 0px;
+    margin: 0px;
+    color: rgba(229, 229, 229, 0.55);
+    font-size: 13px;
+}
+
+QPushButton#genSettingsCompactOptionBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+QPushButton#genSettingsCompactOptionBtn[selected="true"] {
+    border-color: #ffffff;
+    color: #ffffff;
+}
+
+QPushButton#genSettingsFixedSizeBtn {
+    background: transparent;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 0px;
+    margin: 0px;
+    color: rgba(229, 229, 229, 0.55);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+QPushButton#genSettingsFixedSizeBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+QPushButton#genSettingsFixedSizeBtn[selected="true"] {
+    border-color: #ffffff;
+    color: #ffffff;
+}
+
+QFrame#genSettingsAspectBox {
+    background: #222222;
+    border-radius: 12px;
+    padding: 0px;
+}
+
+QFrame#genSettingsResolutionBox {
+    background: #222222;
+    border-radius: 14px;
+    padding: 0px;
+}
+
+QFrame#genSettingsSizeBox {
+    background: #222222;
+    border-radius: 14px;
+    padding: 0px;
+}
+
+QLabel#genSettingsSizeKey {
+    color: rgba(229, 229, 229, 0.45);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QLabel#genSettingsSizeValue {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QScrollArea#genSettingsAspectScroll {
+    background: transparent;
+}
+
+QToolButton#genSettingsAspectBtn {
+    background: transparent;
+    border: 2px solid transparent;
+    border-radius: 12px;
+    padding: 5px 0px 0px 0px;
+    margin: 0px;
+    color: rgba(229, 229, 229, 0.55);
+    font-size: 13px;
+}
+
+QToolButton#genSettingsAspectBtn[selected="true"] {
+    border-color: #ffffff;
+    color: #ffffff;
+}
+
+QToolButton#genSettingsAspectBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+QFrame#genSettingsAspectToggleBox {
+    background: #2b2b2b;
+    border: none;
+    border-radius: 10px;
+    padding: 0px;
+}
+
+QPushButton#genSettingsAspectToggleBtn,
+QToolButton#genSettingsAspectToggleBtn {
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    padding: 0px;
+    margin: 0px;
+    color: rgba(229, 229, 229, 0.6);
+    font-size: 12px;
+}
+
+QPushButton#genSettingsAspectToggleBtn[selected="true"],
+QToolButton#genSettingsAspectToggleBtn[selected="true"] {
+    background: #ffffff;
+    border-radius: 10px;
+    color: #111827;
+}
+
+/* 渚ц竟鏍忕敓鎴愭寜閽?*/
+QPushButton#sidebarGenerateButton {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+QPushButton#sidebarGenerateButton:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+}
+
+QPushButton#sidebarGenerateButton:pressed {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #e83ed5, stop:1 #fd952d);
+}
+
+QPushButton#sidebarGenerateButton:disabled {
+    background: #3a3a3a;
+    color: #606060;
+}
+
+/* ===== 鍥剧墖娴姩宸ュ叿鏍?===== */
+
+/* 宸ュ叿鏍忓鍣?- 鏆楄壊鑳屾櫙 */
+#imageFloatingToolbar,
+QWidget#modernFloatingToolbar {
+    background-color: #2d2d2d;
+    border: 1px solid #3a3a3a;
+    border-radius: 10px;
+}
+
+/* 宸ュ叿鎸夐挳 */
+#imageFloatingToolbar QPushButton,
+QWidget#modernFloatingToolbar QPushButton#modernIconButton {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 6px;
+    color: #e5e5e5;
+    font-size: 13px;
+    text-align: left;
+}
+
+#imageFloatingToolbar QPushButton:hover,
+QWidget#modernFloatingToolbar QPushButton#modernIconButton:hover {
+    background-color: #3a3a3a;
+}
+
+#imageFloatingToolbar QPushButton:checked,
+QWidget#modernFloatingToolbar QPushButton#modernIconButton:checked {
+    background-color: #2d4a7c;
+    color: #5B7FFF;
+    font-weight: 500;
+}
+
+#imageFloatingToolbar QPushButton:pressed,
+QWidget#modernFloatingToolbar QPushButton#modernIconButton:pressed {
+    background-color: #404040;
+}
+
+/* ============================================
+   瑁佸垏/缁樺埗/鏂囧瓧宸ュ叿鏍峰紡
+   ============================================ */
+
+/* 纭/淇濆瓨鎸夐挳 - 浣跨敤鏇村叿浣撶殑閫夋嫨鍣ㄧЩ闄よ摑鑹查粯璁ゆ牱寮?*/
+QPushButton#cropConfirmButton,
+QPushButton#cropConfirmButton:flat,
+QPushButton#cropConfirmButton:!default,
+QPushButton#drawingSaveButton,
+QPushButton#drawingSaveButton:flat,
+QPushButton#drawingSaveButton:!default,
+QPushButton#mergeConfirmButton,
+QPushButton#mergeConfirmButton:flat,
+QPushButton#mergeConfirmButton:!default,
+QPushButton#textSaveButton,
+QPushButton#textSaveButton:flat,
+QPushButton#textSaveButton:!default {
+    background-color: #5B7FFF;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 12px 24px;
+    outline: none;
+}
+
+QPushButton#cropConfirmButton:hover,
+QPushButton#drawingSaveButton:hover,
+QPushButton#mergeConfirmButton:hover,
+QPushButton#textSaveButton:hover {
+    background-color: #4c6edb;
+}
+
+QPushButton#cropConfirmButton:pressed,
+QPushButton#drawingSaveButton:pressed,
+QPushButton#mergeConfirmButton:pressed,
+QPushButton#textSaveButton:pressed {
+    background-color: #3d5ec7;
+}
+
+/* 纭繚榛樿鎸夐挳鐘舵€佷篃涓嶆樉绀鸿摑鑹?*/
+QPushButton#cropConfirmButton:default,
+QPushButton#drawingSaveButton:default,
+QPushButton#mergeConfirmButton:default,
+QPushButton#textSaveButton:default {
+    background-color: #5B7FFF;
+    border: none;
+}
+
+/* 鍙栨秷鎸夐挳 - 浣跨敤鏇村叿浣撶殑閫夋嫨鍣ㄧЩ闄よ摑鑹查粯璁ゆ牱寮?*/
+QPushButton#cropCancelButton,
+QPushButton#cropCancelButton:flat,
+QPushButton#cropCancelButton:!default,
+QPushButton#drawingCancelButton,
+QPushButton#drawingCancelButton:flat,
+QPushButton#drawingCancelButton:!default,
+QPushButton#mergeCancelButton,
+QPushButton#mergeCancelButton:flat,
+QPushButton#mergeCancelButton:!default,
+QPushButton#drawingExitButton,
+QPushButton#drawingExitButton:flat,
+QPushButton#drawingExitButton:!default,
+QPushButton#mergeExitButton,
+QPushButton#mergeExitButton:flat,
+QPushButton#mergeExitButton:!default,
+QPushButton#textCancelButton,
+QPushButton#textCancelButton:flat,
+QPushButton#textCancelButton:!default {
+    background-color: #2d2d2d;
+    color: #e5e5e5;
+    border: 2px solid #3a3a3a;
+    border-radius: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    padding: 10px 22px;  /* 鍑忓皯 padding 琛ュ伩 2px 杈规 */
+    outline: none;
+}
+
+QPushButton#cropCancelButton:hover,
+QPushButton#drawingCancelButton:hover,
+QPushButton#drawingExitButton:hover,
+QPushButton#mergeCancelButton:hover,
+QPushButton#mergeExitButton:hover,
+QPushButton#textCancelButton:hover {
+    background-color: #252525;
+    border-color: #404040;
+}
+
+QPushButton#cropCancelButton:pressed,
+QPushButton#drawingCancelButton:pressed,
+QPushButton#drawingExitButton:pressed,
+QPushButton#mergeCancelButton:pressed,
+QPushButton#mergeExitButton:pressed,
+QPushButton#textCancelButton:pressed {
+    background-color: #2a2a2a;
+}
+
+/* 纭繚榛樿鎸夐挳鐘舵€佷篃涓嶆樉绀鸿摑鑹?*/
+QPushButton#cropCancelButton:default,
+QPushButton#drawingCancelButton:default,
+QPushButton#drawingExitButton:default,
+QPushButton#mergeCancelButton:default,
+QPushButton#mergeExitButton:default,
+QPushButton#textCancelButton:default {
+    background-color: #2d2d2d;
+    border: 2px solid #3a3a3a;
+}
+
+/* 缁樺埗棰滆壊閫夋嫨鍣ㄩ潰鏉?*/
+QFrame#drawingColorPickerPanel {
+    background-color: rgba(45, 45, 45, 0.95);
+    border-radius: 8px;
+    border: 1px solid #3a3a3a;
+}
+
+/* 缁樺埗棰滆壊鎸夐挳锛堜娇鐢ㄨ嚜瀹氫箟paintEvent缁樺埗锛屾棤闇€QSS鏍峰紡锛?*/
+
+/* 缁樺埗绮楃粏鏍囩 */
+QLabel#drawingWidthLabel {
+    color: #424242;
+    font-size: 12px;
+}
+
+/* 缁樺埗绮楃粏婊戝潡 */
+QSlider#drawingWidthSlider::groove:horizontal,
+QSlider#drawingTextSizeSlider::groove:horizontal {
+    border: 1px solid #bdbdbd;
+    height: 4px;
+    background: #e0e0e0;
+    border-radius: 2px;
+}
+
+QSlider#drawingWidthSlider::handle:horizontal,
+QSlider#drawingTextSizeSlider::handle:horizontal {
+    background: #5B7FFF;
+    border: 1px solid #4c6edb;
+    width: 14px;
+    height: 14px;
+    margin: -6px 0;
+    border-radius: 8px;
+}
+
+QSlider#drawingWidthSlider::handle:horizontal:hover,
+QSlider#drawingTextSizeSlider::handle:horizontal:hover {
+    background: #4c6edb;
+}
+
+/* 缁樺埗姗＄毊鎿︽寜閽拰鏍囨敞鎸夐挳 */
+QPushButton#drawingEraserButton,
+QPushButton#drawingAnnotateButton {
+    background-color: transparent;
+    color: #e5e5e5;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 12px;
+}
+
+QPushButton#drawingEraserButton:hover,
+QPushButton#drawingAnnotateButton:hover {
+    background-color: #3a3a3a;
+    border-color: #5B7FFF;
+}
+
+QPushButton#drawingEraserButton:checked,
+QPushButton#drawingAnnotateButton:checked {
+    background-color: #2d4a7c;
+    border: 1px solid #5B7FFF;
+    color: white;
+    font-weight: 600;
+}
+
+/* 缁樺埗娓呯┖鎸夐挳 */
+QPushButton#drawingClearButton {
+    background-color: transparent;
+    color: #e5e5e5;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 12px;
+}
+
+QPushButton#drawingClearButton:hover {
+    background-color: #3a2020;
+    border-color: #ef4444;
+    color: #ff5555;
+}
+
+QPushButton#drawingClearButton:pressed {
+    background-color: #2d1f1f;
+}
+
+/* 鏂囧瓧宸ュ叿鏍忛潰鏉?*/
+QFrame#textToolbarPanel {
+    background-color: rgba(45, 45, 45, 0.95);
+    border-radius: 8px;
+    border: 1px solid #3a3a3a;
+}
+
+/* 鏂囧瓧鎷栧姩鎵嬫焺 */
+QWidget#textDragHandle {
+    background-color: rgba(91, 127, 255, 0.1);
+    border: 2px solid #5B7FFF;
+    border-bottom: none;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+}
+
+QWidget#textDragHandle:hover {
+    background-color: rgba(91, 127, 255, 0.2);
+}
+
+/* 鏂囧瓧杈撳叆妗?*/
+QTextEdit#textInputBox {
+    background-color: transparent;
+    border: 2px dashed #5B7FFF;
+    border-top: 2px solid #5B7FFF;
+    border-bottom-left-radius: 4px;
+    border-bottom-right-radius: 4px;
+    padding: 4px;
+    font-size: 24px;
+    color: #e5e5e5;
+}
+
+QTextEdit#textInputBox:focus {
+    border: 2px solid #5B7FFF;
+}
+
+/* ============================================
+   鍥剧墖鎻愮ず璇嶆爣绛炬牱寮忥紙鏆楄壊涓婚 - 娴姩鏍囩锛?
+   ============================================ */
+
+/* 娴姩鎻愮ず璇嶆爣绛惧灞傚鍣?*/
+QWidget#floatingPromptLabel {
+    background: transparent;
+    border: none;
+}
+
+/* 娴姩鎻愮ず璇嶆爣绛惧唴瀹瑰鍣?*/
+QWidget#floatingPromptLabelContent {
+    background-color: rgba(45, 45, 45, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+}
+
+QWidget#floatingPromptLabelContent:hover {
+    background-color: rgba(50, 50, 50, 1.0);
+    border: 1px solid rgba(91, 127, 255, 0.4);
+}
+
+/* 鎻愮ず璇嶆枃鏈?*/
+QLabel#promptText {
+    color: #e5e5e5;
+    font-size: 13px;
+    background: transparent;
+    border: none;
+    font-weight: 500;
+}
+
+/* 澶嶅埗鎸夐挳 */
+QPushButton#promptCopyBtn {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    color: #ccc;
+}
+
+QPushButton#promptCopyBtn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+QPushButton#promptCopyBtn:pressed {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
+/* ============================================
+   鏍囨敞缁勪欢鏍峰紡
+   ============================================ */
+
+/* 鏍囨敞缁勪欢涓诲鍣?*/
+#DraggableAnnotation {
+    background: transparent;
+}
+
+/* 缂栬緫妯″紡瀹瑰櫒 */
+#annotationEditContainer {
+    background-color: #252525;
+    border: 2px solid #3b82f6; /* 鍔犵矖杈规 */
+    border-radius: 8px;
+    padding: 8px; /* 澧炲姞鍐呰竟璺?*/
+}
+
+#annotationEditContainer QLineEdit {
+    border: 1px solid #404040; /* 缁欒緭鍏ユ鍔犱竴涓祬鑹茶竟妗?*/
+    border-radius: 4px;
+    background: #2d2d2d;
+    color: #e5e5e5;
+    font-size: 16px;
+    padding: 6px 10px; /* 澧炲姞杈撳叆妗嗗唴杈硅窛 */
+    margin-right: 8px;
+}
+
+/* 纭鎸夐挳 */
+QPushButton#annotationConfirmButton {
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    min-width: 30px; /* 澧炲姞鎸夐挳灏哄 */
+    min-height: 30px;
+}
+QPushButton#annotationConfirmButton:hover {
+    background-color: #3a3a3a;
+}
+
+/* 鏄剧ず妯″紡瀹瑰櫒 */
+#annotationViewContainer {
+    background-color: #fff9c4;
+    border: 1px solid #fde047;
+    border-radius: 8px;
+}
+
+/* 鏍囨敞鏂囨湰 */
+#annotationViewContainer QLabel {
+    color: #333;
+    font-size: 16px;
+    padding: 10px 20px;
+    font-weight: 500;
+}
+
+/* 鎮仠鐘舵€?*/
+#annotationViewContainer[hover="true"] {
+    background-color: #fef08a;
+    border: 1px solid #eab308;
+}
+
+/* 鍏抽棴鎸夐挳 */
+QPushButton#annotationCloseButton {
+    background-color: #ef4444;
+    border-radius: 15px;
+    border: 2px solid white;
+    margin: 0px;
+}
+
+QPushButton#annotationCloseButton:hover {
+    background-color: #dc2626;
+}
+
+/* ============================================
+   TextLabelItem (鍥剧墖鏍囨敞缁勪欢 - 鏂扮増)
+   ============================================ */
+
+#TextLabelItem {
+    background: transparent;
+}
+
+/* 鍐呭瀹瑰櫒 - 鏆楄壊妯″紡淇濇寔娴呴粍鑹诧紙鏍囨敞闇€瑕侀啋鐩級 */
+#labelContent {
+    background-color: #fef9c2;
+    border: 1px solid #f5de42;
+    border-radius: 6px;
+}
+
+/* Hover 鐘舵€?*/
+#TextLabelItem:hover #labelContent {
+    background-color: #fef08a;
+    border: 1px solid #f5dd42;
+}
+
+/* 鏂囨湰鏍囩 */
+#labelText {
+    color: #000000;
+    font-size: 14px;
+    font-weight: bold;
+    background: transparent;
+}
+
+/* 杈撳叆妗?*/
+#labelInput {
+    border: none;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 4px;
+    color: #000000;
+    font-size: 14px;
+    padding: 2px 4px;
+}
+
+/* 绠ご */
+#labelArrow {
+    color: #f5de42;
+    font-size: 14px;
+    background: transparent;
+    font-family: Arial;
+    padding-bottom: 0px;
+    height: 12px;
+}
+
+/* Hover 鐘舵€佺澶?*/
+#TextLabelItem:hover #labelArrow {
+    color: #eab308;
+}

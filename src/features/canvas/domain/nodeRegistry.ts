@@ -68,6 +68,7 @@ import {
   type CommerceBriefNodeData,
   type CommerceProductNodeData,
   type CommerceResultGroupNodeData,
+  type CommerceVisualPreferenceNodeData,
   type VideoNodeData,
   type ScriptRootNodeData,
   type ScriptChapterNodeData,
@@ -100,6 +101,7 @@ import {
   createDefaultCommerceAdBriefState,
   createDefaultCommerceAdProductState,
   createDefaultCommerceAdResultGroupState,
+  createDefaultCommerceAdVisualPreferenceState,
 } from '@/features/commerce-ad/types';
 import { createDefaultDirectorStageProject } from '@/features/director-stage/domain/types';
 import { DEFAULT_NODE_DISPLAY_NAME } from './nodeDisplay';
@@ -1703,6 +1705,30 @@ const commerceBriefNodeDefinition: CanvasNodeDefinition<CommerceBriefNodeData> =
   }),
 };
 
+const commerceVisualPreferenceNodeDefinition: CanvasNodeDefinition<CommerceVisualPreferenceNodeData> = {
+  type: CANVAS_NODE_TYPES.commerceVisualPreference,
+  menuLabelKey: 'commerceAd.nodes.visualPreference',
+  menuIcon: 'layout',
+  visibleInMenu: false,
+  menuProjectTypes: ['commerceAd'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: true,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.commerceVisualPreference],
+    ...createDefaultCommerceAdVisualPreferenceState(),
+  }),
+};
+
 const commerceBatchGenerateNodeDefinition: CanvasNodeDefinition<CommerceBatchGenerateNodeData> = {
   type: CANVAS_NODE_TYPES.commerceBatchGenerate,
   menuLabelKey: 'commerceAd.nodes.batch',
@@ -2491,6 +2517,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.adProjectRoot]: adProjectRootNodeDefinition,
   [CANVAS_NODE_TYPES.commerceProduct]: commerceProductNodeDefinition,
   [CANVAS_NODE_TYPES.commerceBrief]: commerceBriefNodeDefinition,
+  [CANVAS_NODE_TYPES.commerceVisualPreference]: commerceVisualPreferenceNodeDefinition,
   [CANVAS_NODE_TYPES.commerceBatchGenerate]: commerceBatchGenerateNodeDefinition,
   [CANVAS_NODE_TYPES.commerceResultGroup]: commerceResultGroupNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
