@@ -32,6 +32,7 @@ import { showErrorDialog } from "@/features/canvas/application/errorDialog";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import { optimizeCanvasPrompt } from "@/features/canvas/application/promptOptimization";
 import {
+  applyTextareaTextEdit,
   buildShortReferenceToken,
   insertReferenceToken,
   removeTextRange,
@@ -858,7 +859,12 @@ export const ViduNode = memo(({ id, data, selected, width, height }: ViduNodePro
         selection.start,
         pickerItem.insertToken,
       );
-      handlePromptChange(nextText);
+      const editResult = applyTextareaTextEdit({
+        textarea: promptRef.current,
+        nextText,
+        range: { start: selection.start, end: selection.end },
+      });
+      handlePromptChange(editResult.value);
       setShowReferencePicker(false);
       pickerSelectionRef.current = null;
       setPickerActiveIndex(0);

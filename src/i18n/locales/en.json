@@ -534,6 +534,8 @@
       "endTime": "End Time",
       "useCurrentAsStart": "Use as Start",
       "useCurrentAsEnd": "Use as End",
+      "durationUnavailable": "A usable media duration is not available yet. Wait for the preview to finish loading before trimming. If it still shows 0s, this file does not expose usable duration metadata.",
+      "invalidRange": "The trim range is invalid. Wait for media duration to load and make the output at least 0.1s.",
       "quickSeek": "Quick Seek",
       "previewStart": "Preview Start",
       "previewEnd": "Preview End"
@@ -3775,9 +3777,37 @@
       "failed": "Failed"
     },
     "agent": {
-      "title": "Commerce Ad Agent",
+      "title": "Commerce Detail Page Agent",
       "modelStatus": "Text model: {{model}}",
       "noModel": "No active text model",
+      "modules": {
+        "detailPage": {
+          "label": "Detail Page",
+          "title": "Commerce Detail Page Agent",
+          "description": "Organize product images, product understanding, visual preference, and batch generation for detail-page and hero-image assets."
+        },
+        "productImageOptimize": {
+          "label": "Product Polish",
+          "title": "Product Image Optimization Agent",
+          "description": "Plan product retouching, background cleanup, material enhancement, and marketplace hero-image adaptation."
+        },
+        "modelTryOn": {
+          "label": "Try-On",
+          "title": "Model Try-On Agent",
+          "description": "Plan model try-on image workflows for apparel, accessories, and wearable products."
+        },
+        "campaignPoster": {
+          "label": "Campaign Poster",
+          "title": "Marketing Campaign Poster Agent",
+          "description": "Shape visual directions and batch generation for launches, seasonal campaigns, promotions, and paid ads."
+        },
+        "sceneImage": {
+          "label": "Scene Image",
+          "title": "Product Scene Image Agent",
+          "description": "Place products into lifestyle, usage, or brand-atmosphere scenes for social commerce and ad materials."
+        },
+        "placeholder": "This module entry is ready. When we detail this Agent, this area will become its input fields, parameter controls, and conversation flow."
+      },
       "visionWarningTitle": "Switch to a multimodal LLM for image understanding",
       "visionWarningBody": "Product images are already uploaded, but the active text model does not look vision-capable. You can still continue by manually filling product information.",
       "openModelSettings": "Model Settings",
@@ -4966,6 +4996,8 @@
   },
   "directorStage": {
     "title": "3D Director Stage",
+    "detachedTitle": "3D Director Stage",
+    "loading": "Loading director stage...",
     "headerMeta": "{{objects}} objects / {{shots}} shots",
     "assetPack": {
       "a3d": "A3D Preset Assets",
@@ -5150,22 +5182,66 @@
       "lensSettings": "Lens Focal Length",
       "fovValue": "FOV {{value}} deg",
       "focalWithFovValue": "{{focal}}mm / FOV {{fov}} deg",
-      "recordPath": "Record camera path",
+      "recordPath": "Record move route",
       "stopRecording": "Stop recording",
-      "recording": "Recording camera path",
-      "recordingStarted": "Camera path recording started",
-      "recordingSaved": "Camera path saved ({{seconds}}s)",
-      "recordingTooShort": "Camera path is too short to save",
-      "recordingStatus": "Recording {{seconds}}s / {{max}}s",
-      "playingStatus": "Playing camera path",
-      "playPath": "Play camera path",
+      "recording": "Recording move route",
+      "recordingStarted": "Move route recording started",
+      "recordingSaved": "Move route generated ({{seconds}}s)",
+      "recordingTooShort": "Move route is too short to save",
+      "recordingStatus": "Recording {{seconds}}s",
+      "playingStatus": "Playing move route",
+      "playPath": "Play move route",
+      "stopPlayback": "Stop playback",
+      "pausePlayback": "Pause playback",
       "exportPath": "Export MP4",
-      "clearPath": "Clear camera path",
-      "pathSummary": "Camera path {{seconds}}s",
-      "exporting": "Exporting camera path...",
-      "exported": "Camera path MP4 exported",
-      "exportFailed": "Failed to export camera path MP4",
-      "recordingNodeTitle": "{{name}} Camera Recording"
+      "createVideoNode": "Create clipped video node",
+      "clearPath": "Clear move route",
+      "pathSummary": "Move route {{seconds}}s",
+      "exporting": "Creating clipped video node...",
+      "exported": "Clipped video node created",
+      "exportFailed": "Failed to create clipped video node",
+      "nodeCreated": "Clipped video node created",
+      "nodeCreateFailed": "Failed to create clipped video node",
+      "recordingNodeTitle": "{{name}} Camera Recording",
+      "timelineTitle": "Camera Timeline",
+      "timelineSummary": "{{seconds}}s / {{motion}} keyframes, drag keyframes to retime",
+      "timelineEmptySummary": "Record a move route first",
+      "timelineEmptyTitle": "No move route yet",
+      "timelineEmptyHint": "Click Record move route above, move the camera in 3D space, then stop recording. Editable keyframes will appear here.",
+      "collapseTimeline": "Collapse camera timeline",
+      "expandTimeline": "Expand camera timeline",
+      "addKeyframe": "Add Keyframe",
+      "updateKeyframe": "Update Keyframe",
+      "deleteKeyframe": "Delete Keyframe",
+      "keyframeAt": "Keyframe at {{seconds}}s",
+      "motionTrack": "Camera Keyframes",
+      "autoKeyframes": "Auto keyframes",
+      "smoothCameraPath": "Smooth camera move",
+      "previousKeyframe": "Previous keyframe",
+      "nextKeyframe": "Next keyframe",
+      "seconds": "Seconds",
+      "selectedKeyframe": "Selected",
+      "lockedKeyframe": "Endpoint",
+      "totalDuration": "Total",
+      "maxDurationHint": "Clip max 15s",
+      "clipRange": "Clip range",
+      "easing": {
+        "title": "Segment Speed",
+        "subtitle": "{{from}}s to {{to}}s",
+        "customHint": "The vertical axis is route progress, not speed; speed is the curve slope. Presets and curve edits also retime this segment on the timeline.",
+        "curveLabel": "Progress Curve",
+        "speedLabel": "Overall Speed",
+        "speedHint": "Changing overall speed retimes this segment on the timeline and shifts later keyframes.",
+        "presets": {
+          "linear": "Linear",
+          "easeIn": "Ease In",
+          "easeOut": "Ease Out",
+          "easeInOut": "Ease In Out",
+          "accelerate": "Accelerate",
+          "decelerate": "Decelerate",
+          "custom": "Custom"
+        }
+      }
     },
     "snapshot": {
       "send": "Snapshot to Canvas",

@@ -143,6 +143,22 @@ import {
 } from "@/features/director-stage/domain/types";
 import { createDirectorStageEntityFromModelAsset } from "@/features/director-stage/engine/projectManager";
 import {
+  DIRECTOR_STAGE_ADD_EXPORT_NODE_EVENT,
+  DIRECTOR_STAGE_ADD_VIDEO_NODE_EVENT,
+  DIRECTOR_STAGE_CLOSE_REQUEST_STORAGE_KEY,
+  DIRECTOR_STAGE_CLOSED_EVENT,
+  DIRECTOR_STAGE_CONTEXT_EVENT,
+  DIRECTOR_STAGE_READY_EVENT,
+  DIRECTOR_STAGE_UPDATE_NODE_EVENT,
+  closeDirectorStageWindowHandle,
+  emitToDirectorStage,
+  openDirectorStageWindow,
+  type DirectorStageAddExportNodePayload,
+  type DirectorStageAddVideoNodePayload,
+  type DirectorStageUpdateNodePayload,
+  type DirectorStageWindowContext,
+} from "@/features/director-stage/application/directorStageWindowBridge";
+import {
   calculateChildNodePosition,
   calculateBranchNodePosition,
   DEFAULT_LAYOUT_CONFIG,
@@ -235,12 +251,6 @@ const NodeToolDialog = lazy(async () => {
 const ImageViewerModal = lazy(async () => {
   const module = await import("./ui/ImageViewerModal");
   return { default: module.ImageViewerModal };
-});
-
-const DirectorStageWorkspace = lazy(async () => {
-  const module =
-    await import("@/features/director-stage/ui/DirectorStageWorkspace");
-  return { default: module.DirectorStageWorkspace };
 });
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
@@ -1992,6 +2002,12 @@ export function Canvas() {
   );
   const closeDirectorStage = useCanvasStore(
     (state) => state.closeDirectorStage,
+  );
+  const addDerivedExportNode = useCanvasStore(
+    (state) => state.addDerivedExportNode,
+  );
+  const addDerivedVideoNode = useCanvasStore(
+    (state) => state.addDerivedVideoNode,
   );
   const setViewportState = useCanvasStore((state) => state.setViewportState);
   const setCanvasViewportSize = useCanvasStore(
@@ -7637,6 +7653,204 @@ export function Canvas() {
       closeDirectorStage();
     }
   }, [activeDirectorStageNode, activeDirectorStageNodeId, closeDirectorStage]);
+
+  const activeDirectorStageContext = useMemo<DirectorStageWindowContext | null>(() => {
+    if (!activeDirectorStageNode) {
+      return null;
+    }
+
+    return {
+      nodeId: activeDirectorStageNode.id,
+      data: activeDirectorStageNode.data as DirectorStageNodeData,
+      connectedEnvironments: connectedDirectorStageEnvironments,
+    };
+  }, [activeDirectorStageNode, connectedDirectorStageEnvironments]);
+
+  useEffect(() => {
+    if (!activeDirectorStageNodeId) {
+      return;
+    }
+
+    if (!isTauri()) {
+      closeDirectorStage();
+      return;
+    }
+
+    void openDirectorStageWindow(t("directorStage.detachedTitle"))
+      .catch((error) => {
+        console.error("Failed to open director stage window", error);
+      });
+  }, [activeDirectorStageNodeId, closeDirectorStage, t]);
+
+  useEffect(() => {
+    if (!activeDirectorStageContext || !isTauri()) {
+      return;
+    }
+
+    void emitToDirectorStage(
+      DIRECTOR_STAGE_CONTEXT_EVENT,
+      activeDirectorStageContext,
+    ).catch((error) => {
+      console.warn("Failed to sync director stage context", error);
+    });
+  }, [activeDirectorStageContext]);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    const appWindow = getCurrentWindow();
+    let unlistenReady: (() => void) | null = null;
+    let unlistenUpdateNode: (() => void) | null = null;
+    let unlistenAddExportNode: (() => void) | null = null;
+    let unlistenAddVideoNode: (() => void) | null = null;
+    let unlistenClosed: (() => void) | null = null;
+    let disposed = false;
+
+    const registerDirectorStageBridge = async () => {
+      const nextUnlistenReady = await appWindow.listen(
+        DIRECTOR_STAGE_READY_EVENT,
+        () => {
+          const context = activeDirectorStageContext;
+          if (!context) {
+            return;
+          }
+
+          void emitToDirectorStage(DIRECTOR_STAGE_CONTEXT_EVENT, context).catch(
+            (error) => {
+              console.warn("Failed to deliver director stage context", error);
+            },
+          );
+        },
+      );
+      if (disposed) {
+        nextUnlistenReady();
+        return;
+      }
+      unlistenReady = nextUnlistenReady;
+
+      const nextUnlistenUpdateNode = await appWindow.listen<DirectorStageUpdateNodePayload>(
+        DIRECTOR_STAGE_UPDATE_NODE_EVENT,
+        (event) => {
+          if (!event.payload?.nodeId) {
+            return;
+          }
+
+          updateNodeData(event.payload.nodeId, event.payload.data, {
+            historyMode: event.payload.historyMode ?? "push",
+          });
+        },
+      );
+      if (disposed) {
+        nextUnlistenUpdateNode();
+        return;
+      }
+      unlistenUpdateNode = nextUnlistenUpdateNode;
+
+      const nextUnlistenAddExportNode =
+        await appWindow.listen<DirectorStageAddExportNodePayload>(
+          DIRECTOR_STAGE_ADD_EXPORT_NODE_EVENT,
+          (event) => {
+            const payload = event.payload;
+            if (!payload?.sourceNodeId) {
+              return;
+            }
+
+            addDerivedExportNode(
+              payload.sourceNodeId,
+              payload.imageUrl,
+              payload.aspectRatio,
+              payload.previewImageUrl,
+              payload.options,
+            );
+          },
+        );
+      if (disposed) {
+        nextUnlistenAddExportNode();
+        return;
+      }
+      unlistenAddExportNode = nextUnlistenAddExportNode;
+
+      const nextUnlistenAddVideoNode =
+        await appWindow.listen<DirectorStageAddVideoNodePayload>(
+          DIRECTOR_STAGE_ADD_VIDEO_NODE_EVENT,
+          (event) => {
+            const payload = event.payload;
+            if (!payload?.sourceNodeId) {
+              return;
+            }
+
+            addDerivedVideoNode(
+              payload.sourceNodeId,
+              payload.videoUrl,
+              payload.previewImageUrl,
+              payload.aspectRatio,
+              payload.duration,
+              payload.options,
+            );
+          },
+        );
+      if (disposed) {
+        nextUnlistenAddVideoNode();
+        return;
+      }
+      unlistenAddVideoNode = nextUnlistenAddVideoNode;
+
+      const nextUnlistenClosed = await appWindow.listen(
+        DIRECTOR_STAGE_CLOSED_EVENT,
+        () => {
+          closeDirectorStage();
+        },
+      );
+      if (disposed) {
+        nextUnlistenClosed();
+        return;
+      }
+      unlistenClosed = nextUnlistenClosed;
+    };
+
+    void registerDirectorStageBridge().catch((error) => {
+      console.error("Failed to register director stage bridge", error);
+    });
+
+    return () => {
+      disposed = true;
+      unlistenReady?.();
+      unlistenUpdateNode?.();
+      unlistenAddExportNode?.();
+      unlistenAddVideoNode?.();
+      unlistenClosed?.();
+    };
+  }, [
+    activeDirectorStageContext,
+    addDerivedExportNode,
+    addDerivedVideoNode,
+    closeDirectorStage,
+    updateNodeData,
+  ]);
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return;
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== DIRECTOR_STAGE_CLOSE_REQUEST_STORAGE_KEY || !event.newValue) {
+        return;
+      }
+
+      closeDirectorStage();
+      void closeDirectorStageWindowHandle().catch((error) => {
+        console.warn("Failed to close director stage window from storage request", error);
+      });
+    };
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, [closeDirectorStage]);
   const selectedDownloadNodes = useMemo(() => {
     return selectedNodes.flatMap((node, index) => {
       const downloadSource = getNodePrimaryDownloadSource(node);
@@ -8440,16 +8654,6 @@ export function Canvas() {
                     onNavigate={navigateImageViewer}
                   />
                 )}
-              </Suspense>
-            )}
-            {activeDirectorStageNode && (
-              <Suspense fallback={null}>
-                <DirectorStageWorkspace
-                  nodeId={activeDirectorStageNode.id}
-                  data={activeDirectorStageNode.data as DirectorStageNodeData}
-                  connectedEnvironments={connectedDirectorStageEnvironments}
-                  onClose={closeDirectorStage}
-                />
               </Suspense>
             )}
           </div>

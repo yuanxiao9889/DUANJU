@@ -11,15 +11,16 @@ use super::storage::{self, MediaPersistContext};
 #[serde(rename_all = "camelCase")]
 pub struct TranscodeDirectorStageRecordingPayload {
     pub webm_bytes: Vec<u8>,
-    pub output_path: String,
+    pub output_path: Option<String>,
     pub output_file_name: Option<String>,
+    pub target_duration_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TranscodeDirectorStageRecordingResult {
     pub video_url: String,
-    pub output_path: String,
+    pub output_path: Option<String>,
     pub output_file_name: String,
 }
 
@@ -86,11 +87,14 @@ fn run_ffmpeg_transcode(
     ffmpeg_path: &Path,
     source_path: &Path,
     output_path: &Path,
+    target_duration_ms: Option<u64>,
 ) -> Result<(), String> {
-    let output = Command::new(ffmpeg_path)
-        .arg("-y")
-        .arg("-i")
-        .arg(source_path)
+    let mut command = Command::new(ffmpeg_path);
+    command.arg("-y").arg("-i").arg(source_path);
+    if let Some(duration_ms) = target_duration_ms.filter(|value| *value > 0) {
+        command.arg("-t").arg(format!("{:.3}", duration_ms as f64 / 1000.0));
+    }
+    let output = command
         .arg("-an")
         .arg("-r")
         .arg("30")
@@ -135,10 +139,12 @@ pub async fn transcode_director_stage_recording_to_mp4(
     if payload.webm_bytes.is_empty() {
         return Err("Recording bytes are empty".to_string());
     }
-    let output_path = PathBuf::from(payload.output_path.trim());
-    if output_path.as_os_str().is_empty() {
-        return Err("MP4 output path is empty".to_string());
-    }
+    let output_path = payload
+        .output_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from);
 
     let temp_dir = std::env::temp_dir()
         .join("storyboard-copilot")
@@ -154,11 +160,18 @@ pub async fn transcode_director_stage_recording_to_mp4(
 
     write_bytes(&temp_webm_path, &payload.webm_bytes)?;
     let ffmpeg_path = ensure_runtime_binary(&app, &ffmpeg_binary_name("ffmpeg"))?;
-    let transcode_result = run_ffmpeg_transcode(&ffmpeg_path, &temp_webm_path, &temp_mp4_path);
+    let transcode_result = run_ffmpeg_transcode(
+        &ffmpeg_path,
+        &temp_webm_path,
+        &temp_mp4_path,
+        payload.target_duration_ms,
+    );
     let _ = fs::remove_file(&temp_webm_path);
     transcode_result?;
 
-    copy_file_to_output(&temp_mp4_path, &output_path)?;
+    if let Some(output_path) = output_path.as_ref() {
+        copy_file_to_output(&temp_mp4_path, output_path)?;
+    }
     let mp4_bytes = fs::read(&temp_mp4_path)
         .map_err(|error| format!("Failed to read transcoded MP4: {error}"))?;
     let _ = fs::remove_file(&temp_mp4_path);
@@ -170,15 +183,15 @@ pub async fn transcode_director_stage_recording_to_mp4(
         media_context.as_ref(),
         "original",
     )?;
+    let fallback_output_path = PathBuf::from("director-stage-recording.mp4");
     let output_file_name = resolve_output_file_name(
-        &output_path,
+        output_path.as_deref().unwrap_or(fallback_output_path.as_path()),
         payload.output_file_name.as_deref(),
     );
 
     Ok(TranscodeDirectorStageRecordingResult {
         video_url,
-        output_path: output_path.to_string_lossy().to_string(),
+        output_path: output_path.map(|path| path.to_string_lossy().to_string()),
         output_file_name,
     })
 }
-

@@ -96,16 +96,41 @@ export interface DirectorStageLight {
 }
 
 export interface DirectorStageCameraKeyframe {
+  id?: string;
   timeMs: number;
+  sourceTimeMs?: number;
   position: DirectorStageVector3;
   target: DirectorStageVector3;
   fov: number;
 }
 
+export type DirectorStageCameraPathEasingPreset =
+  | 'linear'
+  | 'easeIn'
+  | 'easeOut'
+  | 'easeInOut'
+  | 'accelerate'
+  | 'decelerate'
+  | 'custom';
+
+export type DirectorStageCameraPathEasingCurve = [number, number, number, number];
+
+export interface DirectorStageCameraPathSegmentEasing {
+  preset: DirectorStageCameraPathEasingPreset;
+  curve: DirectorStageCameraPathEasingCurve;
+  speed?: number;
+}
+
 export interface DirectorStageCameraPath {
+  mode: 'keyframe';
   durationMs: number;
+  clipStartMs: number;
+  clipDurationMs: number;
   sampleRate: number;
-  keyframes: DirectorStageCameraKeyframe[];
+  smoothingPreset: 'easeInOutCubic';
+  draftKeyframes: DirectorStageCameraKeyframe[];
+  motionKeyframes: DirectorStageCameraKeyframe[];
+  segmentEasings?: Record<string, DirectorStageCameraPathSegmentEasing>;
 }
 
 export interface DirectorStageCameraShot {
@@ -234,7 +259,8 @@ export const DIRECTOR_STAGE_LIMB_ROTATION_MAX = Math.PI / 2;
 export const DIRECTOR_STAGE_DEFAULT_PLANE_ASPECT_RATIO = 1;
 export const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN = 0.1;
 export const DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX = 10;
-export const DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS = 15_000;
+export const DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS = 10 * 60 * 1000;
+export const DIRECTOR_STAGE_CAMERA_PATH_CLIP_MAX_DURATION_MS = 15_000;
 export const DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE = 30;
 export const DIRECTOR_STAGE_CAMERA_PATH_MAX_KEYFRAMES =
   Math.ceil(DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS / (1000 / DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE)) + 1;
@@ -332,55 +358,233 @@ function normalizeVector3(value: unknown, fallback: DirectorStageVector3): Direc
   };
 }
 
+const DIRECTOR_STAGE_CAMERA_PATH_EASING_CURVES: Record<
+  DirectorStageCameraPathEasingPreset,
+  DirectorStageCameraPathEasingCurve
+> = {
+  linear: [0, 0, 1, 1],
+  easeIn: [0.42, 0, 1, 1],
+  easeOut: [0, 0, 0.58, 1],
+  easeInOut: [0.42, 0, 0.58, 1],
+  accelerate: [0.3, 0, 0.9, 0.45],
+  decelerate: [0.1, 0.55, 0.7, 1],
+  custom: [0.42, 0, 0.58, 1],
+};
+
+const DIRECTOR_STAGE_CAMERA_PATH_MAX_STORED_DURATION_MS = DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS;
+
+function normalizeCameraPathEasingPreset(value: unknown): DirectorStageCameraPathEasingPreset {
+  return value === 'linear'
+    || value === 'easeIn'
+    || value === 'easeOut'
+    || value === 'easeInOut'
+    || value === 'accelerate'
+    || value === 'decelerate'
+    || value === 'custom'
+    ? value
+    : 'linear';
+}
+
+function normalizeCameraPathEasingCurve(
+  value: unknown,
+  fallback: DirectorStageCameraPathEasingCurve
+): DirectorStageCameraPathEasingCurve {
+  if (!Array.isArray(value) || value.length < 4) {
+    return fallback;
+  }
+
+  const x1 = Math.max(0, Math.min(1, normalizeNumber(value[0], fallback[0])));
+  const y1 = Math.max(-2, Math.min(2, normalizeNumber(value[1], fallback[1])));
+  const x2 = Math.max(0, Math.min(1, normalizeNumber(value[2], fallback[2])));
+  const y2 = Math.max(-2, Math.min(2, normalizeNumber(value[3], fallback[3])));
+  return [x1, y1, x2, y2];
+}
+
+function normalizeCameraPathSegmentEasings(
+  value: unknown,
+  motionKeyframes: DirectorStageCameraKeyframe[]
+): Record<string, DirectorStageCameraPathSegmentEasing> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const rawEntries: Record<string, DirectorStageCameraPathSegmentEasing> = {};
+  Object.entries(value as Record<string, unknown>).forEach(([key, rawValue]) => {
+    const segmentKey = key.trim();
+    if (!segmentKey || !rawValue || typeof rawValue !== 'object') {
+      return;
+    }
+    const candidate = rawValue as Partial<DirectorStageCameraPathSegmentEasing>;
+    const preset = normalizeCameraPathEasingPreset(candidate.preset);
+    rawEntries[segmentKey] = {
+      preset,
+      curve: normalizeCameraPathEasingCurve(
+        candidate.curve,
+        DIRECTOR_STAGE_CAMERA_PATH_EASING_CURVES[preset]
+      ),
+      speed: Math.max(0.1, Math.min(5, normalizeNumber(candidate.speed, 1))),
+    };
+  });
+
+  const result: Record<string, DirectorStageCameraPathSegmentEasing> = {};
+  motionKeyframes.slice(0, -1).forEach((keyframe, index) => {
+    const nextKeyframe = motionKeyframes[index + 1];
+    const segmentKey = keyframe.id;
+    if (!segmentKey || !nextKeyframe) {
+      return;
+    }
+    const legacyTimeKey = `${Math.round(keyframe.timeMs)}:${Math.round(nextKeyframe.timeMs)}`;
+    const easing = rawEntries[segmentKey] ?? rawEntries[legacyTimeKey];
+    if (easing) {
+      result[segmentKey] = easing;
+    }
+  });
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function createNormalizedCameraPathKeyframeId(index: number, timeMs: number): string {
+  return `motion-${index}-${Math.round(timeMs)}`;
+}
+
+function normalizeCameraPathMotionKeyframeIds(
+  keyframes: DirectorStageCameraKeyframe[]
+): DirectorStageCameraKeyframe[] {
+  return keyframes.map((keyframe, index) => ({
+    ...keyframe,
+    id: typeof keyframe.id === 'string' && keyframe.id.trim()
+      ? keyframe.id.trim()
+      : createNormalizedCameraPathKeyframeId(index, keyframe.timeMs),
+  }));
+}
+
+function extractNormalizedCameraMotionKeyframes(
+  draftKeyframes: DirectorStageCameraKeyframe[],
+  durationMs: number
+): DirectorStageCameraKeyframe[] {
+  const normalizedKeyframes = draftKeyframes
+    .filter((keyframe) => Number.isFinite(keyframe.timeMs))
+    .sort((left, right) => left.timeMs - right.timeMs);
+
+  if (normalizedKeyframes.length === 0) {
+    return [];
+  }
+
+  const totalDurationMs = Math.max(1, Math.min(DIRECTOR_STAGE_CAMERA_PATH_MAX_STORED_DURATION_MS, durationMs));
+  if (normalizedKeyframes.length === 1) {
+    return [{
+      ...normalizedKeyframes[0],
+      sourceTimeMs: normalizedKeyframes[0].sourceTimeMs ?? normalizedKeyframes[0].timeMs,
+      timeMs: 0,
+    }];
+  }
+
+  const first = {
+    ...normalizedKeyframes[0],
+    sourceTimeMs: normalizedKeyframes[0].sourceTimeMs ?? normalizedKeyframes[0].timeMs,
+    timeMs: 0,
+  };
+  const last = {
+    ...normalizedKeyframes[normalizedKeyframes.length - 1],
+    sourceTimeMs: normalizedKeyframes[normalizedKeyframes.length - 1].sourceTimeMs
+      ?? normalizedKeyframes[normalizedKeyframes.length - 1].timeMs,
+    timeMs: totalDurationMs,
+  };
+  return [first, last];
+}
+
 function normalizeCameraPath(value: unknown): DirectorStageCameraPath | undefined {
   if (!value || typeof value !== 'object') {
     return undefined;
   }
 
-  const candidate = value as Partial<DirectorStageCameraPath>;
-  const rawKeyframes = Array.isArray(candidate.keyframes) ? candidate.keyframes : [];
-  const keyframes = rawKeyframes
+  const candidate = value as Partial<DirectorStageCameraPath> & {
+    keyframes?: unknown;
+  };
+  const rawDraftKeyframes = Array.isArray(candidate.draftKeyframes)
+    ? candidate.draftKeyframes
+    : Array.isArray(candidate.keyframes)
+      ? candidate.keyframes
+      : [];
+  const normalizeKeyframes = (rawKeyframes: unknown[]): DirectorStageCameraKeyframe[] => rawKeyframes
     .map((keyframe): DirectorStageCameraKeyframe | null => {
       if (!keyframe || typeof keyframe !== 'object') {
         return null;
       }
       const raw = keyframe as Partial<DirectorStageCameraKeyframe>;
       const timeMs = normalizeNumber(raw.timeMs, Number.NaN);
-      if (!Number.isFinite(timeMs) || timeMs < 0 || timeMs > DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS) {
+      if (!Number.isFinite(timeMs) || timeMs < 0 || timeMs > DIRECTOR_STAGE_CAMERA_PATH_MAX_STORED_DURATION_MS) {
         return null;
       }
       return {
+        id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined,
         timeMs,
+        sourceTimeMs: normalizeNumber(raw.sourceTimeMs, Number.NaN),
         position: normalizeVector3(raw.position, createStageVector3(4, 2.4, 5)),
         target: normalizeVector3(raw.target, createStageVector3(0, 1.2, 0)),
         fov: Math.max(1, Math.min(120, normalizeNumber(raw.fov, 42))),
       };
     })
     .filter((keyframe): keyframe is DirectorStageCameraKeyframe => keyframe !== null)
+    .map((keyframe): DirectorStageCameraKeyframe => ({
+      ...keyframe,
+      sourceTimeMs: Number.isFinite(keyframe.sourceTimeMs)
+        ? Math.max(0, Math.min(DIRECTOR_STAGE_CAMERA_PATH_MAX_STORED_DURATION_MS, keyframe.sourceTimeMs ?? 0))
+        : undefined,
+    }))
     .sort((left, right) => left.timeMs - right.timeMs)
     .slice(0, DIRECTOR_STAGE_CAMERA_PATH_MAX_KEYFRAMES);
 
-  if (keyframes.length < 2) {
-    return undefined;
-  }
-
-  const fallbackDuration = keyframes[keyframes.length - 1]?.timeMs ?? 0;
+  const draftKeyframes = normalizeKeyframes(rawDraftKeyframes);
+  const durationSource = draftKeyframes;
+  const fallbackDuration = durationSource[durationSource.length - 1]?.timeMs ?? 0;
   const durationMs = Math.max(
     1,
     Math.min(
-      DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS,
+      DIRECTOR_STAGE_CAMERA_PATH_MAX_STORED_DURATION_MS,
       normalizeNumber(candidate.durationMs, fallbackDuration)
     )
   );
+  const clipStartMs = Math.max(
+    0,
+    Math.min(durationMs, normalizeNumber(candidate.clipStartMs, 0))
+  );
+  const clipDurationMs = Math.max(
+    1,
+    Math.min(
+      DIRECTOR_STAGE_CAMERA_PATH_CLIP_MAX_DURATION_MS,
+      durationMs - clipStartMs,
+      normalizeNumber(candidate.clipDurationMs, Math.min(DIRECTOR_STAGE_CAMERA_PATH_CLIP_MAX_DURATION_MS, durationMs))
+    )
+  );
+  const motionKeyframes = normalizeKeyframes(
+    Array.isArray(candidate.motionKeyframes) ? candidate.motionKeyframes : []
+  );
+  const resolvedMotionKeyframes = motionKeyframes.length >= 2
+    ? normalizeCameraPathMotionKeyframeIds(motionKeyframes)
+    : draftKeyframes.length >= 2
+      ? normalizeCameraPathMotionKeyframeIds(extractNormalizedCameraMotionKeyframes(draftKeyframes, durationMs))
+      : [];
+
+  if (draftKeyframes.length < 2 && resolvedMotionKeyframes.length < 2) {
+    return undefined;
+  }
+
   const sampleRate = Math.max(
     1,
     Math.min(120, Math.round(normalizeNumber(candidate.sampleRate, DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE)))
   );
 
   return {
+    mode: 'keyframe',
     durationMs,
+    clipStartMs,
+    clipDurationMs,
     sampleRate,
-    keyframes,
+    smoothingPreset: 'easeInOutCubic',
+    draftKeyframes,
+    motionKeyframes: resolvedMotionKeyframes,
+    segmentEasings: normalizeCameraPathSegmentEasings(candidate.segmentEasings, resolvedMotionKeyframes),
   };
 }
 

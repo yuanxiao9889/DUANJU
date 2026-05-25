@@ -87,6 +87,7 @@ import {
 } from "@/features/canvas/application/referenceImagePrompting";
 import {
   areReferenceImageOrdersEqual,
+  applyTextareaTextEdit,
   buildShortReferenceToken,
   findReferenceTokensWithNamedCandidates,
   insertReferenceToken,
@@ -1921,8 +1922,13 @@ export const ImageEditNode = memo(
           cursor,
           marker,
         );
+        const editResult = applyTextareaTextEdit({
+          textarea: promptRef.current,
+          nextText: nextPrompt,
+          range: { start: cursor, end: cursor },
+        });
 
-        commitManualPromptDraft(nextPrompt);
+        commitManualPromptDraft(editResult.value);
         setShowImagePicker(false);
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);

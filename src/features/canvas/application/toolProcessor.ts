@@ -15,7 +15,7 @@ import { prepareNodeAudioFromFile } from './audioData';
 import { trimMediaSource } from './mediaTrim';
 import { createCurrentProjectMediaContext } from './mediaPersistenceContext';
 import { prepareNodeVideoFromFile } from './videoData';
-import { extractAudioFromVideo } from '@/commands/media';
+import { extractAudioFromVideo, trimMediaSourceWithFfmpeg } from '@/commands/media';
 import { cropImageSource, readStoryboardImageMetadata } from '@/commands/image';
 import { drawAnnotations, parseAnnotationItems } from '../tools/annotation';
 import type {
@@ -175,6 +175,44 @@ export class CanvasToolProcessor implements ToolProcessor {
   ): Promise<ToolProcessorResult> {
     const startTime = Number(options.startTime ?? 0);
     const endTime = Number(options.endTime ?? 0);
+    const requestedDuration = endTime - startTime;
+    if (
+      !Number.isFinite(startTime)
+      || !Number.isFinite(endTime)
+      || startTime < 0
+      || endTime <= startTime
+    ) {
+      throw new Error('Media duration is not available');
+    }
+
+    try {
+      const trimmedMedia = await trimMediaSourceWithFfmpeg({
+        source: sourceVideo,
+        mediaType: 'video',
+        startTime,
+        endTime,
+        outputFileStem: this.buildTrimmedFileStem(String(options.fileName ?? 'video')),
+        mediaContext: createCurrentProjectMediaContext('video'),
+      });
+
+      return {
+        outputVideoUrl: trimmedMedia.mediaPath,
+        previewImageUrl:
+          typeof options.previewImageUrl === 'string' && options.previewImageUrl.trim().length > 0
+            ? options.previewImageUrl.trim()
+            : null,
+        aspectRatio:
+          typeof options.aspectRatio === 'string' && options.aspectRatio.trim().length > 0
+            ? options.aspectRatio.trim()
+            : '16:9',
+        duration: trimmedMedia.duration,
+        mimeType: trimmedMedia.mimeType,
+        outputFileName: trimmedMedia.outputFileName,
+      };
+    } catch (error) {
+      console.warn('Falling back to browser media trimming after ffmpeg video trim failed', error);
+    }
+
     const trimmedMedia = await trimMediaSource(
       sourceVideo,
       'video',
@@ -189,7 +227,7 @@ export class CanvasToolProcessor implements ToolProcessor {
       type: trimmedMedia.mimeType || 'video/webm',
     });
     const preparedVideo = await prepareNodeVideoFromFile(outputFile, {
-      duration: Math.max(0, endTime - startTime),
+      duration: Math.max(0, requestedDuration),
       aspectRatio:
         typeof options.aspectRatio === 'string' && options.aspectRatio.trim().length > 0
           ? options.aspectRatio.trim()
@@ -214,11 +252,43 @@ export class CanvasToolProcessor implements ToolProcessor {
     sourceAudio: string,
     options: Record<string, unknown>
   ): Promise<ToolProcessorResult> {
+    const startTime = Number(options.startTime ?? 0);
+    const endTime = Number(options.endTime ?? 0);
+    if (
+      !Number.isFinite(startTime)
+      || !Number.isFinite(endTime)
+      || startTime < 0
+      || endTime <= startTime
+    ) {
+      throw new Error('Media duration is not available');
+    }
+
+    try {
+      const trimmedMedia = await trimMediaSourceWithFfmpeg({
+        source: sourceAudio,
+        mediaType: 'audio',
+        startTime,
+        endTime,
+        outputFileStem: this.buildTrimmedFileStem(String(options.fileName ?? 'audio')),
+        mediaContext: createCurrentProjectMediaContext('audio'),
+      });
+
+      return {
+        outputAudioUrl: trimmedMedia.mediaPath,
+        previewImageUrl: null,
+        duration: trimmedMedia.duration,
+        mimeType: trimmedMedia.mimeType,
+        outputFileName: trimmedMedia.outputFileName,
+      };
+    } catch (error) {
+      console.warn('Falling back to browser media trimming after ffmpeg audio trim failed', error);
+    }
+
     const trimmedMedia = await trimMediaSource(
       sourceAudio,
       'audio',
-      Number(options.startTime ?? 0),
-      Number(options.endTime ?? 0)
+      startTime,
+      endTime
     );
     const outputFileName = this.buildTrimmedFileName(
       String(options.fileName ?? 'audio'),
@@ -258,12 +328,16 @@ export class CanvasToolProcessor implements ToolProcessor {
   }
 
   private buildTrimmedFileName(sourceFileName: string, extension: string): string {
+    return `${this.buildTrimmedFileStem(sourceFileName)}.${extension}`;
+  }
+
+  private buildTrimmedFileStem(sourceFileName: string): string {
     const normalizedSourceFileName = sourceFileName.trim();
     const fileNameWithoutExtension = normalizedSourceFileName.includes('.')
       ? normalizedSourceFileName.replace(/\.[^.]+$/, '')
       : normalizedSourceFileName;
     const baseName = fileNameWithoutExtension || 'clip';
-    return `${baseName}-clip.${extension}`;
+    return `${baseName}-clip`;
   }
 
   private buildExtractedAudioStem(sourceFileName: string): string {

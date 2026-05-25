@@ -1852,16 +1852,21 @@ function createReverseNodePatchSnapshot(
     nodeId: entry.nodeId,
     node: currentNodeById.get(entry.nodeId) ?? null,
   }));
-  const affectedEdges = fallbackEdges.filter(
-    (edge) => snapshotNodeIds.has(edge.source) || snapshotNodeIds.has(edge.target)
-  );
+  const shouldCaptureEdges =
+    typeof snapshot.edges !== 'undefined'
+    || snapshot.entries.some((entry) => entry.node === null);
+  const affectedEdges = shouldCaptureEdges
+    ? fallbackEdges.filter(
+        (edge) => snapshotNodeIds.has(edge.source) || snapshotNodeIds.has(edge.target)
+      )
+    : undefined;
 
   return entries.length > 0
-    ? {
+    ? ({
         kind: 'nodePatch',
         entries,
         edges: affectedEdges,
-      }
+      })
     : createSnapshot(nodes, fallbackEdges);
 }
 
@@ -1901,17 +1906,28 @@ function applyHistorySnapshot(
 ): CanvasFullHistorySnapshot {
   if (isCanvasNodePatchHistorySnapshot(snapshot)) {
     const snapshotNodeIds = new Set(snapshot.entries.map((entry) => entry.nodeId));
-    const patchedEdges = snapshot.edges ?? [];
-    const patchedEdgeIds = new Set(patchedEdges.map((edge) => edge.id));
-    const nextEdges = [
-      ...currentEdges.filter(
-        (edge) =>
-          !patchedEdgeIds.has(edge.id)
-          && !snapshotNodeIds.has(edge.source)
-          && !snapshotNodeIds.has(edge.target)
-      ),
-      ...patchedEdges,
-    ];
+    const shouldRemoveAttachedEdges = snapshot.entries.some((entry) => entry.node === null);
+    const nextEdges = typeof snapshot.edges === 'undefined'
+      ? (
+          shouldRemoveAttachedEdges
+            ? currentEdges.filter(
+                (edge) => !snapshotNodeIds.has(edge.source) && !snapshotNodeIds.has(edge.target)
+              )
+            : currentEdges
+        )
+      : (() => {
+          const patchedEdges = snapshot.edges ?? [];
+          const patchedEdgeIds = new Set(patchedEdges.map((edge) => edge.id));
+          return [
+            ...currentEdges.filter(
+              (edge) =>
+                !patchedEdgeIds.has(edge.id)
+                && !snapshotNodeIds.has(edge.source)
+                && !snapshotNodeIds.has(edge.target)
+            ),
+            ...patchedEdges,
+          ];
+        })();
 
     return {
       nodes: applyNodePatchSnapshot(currentNodes, snapshot),
@@ -3431,6 +3447,7 @@ function mapHistorySnapshots(
               node: nextNode,
             };
           }),
+          edges: snapshot.edges,
         };
       }
 

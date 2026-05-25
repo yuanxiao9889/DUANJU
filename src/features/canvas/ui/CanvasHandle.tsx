@@ -171,7 +171,7 @@ export function CanvasHandle({
     positionAbsolute,
     position: resolvedPosition,
   });
-  const dotPosition = fallbackHandleCenter ?? measuredHandleCenter;
+  const dotPosition = measuredHandleCenter ?? fallbackHandleCenter;
 
   const shouldRenderDot = dotPosition !== null;
 

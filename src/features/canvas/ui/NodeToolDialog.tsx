@@ -329,6 +329,9 @@ export function NodeToolDialog() {
       || endTime - startTime < 0.1
     );
   }, [options.duration, options.endTime, options.startTime, sourceTrimMediaType]);
+  const trimRangeInvalidMessage = sourceTrimMediaType && isTrimRangeInvalid
+    ? t('toolDialog.mediaTrim.invalidRange')
+    : null;
 
   const widthClassName = useMemo(() => {
     if (!activePlugin) {
@@ -464,6 +467,9 @@ export function NodeToolDialog() {
             {editorContent}
           </Suspense>
         </ToolEditorErrorBoundary>
+        {trimRangeInvalidMessage && !error ? (
+          <div className="text-xs text-amber-300">{trimRangeInvalidMessage}</div>
+        ) : null}
         {error && <div className="text-xs text-red-400">{error}</div>}
       </div>
     </UiModal>

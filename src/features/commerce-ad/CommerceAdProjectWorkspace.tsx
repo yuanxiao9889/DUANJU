@@ -5,13 +5,18 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Images,
   ImageUp,
   ImagePlus,
   Loader2,
+  Megaphone,
   MessageSquareText,
+  PackageCheck,
   Send,
   Settings,
+  Shirt,
   Sparkles,
+  WandSparkles,
   X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -82,12 +87,21 @@ const COMMERCE_AGENT_PANEL_WIDTH_STORAGE_KEY = 'commerce-agent-panel-width';
 const COMMERCE_AGENT_PRODUCT_INFO_COLLAPSED_STORAGE_KEY = 'commerce-agent-product-info-collapsed';
 const COMMERCE_AGENT_VISUAL_PREFERENCE_COLLAPSED_STORAGE_KEY = 'commerce-agent-visual-preference-collapsed';
 const COMMERCE_AGENT_BATCH_SETTINGS_COLLAPSED_STORAGE_KEY = 'commerce-agent-batch-settings-collapsed';
+const COMMERCE_AGENT_ACTIVE_MODULE_STORAGE_KEY = 'commerce-agent-active-module';
 const COMMERCE_AGENT_PANEL_DEFAULT_WIDTH = 400;
 const COMMERCE_AGENT_PANEL_MIN_WIDTH = 360;
 const COMMERCE_AGENT_PANEL_MAX_WIDTH = 640;
 const DEFAULT_AGENT_MESSAGES: CommerceAdAgentMessage[] = [];
 const COMMERCE_DEFAULT_IMAGE_MODEL_ID = STORYBOARD_OOPII_MODEL_ID;
 const COMMERCE_DEFAULT_RESOLUTION = '2K';
+const COMMERCE_AGENT_MODULES = [
+  { id: 'detailPage', icon: PackageCheck },
+  { id: 'productImageOptimize', icon: WandSparkles },
+  { id: 'modelTryOn', icon: Shirt },
+  { id: 'campaignPoster', icon: Megaphone },
+  { id: 'sceneImage', icon: Images },
+] as const;
+type CommerceAgentModuleId = (typeof COMMERCE_AGENT_MODULES)[number]['id'];
 const VISUAL_PREFERENCE_OPTION_KEYS = {
   designStyle: [
     'auto',
@@ -170,6 +184,19 @@ function readStoredBoolean(key: string, fallback: boolean): boolean {
 
   const raw = window.localStorage.getItem(key);
   return raw === null ? fallback : raw === 'true';
+}
+
+function isCommerceAgentModuleId(value: string | null): value is CommerceAgentModuleId {
+  return COMMERCE_AGENT_MODULES.some((module) => module.id === value);
+}
+
+function readActiveCommerceAgentModule(): CommerceAgentModuleId {
+  if (typeof window === 'undefined') {
+    return 'detailPage';
+  }
+
+  const raw = window.localStorage.getItem(COMMERCE_AGENT_ACTIVE_MODULE_STORAGE_KEY);
+  return isCommerceAgentModuleId(raw) ? raw : 'detailPage';
 }
 
 function createLocalMessage(
@@ -440,6 +467,70 @@ function VisionModelWarningBar({
   );
 }
 
+function CommerceAgentModuleSwitcher({
+  activeModule,
+  onChange,
+}: {
+  activeModule: CommerceAgentModuleId;
+  onChange: (moduleId: CommerceAgentModuleId) => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-6 z-[95] flex justify-center px-4">
+      <div className="pointer-events-auto flex max-w-[calc(100%-2rem)] items-center gap-1 overflow-x-auto rounded-lg border border-border-dark/70 bg-surface-dark/92 p-1 shadow-[0_16px_42px_rgba(0,0,0,0.32)] backdrop-blur">
+        {COMMERCE_AGENT_MODULES.map((module) => {
+          const Icon = module.icon;
+          const active = activeModule === module.id;
+          return (
+            <button
+              key={module.id}
+              type="button"
+              aria-pressed={active}
+              title={t(`commerceAd.agent.modules.${module.id}.title`)}
+              onClick={() => onChange(module.id)}
+              className={`inline-flex h-10 shrink-0 items-center gap-2 rounded-md border px-3 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-accent/45 ${
+                active
+                  ? 'border-accent/50 bg-accent/18 text-text-dark shadow-[0_0_0_1px_rgba(59,130,246,0.18)]'
+                  : 'border-transparent text-text-muted hover:bg-text-dark/8 hover:text-text-dark'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              <span className="whitespace-nowrap">{t(`commerceAd.agent.modules.${module.id}.label`)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CommerceAgentComingSoonPanel({
+  activeModule,
+}: {
+  activeModule: CommerceAgentModuleId;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className="flex flex-1 flex-col">
+      <div className="ui-scrollbar flex-1 overflow-y-auto px-4 py-4">
+        <div className="rounded-lg border border-border-dark/70 bg-bg-dark/45 p-4">
+          <div className="text-sm font-semibold text-text-dark">
+            {t(`commerceAd.agent.modules.${activeModule}.title`)}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-text-muted">
+            {t(`commerceAd.agent.modules.${activeModule}.description`)}
+          </p>
+        </div>
+        <div className="mt-3 rounded-lg border border-dashed border-border-dark/80 bg-surface-dark/45 p-4 text-xs leading-5 text-text-muted">
+          {t('commerceAd.agent.modules.placeholder')}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GuidancePillList({
   items,
   tone = 'neutral',
@@ -680,6 +771,7 @@ function CommerceAdWorkspaceInner() {
   const [isBatchSettingsCollapsed, setIsBatchSettingsCollapsed] = useState(() => (
     readStoredBoolean(COMMERCE_AGENT_BATCH_SETTINGS_COLLAPSED_STORAGE_KEY, false)
   ));
+  const [activeModule, setActiveModule] = useState<CommerceAgentModuleId>(() => readActiveCommerceAgentModule());
   const [visualPreferenceDraft, setVisualPreferenceDraft] = useState<CommerceAdVisualPreferenceState>(() => (
     createDefaultCommerceAdVisualPreferenceState()
   ));
@@ -721,6 +813,17 @@ function CommerceAdWorkspaceInner() {
     () => activeTextProvider ? resolveConfiguredScriptModel(activeTextProvider, settings) : '',
     [activeTextProvider, settings]
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      COMMERCE_AGENT_ACTIVE_MODULE_STORAGE_KEY,
+      activeModule
+    );
+  }, [activeModule]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1665,10 +1768,17 @@ function CommerceAdWorkspaceInner() {
     void runAgent(text);
   }, [draft, isThinking, runAgent]);
 
+  const activeModuleTitle = t(`commerceAd.agent.modules.${activeModule}.title`);
+  const isDetailPageModule = activeModule === 'detailPage';
+
   return (
     <div className="flex h-full min-h-0 w-full bg-bg-base">
       <div className="relative min-w-0 flex-1">
         <Canvas />
+        <CommerceAgentModuleSwitcher
+          activeModule={activeModule}
+          onChange={setActiveModule}
+        />
         {shouldShowVisionWarning ? (
           <VisionModelWarningBar
             isOpen={isVisionWarningOpen}
@@ -1701,7 +1811,7 @@ function CommerceAdWorkspaceInner() {
             </div>
             <div className="min-w-0">
               <h2 className="truncate text-sm font-semibold text-text-dark">
-                {t('commerceAd.agent.title')}
+                {activeModuleTitle}
               </h2>
               <p className="truncate text-xs text-text-muted">
                 {activeTextModel
@@ -1712,6 +1822,8 @@ function CommerceAdWorkspaceInner() {
           </div>
         </div>
 
+        {isDetailPageModule ? (
+          <>
         <div
           ref={agentScrollAreaRef}
           className="ui-scrollbar flex-1 overflow-y-auto px-4 pb-4"
@@ -2204,6 +2316,10 @@ function CommerceAdWorkspaceInner() {
             </UiButton>
           </div>
         </div>
+          </>
+        ) : (
+          <CommerceAgentComingSoonPanel activeModule={activeModule} />
+        )}
       </aside>
     </div>
   );

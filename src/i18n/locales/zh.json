@@ -531,6 +531,8 @@
       "endTime": "结束时间",
       "useCurrentAsStart": "设为开始",
       "useCurrentAsEnd": "设为结束",
+      "durationUnavailable": "暂时无法读取这个媒体的有效时长，请等待预览加载完成后再裁剪；如果仍然显示 0 秒，说明该文件缺少可用时长信息。",
+      "invalidRange": "裁剪范围无效，请等待媒体时长加载完成，并确保输出时长至少 0.1 秒。",
       "quickSeek": "快速定位",
       "previewStart": "预览开始",
       "previewEnd": "预览结束"
@@ -3518,9 +3520,37 @@
       "failed": "失败"
     },
     "agent": {
-      "title": "电商出图 Agent",
+      "title": "电商详情页 Agent",
       "modelStatus": "文本模型：{{model}}",
       "noModel": "未激活文本模型",
+      "modules": {
+        "detailPage": {
+          "label": "详情页",
+          "title": "电商详情页 Agent",
+          "description": "围绕商品图、商品理解、视觉偏好和批量出图，整理适合详情页与主图延展的电商素材。"
+        },
+        "productImageOptimize": {
+          "label": "产品图优化",
+          "title": "产品图优化 Agent",
+          "description": "用于商品主体修图、背景优化、质感强化和平台主图规范适配。"
+        },
+        "modelTryOn": {
+          "label": "模特试穿",
+          "title": "模特试穿 Agent",
+          "description": "用于服饰、配件和穿戴类商品的模特试穿图规划与生成流程。"
+        },
+        "campaignPoster": {
+          "label": "活动海报",
+          "title": "营销活动海报 Agent",
+          "description": "用于大促、上新、节日活动和投放海报的画面方向与批量出图。"
+        },
+        "sceneImage": {
+          "label": "场景配图",
+          "title": "商品场景配图 Agent",
+          "description": "用于把商品放进生活方式、使用场景或品牌氛围图中，生成更适合种草和投放的素材。"
+        },
+        "placeholder": "模块入口已准备好。后续细化该 Agent 时，这里会替换为对应的输入区、参数区和对话流程。"
+      },
       "visionWarningTitle": "建议切换多模态 LLM 识别商品图",
       "visionWarningBody": "你已经上传商品图，但当前文本模型看起来不支持视觉理解。也可以先手动填写商品信息继续推进。",
       "openModelSettings": "模型设置",
@@ -4839,6 +4869,8 @@
   },
   "directorStage": {
     "title": "3D 导演台",
+    "detachedTitle": "3D 导演台",
+    "loading": "正在载入导演台...",
     "headerMeta": "{{objects}} 个对象 / {{shots}} 个镜头",
     "assetPack": {
       "a3d": "A3D 预设资产",
@@ -5023,22 +5055,66 @@
       "lensSettings": "镜头焦距",
       "fovValue": "视角 {{value}}°",
       "focalWithFovValue": "{{focal}}mm / 视角 {{fov}}°",
-      "recordPath": "录制相机轨迹",
+      "recordPath": "录制运镜路线",
       "stopRecording": "停止录制",
-      "recording": "正在录制相机轨迹",
-      "recordingStarted": "已开始录制相机轨迹",
-      "recordingSaved": "相机轨迹已保存（{{seconds}}s）",
-      "recordingTooShort": "相机轨迹太短，暂未保存",
-      "recordingStatus": "录制 {{seconds}}s / {{max}}s",
-      "playingStatus": "正在播放相机轨迹",
-      "playPath": "播放相机轨迹",
+      "recording": "正在录制运镜路线",
+      "recordingStarted": "已开始录制运镜路线",
+      "recordingSaved": "运镜路线已生成（{{seconds}}s）",
+      "recordingTooShort": "运镜路线太短，暂未保存",
+      "recordingStatus": "录制 {{seconds}}s",
+      "playingStatus": "正在播放运镜路线",
+      "playPath": "播放运镜路线",
+      "stopPlayback": "停止播放",
+      "pausePlayback": "暂停播放",
       "exportPath": "导出 MP4",
-      "clearPath": "清除相机轨迹",
-      "pathSummary": "相机轨迹 {{seconds}}s",
-      "exporting": "正在导出相机轨迹...",
-      "exported": "相机轨迹 MP4 已导出",
-      "exportFailed": "相机轨迹 MP4 导出失败",
-      "recordingNodeTitle": "{{name}} 运镜录制"
+      "createVideoNode": "生成截取视频节点",
+      "clearPath": "清除运镜路线",
+      "pathSummary": "运镜路线 {{seconds}}s",
+      "exporting": "正在生成截取视频节点...",
+      "exported": "截取视频节点已生成",
+      "exportFailed": "截取视频节点生成失败",
+      "nodeCreated": "截取视频节点已生成",
+      "nodeCreateFailed": "截取视频节点生成失败",
+      "recordingNodeTitle": "{{name}} 运镜录制",
+      "timelineTitle": "运镜时间轴",
+      "timelineSummary": "{{seconds}}s / {{motion}} 个关键帧，拖动关键帧调整节奏",
+      "timelineEmptySummary": "先录制一条运镜路线",
+      "timelineEmptyTitle": "还没有运镜路线",
+      "timelineEmptyHint": "点击上方“录制运镜路线”，在 3D 空间里移动相机；停止后这里会出现可拖动的关键帧时间轴。",
+      "collapseTimeline": "收起运镜时间轴",
+      "expandTimeline": "展开运镜时间轴",
+      "addKeyframe": "添加关键帧",
+      "updateKeyframe": "更新关键帧",
+      "deleteKeyframe": "删除关键帧",
+      "keyframeAt": "{{seconds}}s 关键帧",
+      "motionTrack": "运镜关键帧",
+      "autoKeyframes": "自动生成关键帧",
+      "smoothCameraPath": "平滑运镜",
+      "previousKeyframe": "上一个关键帧",
+      "nextKeyframe": "下一个关键帧",
+      "seconds": "秒",
+      "selectedKeyframe": "已选",
+      "lockedKeyframe": "端点",
+      "totalDuration": "总时长",
+      "maxDurationHint": "截取最多 15s",
+      "clipRange": "截取范围",
+      "easing": {
+        "title": "区间速度",
+        "subtitle": "{{from}}s 到 {{to}}s",
+        "customHint": "纵轴是路线进度，不是速度；速度是曲线斜率。选择预设或拖动曲线会同时改变这一段在时间轴上的长度。",
+        "curveLabel": "进度曲线",
+        "speedLabel": "整体速度",
+        "speedHint": "调整整体速度会直接改变这一段在时间轴上的长度，并推移后续关键帧。",
+        "presets": {
+          "linear": "匀速",
+          "easeIn": "慢入",
+          "easeOut": "慢出",
+          "easeInOut": "慢入慢出",
+          "accelerate": "加速",
+          "decelerate": "减速",
+          "custom": "自定义"
+        }
+      }
     },
     "snapshot": {
       "send": "截图到画布",

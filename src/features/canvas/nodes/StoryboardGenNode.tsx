@@ -65,6 +65,7 @@ import {
   sanitizeStoryboardText,
 } from "@/features/canvas/application/storyboardText";
 import {
+  applyTextareaTextEdit,
   buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
@@ -1945,7 +1946,12 @@ export const StoryboardGenNode = memo(
           cursor,
           marker,
         );
-        handleFrameDescriptionChange(pickerFrameIndex, nextDescription);
+        const editResult = applyTextareaTextEdit({
+          textarea: frameTextareaRefs.current[frame.id],
+          nextText: nextDescription,
+          range: { start: selection.start, end: selection.end },
+        });
+        handleFrameDescriptionChange(pickerFrameIndex, editResult.value);
         closeImagePicker();
         scheduleFrameSelectionRestore(frame.id, nextCursor, scrollSnapshot);
       },

@@ -50,6 +50,7 @@ import {
 } from "@/features/canvas/application/promptReferenceImageBindings";
 import { normalizeReferenceImagePrompt } from "@/features/canvas/application/referenceImagePrompting";
 import {
+  applyTextareaTextEdit,
   buildShortReferenceToken,
   findNamedReferenceTokens,
   insertReferenceToken,
@@ -1329,7 +1330,12 @@ export const SeedanceNode = memo(
           cursor,
           pickerItem.insertToken,
         );
-        handlePromptChange(nextText);
+        const editResult = applyTextareaTextEdit({
+          textarea: promptRef.current,
+          nextText,
+          range: { start: selection.start, end: selection.end },
+        });
+        handlePromptChange(editResult.value);
         setShowImagePicker(false);
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);

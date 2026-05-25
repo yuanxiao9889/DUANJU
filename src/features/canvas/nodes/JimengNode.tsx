@@ -110,6 +110,7 @@ import {
 } from "@/features/jimeng/application/dreaminaSetup";
 import {
   areReferenceImageOrdersEqual,
+  applyTextareaTextEdit,
   buildShortReferenceToken,
   findNamedReferenceTokens,
   LONG_REFERENCE_TOKEN_PREFIX,
@@ -1911,8 +1912,13 @@ export const JimengNode = memo(
           cursor,
           pickerItem.insertToken,
         );
+        const editResult = applyTextareaTextEdit({
+          textarea: promptRef.current,
+          nextText,
+          range: { start: cursor, end: cursor },
+        });
 
-        handlePromptChange(nextText);
+        handlePromptChange(editResult.value);
         setShowImagePicker(false);
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);

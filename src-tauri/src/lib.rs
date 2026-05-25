@@ -362,6 +362,7 @@ pub fn run() {
             image::save_image_source_to_directory,
             image::save_image_source_to_app_debug_dir,
             image::copy_image_source_to_clipboard,
+            media_audio::trim_media_source,
             media_audio::extract_audio_from_video,
             director_stage::transcode_director_stage_recording_to_mp4,
             jimeng_video_queue::list_jimeng_video_queue_jobs,

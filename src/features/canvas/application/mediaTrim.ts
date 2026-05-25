@@ -12,6 +12,7 @@ export interface TrimmedMediaResult {
 const MIN_TRIM_DURATION_SECONDS = 0.1;
 const TRIM_TIME_EPSILON_SECONDS = 0.03;
 const MEDIA_POLL_INTERVAL_MS = 16;
+const MEDIA_DURATION_SEEK_PROBE_TIME_SECONDS = 24 * 60 * 60;
 
 const VIDEO_MIME_CANDIDATES = [
   'video/webm;codecs=vp8,opus',
@@ -177,6 +178,76 @@ function waitForMediaMetadata(mediaElement: HTMLMediaElement): Promise<void> {
   });
 }
 
+function waitForMediaSeekedOrDurationChange(mediaElement: HTMLMediaElement): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      mediaElement.removeEventListener('seeked', handleReady);
+      mediaElement.removeEventListener('durationchange', handleReady);
+      mediaElement.removeEventListener('error', handleError);
+    };
+
+    const handleReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    const handleError = () => {
+      cleanup();
+      reject(new Error('Failed to probe media duration'));
+    };
+
+    mediaElement.addEventListener('seeked', handleReady);
+    mediaElement.addEventListener('durationchange', handleReady);
+    mediaElement.addEventListener('error', handleError);
+  });
+}
+
+async function resolveMediaDuration(mediaElement: HTMLMediaElement): Promise<number> {
+  if (Number.isFinite(mediaElement.duration) && mediaElement.duration > 0) {
+    return mediaElement.duration;
+  }
+
+  await waitForMediaMetadata(mediaElement).catch(() => undefined);
+  if (Number.isFinite(mediaElement.duration) && mediaElement.duration > 0) {
+    return mediaElement.duration;
+  }
+
+  const previousTime = Number.isFinite(mediaElement.currentTime)
+    ? Math.max(0, mediaElement.currentTime)
+    : 0;
+
+  try {
+    const probe = waitForMediaSeekedOrDurationChange(mediaElement);
+    mediaElement.currentTime = MEDIA_DURATION_SEEK_PROBE_TIME_SECONDS;
+    await probe;
+  } catch {
+    // Some containers cannot be duration-probed by seeking; fall through to validation.
+  }
+
+  const probedDuration =
+    Number.isFinite(mediaElement.duration) && mediaElement.duration > 0
+      ? mediaElement.duration
+      : Number.isFinite(mediaElement.currentTime) && mediaElement.currentTime > 0
+        ? mediaElement.currentTime
+        : 0;
+
+  try {
+    if (previousTime > 0 && probedDuration > previousTime) {
+      await seekMedia(mediaElement, Math.min(previousTime, probedDuration - TRIM_TIME_EPSILON_SECONDS));
+    } else {
+      mediaElement.currentTime = 0;
+    }
+  } catch {
+    // Best-effort restore; trimming will seek to the requested start next.
+  }
+
+  if (Number.isFinite(probedDuration) && probedDuration > 0) {
+    return probedDuration;
+  }
+
+  throw new Error('Media duration is not available');
+}
+
 function seekMedia(mediaElement: HTMLMediaElement, targetTime: number): Promise<void> {
   if (Math.abs(mediaElement.currentTime - targetTime) <= TRIM_TIME_EPSILON_SECONDS) {
     return Promise.resolve();
@@ -267,9 +338,9 @@ export async function trimMediaSource(
     }
 
     mediaElement.src = mediaSource;
-    await waitForMediaMetadata(mediaElement);
+    const resolvedDuration = await resolveMediaDuration(mediaElement);
 
-    const resolvedRange = normalizeTrimRange(startTime, endTime, mediaElement.duration);
+    const resolvedRange = normalizeTrimRange(startTime, endTime, resolvedDuration);
     await seekMedia(mediaElement, resolvedRange.startTime);
     await audioContext.resume();
 

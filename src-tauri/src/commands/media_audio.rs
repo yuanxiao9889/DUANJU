@@ -78,10 +78,29 @@ pub struct ExtractAudioFromVideoPayload {
     pub output_file_stem: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimMediaSourcePayload {
+    pub source: String,
+    pub media_type: String,
+    pub start_time: f64,
+    pub end_time: f64,
+    pub output_file_stem: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExtractAudioFromVideoResult {
     pub audio_path: String,
+    pub duration: f64,
+    pub mime_type: String,
+    pub output_file_name: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrimMediaSourceResult {
+    pub media_path: String,
     pub duration: f64,
     pub mime_type: String,
     pub output_file_name: String,
@@ -278,6 +297,30 @@ fn resolve_output_file_stem(source_path: &Path, provided_stem: Option<&str>) -> 
     sanitize_file_stem(&format!("{fallback}-audio"), "video-audio")
 }
 
+fn resolve_trim_output_file_stem(
+    source_path: &Path,
+    provided_stem: Option<&str>,
+    media_type: &str,
+) -> String {
+    if let Some(value) = provided_stem {
+        let sanitized = sanitize_file_stem(value, "");
+        if !sanitized.is_empty() {
+            return sanitized;
+        }
+    }
+
+    let fallback = source_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(media_type);
+    let normalized_fallback = if fallback.to_ascii_lowercase().ends_with("-clip") {
+        fallback.to_string()
+    } else {
+        format!("{fallback}-clip")
+    };
+    sanitize_file_stem(&normalized_fallback, &format!("{media_type}-clip"))
+}
+
 fn resolve_bundled_binary_path(app: &AppHandle, file_name: &str) -> Option<PathBuf> {
     for root in bundled_resource_search_roots(app) {
         let candidates = [
@@ -459,6 +502,172 @@ fn run_ffmpeg(ffmpeg_path: &Path, source_path: &Path, output_path: &Path) -> Res
     }
 
     verify_media_path(output_path)
+}
+
+fn run_ffmpeg_trim(
+    ffmpeg_path: &Path,
+    source_path: &Path,
+    output_path: &Path,
+    media_type: &str,
+    start_time: f64,
+    duration: f64,
+) -> Result<(), String> {
+    let mut command = Command::new(ffmpeg_path);
+    command
+        .arg("-y")
+        .arg("-ss")
+        .arg(format!("{start_time:.3}"))
+        .arg("-i")
+        .arg(source_path)
+        .arg("-t")
+        .arg(format!("{duration:.3}"));
+
+    if media_type == "video" {
+        command
+            .arg("-c:v")
+            .arg("libx264")
+            .arg("-preset")
+            .arg("veryfast")
+            .arg("-pix_fmt")
+            .arg("yuv420p")
+            .arg("-c:a")
+            .arg("aac")
+            .arg("-b:a")
+            .arg("128k")
+            .arg("-movflags")
+            .arg("+faststart");
+    } else {
+        command.arg("-vn").arg("-c:a").arg("libmp3lame").arg("-q:a").arg("2");
+    }
+
+    let output = command
+        .arg(output_path)
+        .output()
+        .map_err(|error| format!("Failed to start ffmpeg: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(if stderr.is_empty() {
+            "ffmpeg failed to trim media".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    verify_media_path(output_path)
+}
+
+#[tauri::command]
+pub async fn trim_media_source(
+    app: AppHandle,
+    payload: TrimMediaSourcePayload,
+    media_context: Option<MediaPersistContext>,
+) -> Result<TrimMediaSourceResult, String> {
+    let normalized_source = payload.source.trim();
+    if normalized_source.is_empty() {
+        return Err("Media source is empty".to_string());
+    }
+
+    let media_type = payload.media_type.trim().to_ascii_lowercase();
+    if media_type != "video" && media_type != "audio" {
+        return Err(format!("Unsupported trim media type: {}", payload.media_type));
+    }
+
+    if !payload.start_time.is_finite()
+        || !payload.end_time.is_finite()
+        || payload.start_time < 0.0
+        || payload.end_time <= payload.start_time
+    {
+        return Err("Media duration is not available".to_string());
+    }
+
+    let trim_duration = payload.end_time - payload.start_time;
+    if trim_duration < 0.1 {
+        return Err("Trim range is too short".to_string());
+    }
+
+    let persisted_media_path = persist_image_source(
+        app.clone(),
+        normalized_source.to_string(),
+        Some(MediaPersistContext {
+            project_id: media_context
+                .as_ref()
+                .and_then(|context| context.project_id.clone()),
+            project_name: media_context
+                .as_ref()
+                .and_then(|context| context.project_name.clone()),
+            media_type: Some(media_type.clone()),
+            role: Some("original".to_string()),
+        }),
+    )
+    .await?;
+    let source_path = resolve_readable_local_video_path(&app, &persisted_media_path)?;
+
+    let temp_dir = env::temp_dir()
+        .join("storyboard-copilot")
+        .join("media-trim");
+    fs::create_dir_all(&temp_dir)
+        .map_err(|error| format!("Failed to create media trim temp dir: {error}"))?;
+    let output_extension = if media_type == "video" { "mp4" } else { "mp3" };
+    let output_mime_type = if media_type == "video" {
+        "video/mp4"
+    } else {
+        "audio/mpeg"
+    };
+    let output_file_name = format!(
+        "{}.{}",
+        resolve_trim_output_file_stem(
+            &source_path,
+            payload.output_file_stem.as_deref(),
+            &media_type,
+        ),
+        output_extension,
+    );
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let temp_output_path = temp_dir.join(format!("{stamp}-{output_file_name}"));
+    if temp_output_path.exists() {
+        let _ = fs::remove_file(&temp_output_path);
+    }
+
+    let ffmpeg_path = ensure_runtime_binary(&app, &ffmpeg_binary_name("ffmpeg"))?;
+    run_ffmpeg_trim(
+        &ffmpeg_path,
+        &source_path,
+        &temp_output_path,
+        &media_type,
+        payload.start_time,
+        trim_duration,
+    )?;
+
+    let persisted_output_path = persist_image_source(
+        app.clone(),
+        temp_output_path.to_string_lossy().to_string(),
+        Some(MediaPersistContext {
+            project_id: media_context
+                .as_ref()
+                .and_then(|context| context.project_id.clone()),
+            project_name: media_context
+                .as_ref()
+                .and_then(|context| context.project_name.clone()),
+            media_type: Some(media_type.clone()),
+            role: media_context
+                .as_ref()
+                .and_then(|context| context.role.clone()),
+        }),
+    )
+    .await?;
+
+    let _ = fs::remove_file(&temp_output_path);
+
+    Ok(TrimMediaSourceResult {
+        media_path: persisted_output_path,
+        duration: trim_duration,
+        mime_type: output_mime_type.to_string(),
+        output_file_name,
+    })
 }
 
 #[tauri::command]

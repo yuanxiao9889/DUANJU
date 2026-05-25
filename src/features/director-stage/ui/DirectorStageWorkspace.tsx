@@ -10,7 +10,7 @@ import {
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import {
   Aperture,
@@ -34,8 +34,6 @@ import {
   Maximize2,
   Move3D,
   Package,
-  Play,
-  Radio,
   Rotate3D,
   Save,
   Scale3D,
@@ -60,6 +58,15 @@ import { transcodeDirectorStageRecordingToMp4 } from '@/commands/directorStage';
 import { useAssetStore } from '@/stores/assetStore';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useProjectStore } from '@/stores/projectStore';
+import {
+  DIRECTOR_STAGE_ADD_EXPORT_NODE_EVENT,
+  DIRECTOR_STAGE_ADD_VIDEO_NODE_EVENT,
+  DIRECTOR_STAGE_UPDATE_NODE_EVENT,
+  emitToMainWindow,
+  type DirectorStageAddExportNodePayload,
+  type DirectorStageAddVideoNodePayload,
+  type DirectorStageUpdateNodePayload,
+} from '../application/directorStageWindowBridge';
 import type { AssetCategory, AssetItemRecord, AssetMetadata } from '@/features/assets/domain/types';
 import {
   DIRECTOR_STAGE_ASSET_PACKS,
@@ -74,6 +81,7 @@ import {
   createStageVector3,
   clampDirectorStageScale,
   DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS,
+  DIRECTOR_STAGE_CAMERA_PATH_CLIP_MAX_DURATION_MS,
   DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE,
   DIRECTOR_STAGE_LIMB_POSE_KEYS,
   DIRECTOR_STAGE_LIMB_ROTATION_MAX,
@@ -83,8 +91,10 @@ import {
   DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MAX,
   DIRECTOR_STAGE_PLANE_ASPECT_RATIO_MIN,
   DIRECTOR_STAGE_SNAPSHOT_ASPECT_RATIOS,
+  DIRECTOR_STAGE_SNAPSHOT_HELPER_USER_DATA_KEY,
   normalizeDirectorStageProject,
   type DirectorStageBuiltInAsset,
+  type DirectorStageCameraPathSegmentEasing,
   type DirectorStageCameraKeyframe,
   type DirectorStageCameraPath,
   type DirectorStageCameraShot,
@@ -131,9 +141,18 @@ import {
   applyCameraPathKeyframe,
   calculateDirectorStageRecordingSize,
   createDirectorStageCameraPath,
+  createDirectorStageCameraPathSegmentKey,
+  DIRECTOR_STAGE_CAMERA_PATH_DEFAULT_EASING,
+  DIRECTOR_STAGE_CAMERA_PATH_EASING_PRESETS,
+  getDirectorStageMotionKeyframes,
+  normalizeDirectorStageCameraPathSegmentEasings,
   readCameraPathKeyframe,
+  resolveDirectorStageCameraPathSegmentEasing,
   resolveDirectorStageRecordingMimeType,
   sampleDirectorStageCameraPath,
+  sampleDirectorStageCameraPathClipFrame,
+  sampleDirectorStageCameraPathPoints,
+  sampleDirectorStageCameraPathSourceTime,
 } from '../engine/cameraPath';
 import { buildDirectorStageLight, disposeDirectorStageLightObject } from '../engine/lightManager';
 import {
@@ -159,6 +178,8 @@ import {
   replaceDirectorStageCrowdGroupCount,
   upsertDirectorStageCrowdGroup,
 } from '../engine/crowdManager';
+import { DirectorStageCameraEasingEditor } from './DirectorStageCameraEasingEditor';
+import { DirectorStageCameraTimeline } from './DirectorStageCameraTimeline';
 import {
   disposeDirectorStageCrowdLodGroup,
   loadDirectorStageCrowdLodGroup,
@@ -184,7 +205,6 @@ interface DirectorStageWorkspaceProps {
   nodeId: string;
   data: DirectorStageNodeData;
   connectedEnvironments?: DirectorStageConnectedEnvironment[];
-  onClose: () => void;
 }
 
 type WorkspaceTab = 'a3d' | 'library';
@@ -224,6 +244,15 @@ interface CameraPathPlaybackState {
   shotId: string;
   startedAt: number;
   durationMs: number;
+  elapsedMs: number;
+  speed: number;
+  clipStartMs: number;
+}
+
+interface CameraPathTimelineState {
+  shotId: string;
+  selectedKeyframeIndex: number | null;
+  playheadMs: number;
 }
 
 const DIRECTOR_STAGE_CROWD_RENDER_STRATEGY_VERSION = 'static-full-v2';
@@ -539,6 +568,67 @@ function createProjectNodePatch(project: DirectorStageProject) {
   };
 }
 
+function createCameraPathKeyframeId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `motion-${crypto.randomUUID()}`;
+  }
+  return `motion-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function ensureCameraPathKeyframeId(keyframe: DirectorStageCameraKeyframe): DirectorStageCameraKeyframe {
+  return keyframe.id ? keyframe : { ...keyframe, id: createCameraPathKeyframeId() };
+}
+
+function pushCameraPathRecordingKeyframe(
+  recording: { keyframes: DirectorStageCameraKeyframe[]; lastSampleAt: number },
+  keyframe: DirectorStageCameraKeyframe,
+  sampleAt: number
+): void {
+  const previous = recording.keyframes[recording.keyframes.length - 1];
+  if (previous && Math.abs(previous.timeMs - keyframe.timeMs) < 1) {
+    recording.keyframes[recording.keyframes.length - 1] = keyframe;
+  } else {
+    recording.keyframes.push(keyframe);
+  }
+  recording.lastSampleAt = sampleAt;
+}
+
+function collectDirectorStageLightMarkerObjects(
+  lightGroup: THREE.Group | null
+): THREE.Object3D[] {
+  const markers: THREE.Object3D[] = [];
+  lightGroup?.traverse((object) => {
+    if (object.userData[DIRECTOR_STAGE_SNAPSHOT_HELPER_USER_DATA_KEY] === true) {
+      markers.push(object);
+    }
+  });
+  return markers;
+}
+
+function hideDirectorStageObjects(
+  objects: Array<THREE.Object3D | null | undefined>
+): Array<{ object: THREE.Object3D; visible: boolean }> {
+  const previousVisibility: Array<{ object: THREE.Object3D; visible: boolean }> = [];
+  const seen = new Set<THREE.Object3D>();
+  objects.forEach((object) => {
+    if (!object || seen.has(object)) {
+      return;
+    }
+    seen.add(object);
+    previousVisibility.push({ object, visible: object.visible });
+    object.visible = false;
+  });
+  return previousVisibility;
+}
+
+function restoreDirectorStageObjectVisibility(
+  previousVisibility: Array<{ object: THREE.Object3D; visible: boolean }>
+): void {
+  previousVisibility.forEach(({ object, visible }) => {
+    object.visible = visible;
+  });
+}
+
 function createCrowdGroupRenderKey(group: DirectorStageCrowdGroup): string {
   return [
     DIRECTOR_STAGE_CROWD_RENDER_STRATEGY_VERSION,
@@ -596,8 +686,54 @@ function cameraShotFocalLengthValue(shot: DirectorStageCameraShot): number {
   return clampDirectorStageFocalLength(shot.focalLengthMm);
 }
 
+function formatCameraPathSeconds(timeMs: number): string {
+  return (Math.max(0, timeMs) / 1000).toFixed(1);
+}
+
 function cameraPathDurationSeconds(cameraPath: DirectorStageCameraPath): string {
-  return (Math.max(0, cameraPath.durationMs) / 1000).toFixed(1);
+  return formatCameraPathSeconds(cameraPath.durationMs);
+}
+
+function clampCameraPathClipRange(
+  durationMs: number,
+  clipStartMs: number,
+  clipDurationMs: number
+): { clipStartMs: number; clipDurationMs: number } {
+  const safeDurationMs = Math.max(1, durationMs);
+  const safeClipDurationMs = Math.max(
+    1,
+    Math.min(DIRECTOR_STAGE_CAMERA_PATH_CLIP_MAX_DURATION_MS, clipDurationMs, safeDurationMs)
+  );
+  const safeClipStartMs = Math.max(
+    0,
+    Math.min(safeDurationMs - safeClipDurationMs, clipStartMs)
+  );
+  return {
+    clipStartMs: safeClipStartMs,
+    clipDurationMs: safeClipDurationMs,
+  };
+}
+
+const CAMERA_PATH_PRESET_TIMING_SPEED: Record<DirectorStageCameraPathSegmentEasing['preset'], number> = {
+  linear: 1,
+  easeIn: 0.9,
+  easeOut: 0.9,
+  easeInOut: 0.85,
+  accelerate: 1.5,
+  decelerate: 0.65,
+  custom: 1,
+};
+
+function resolveCameraPathCurveTimingSpeed(
+  preset: DirectorStageCameraPathSegmentEasing['preset'],
+  curve: DirectorStageCameraPathSegmentEasing['curve']
+): number {
+  if (preset !== 'custom') {
+    return CAMERA_PATH_PRESET_TIMING_SPEED[preset] ?? 1;
+  }
+
+  const progressBias = ((curve[1] + curve[3]) / 2) - 0.5;
+  return Math.max(0.45, Math.min(1.8, 1 + progressBias * 1.4));
 }
 
 function sanitizeRecordingFileName(name: string): string {
@@ -711,7 +847,66 @@ function disposeCameraShotMarkers(group: THREE.Group): void {
   group.clear();
 }
 
-function buildCameraShotMarker(shot: DirectorStageCameraShot, isActive: boolean): THREE.Group {
+function buildCameraPathWorldGroup(
+  shot: DirectorStageCameraShot,
+  isActive: boolean,
+  selectedKeyframeIndex: number | null
+): THREE.Group | null {
+  if (!shot.cameraPath) {
+    return null;
+  }
+
+  const motionKeyframes = getDirectorStageMotionKeyframes(shot.cameraPath);
+  const sampledPath = sampleDirectorStageCameraPathPoints(shot.cameraPath, 120);
+  const pathPoints = sampledPath.map(
+    (keyframe) => new THREE.Vector3(
+      keyframe.position.x,
+      keyframe.position.y,
+      keyframe.position.z
+    )
+  );
+  if (pathPoints.length < 2) {
+    return null;
+  }
+
+  const group = new THREE.Group();
+  group.name = `camera-path-world-${shot.id}`;
+  group.userData.cameraShotId = shot.id;
+
+  const pathLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pathPoints),
+    new THREE.LineBasicMaterial({
+      color: 0xfbbf24,
+      transparent: true,
+      opacity: isActive ? 0.86 : 0.5,
+    })
+  );
+  pathLine.raycast = () => undefined;
+  group.add(pathLine);
+
+  motionKeyframes.forEach((keyframe, index) => {
+    const isSelectedKeyframe = selectedKeyframeIndex === index;
+    const keyframeDot = new THREE.Mesh(
+      new THREE.SphereGeometry(isSelectedKeyframe ? 0.095 : 0.062, 12, 12),
+      new THREE.MeshStandardMaterial({
+        color: isSelectedKeyframe ? 0x34d399 : 0xfbbf24,
+        emissive: isSelectedKeyframe ? 0x10b981 : 0xf59e0b,
+        emissiveIntensity: 0.55,
+        roughness: 0.5,
+      })
+    );
+    keyframeDot.position.set(keyframe.position.x, keyframe.position.y, keyframe.position.z);
+    keyframeDot.userData.cameraShotId = shot.id;
+    group.add(keyframeDot);
+  });
+
+  return group;
+}
+
+function buildCameraShotMarker(
+  shot: DirectorStageCameraShot,
+  isActive: boolean
+): THREE.Group {
   const marker = new THREE.Group();
   marker.name = `camera-shot-marker-${shot.id}`;
   marker.userData.cameraShotId = shot.id;
@@ -763,41 +958,6 @@ function buildCameraShotMarker(shot: DirectorStageCameraShot, isActive: boolean)
   targetDot.userData.cameraShotId = shot.id;
   marker.add(targetDot);
 
-  if (shot.cameraPath?.keyframes.length) {
-    const pathPoints = shot.cameraPath.keyframes.map(
-      (keyframe) => new THREE.Vector3(
-        keyframe.position.x - shot.position.x,
-        keyframe.position.y - shot.position.y,
-        keyframe.position.z - shot.position.z
-      )
-    );
-    if (pathPoints.length >= 2) {
-      const pathLine = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(pathPoints),
-        new THREE.LineBasicMaterial({
-          color: 0xfbbf24,
-          transparent: true,
-          opacity: isActive ? 0.82 : 0.48,
-        })
-      );
-      pathLine.raycast = () => undefined;
-      marker.add(pathLine);
-
-      const endPoint = pathPoints[pathPoints.length - 1];
-      const endDot = new THREE.Mesh(
-        new THREE.SphereGeometry(0.06, 12, 12),
-        new THREE.MeshStandardMaterial({
-          color: 0xfbbf24,
-          emissive: 0xf59e0b,
-          emissiveIntensity: 0.45,
-          roughness: 0.5,
-        })
-      );
-      endDot.position.copy(endPoint);
-      endDot.userData.cameraShotId = shot.id;
-      marker.add(endDot);
-    }
-  }
   return marker;
 }
 
@@ -827,7 +987,6 @@ export function DirectorStageWorkspace({
   nodeId,
   data,
   connectedEnvironments = [],
-  onClose,
 }: DirectorStageWorkspaceProps) {
   const { t } = useTranslation();
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
@@ -863,6 +1022,8 @@ export function DirectorStageWorkspace({
   const [cameraLensPanel, setCameraLensPanel] = useState<CameraLensPanelState | null>(null);
   const [cameraPathRecording, setCameraPathRecording] = useState<CameraPathRecordingState | null>(null);
   const [cameraPathPlayback, setCameraPathPlayback] = useState<CameraPathPlaybackState | null>(null);
+  const [cameraPathTimeline, setCameraPathTimeline] = useState<CameraPathTimelineState | null>(null);
+  const [isCameraPathTimelineCollapsed, setIsCameraPathTimelineCollapsed] = useState(false);
   const [exportingCameraPathShotId, setExportingCameraPathShotId] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -893,11 +1054,15 @@ export function DirectorStageWorkspace({
     keyframes: DirectorStageCameraKeyframe[];
     animationFrame: number;
     statusTimer: number | null;
+    hiddenLightMarkers: Array<{ object: THREE.Object3D; visible: boolean }>;
   } | null>(null);
   const cameraPathPlaybackRef = useRef<{
     shotId: string;
     startedAt: number;
     durationMs: number;
+    elapsedMs: number;
+    speed: number;
+    clipStartMs: number;
     animationFrame: number;
   } | null>(null);
   const isTransformDraggingRef = useRef(false);
@@ -914,6 +1079,7 @@ export function DirectorStageWorkspace({
     nextProject: DirectorStageProject,
     options?: DirectorStageCommitOptions
   ) => void>(() => undefined);
+  const commitActiveCameraShotFromViewRef = useRef<() => boolean>(() => false);
 
   useEffect(() => {
     void hydrateAssets();
@@ -1037,9 +1203,52 @@ export function DirectorStageWorkspace({
       height: frame.height,
     };
   }, [project.snapshot.aspectRatio, project.snapshot.showMask, viewportSize]);
-  const cameraPathRecordingProgress = cameraPathRecording
-    ? Math.max(0, Math.min(1, cameraPathRecording.elapsedMs / DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS))
-    : 0;
+  const timelineCameraShot = useMemo(
+    () => {
+      if (cameraPathTimeline) {
+        return project.cameraShots.find((shot) => shot.id === cameraPathTimeline.shotId) ?? activeCameraShot;
+      }
+      return project.isFreeView ? null : activeCameraShot;
+    },
+    [activeCameraShot, cameraPathTimeline, project.cameraShots, project.isFreeView]
+  );
+  const timelineCameraPath = timelineCameraShot?.cameraPath ?? null;
+  const timelineMotionKeyframes = useMemo(
+    () => timelineCameraPath ? getDirectorStageMotionKeyframes(timelineCameraPath) : [],
+    [timelineCameraPath]
+  );
+  const showCameraPathTimeline = Boolean(timelineCameraShot);
+  const showExpandedCameraPathTimeline = showCameraPathTimeline && !isCameraPathTimelineCollapsed;
+  const selectedCameraPathSegment = useMemo(() => {
+    if (!timelineCameraPath || timelineMotionKeyframes.length < 2) {
+      return null;
+    }
+
+    const currentTimeline = cameraPathTimeline;
+    const selectedIndex = currentTimeline && currentTimeline.shotId === timelineCameraShot?.id
+      ? currentTimeline.selectedKeyframeIndex
+      : null;
+    const segmentIndex = Math.max(
+      0,
+      Math.min(
+        timelineMotionKeyframes.length - 2,
+        selectedIndex ?? 0
+      )
+    );
+    const left = timelineMotionKeyframes[segmentIndex];
+    const right = timelineMotionKeyframes[segmentIndex + 1];
+    if (!left || !right) {
+      return null;
+    }
+
+    return {
+      index: segmentIndex,
+      left,
+      right,
+      key: createDirectorStageCameraPathSegmentKey(left, right),
+      easing: resolveDirectorStageCameraPathSegmentEasing(timelineCameraPath, left, right),
+    };
+  }, [cameraPathTimeline, timelineCameraPath, timelineCameraShot?.id, timelineMotionKeyframes]);
 
   const commitProject = useCallback((
     nextProject: DirectorStageProject,
@@ -1048,8 +1257,18 @@ export function DirectorStageWorkspace({
     const normalized = normalizeDirectorStageProject(nextProject);
     projectRef.current = normalized;
     setProject(normalized);
-    updateNodeData(nodeId, createProjectNodePatch(normalized), {
-      historyMode: options.history === 'skip' ? 'skip' : 'push',
+    const historyMode = options.history === 'skip' ? 'skip' : 'push';
+    const patch = createProjectNodePatch(normalized);
+    updateNodeData(nodeId, patch, { historyMode });
+    void emitToMainWindow<DirectorStageUpdateNodePayload>(
+      DIRECTOR_STAGE_UPDATE_NODE_EVENT,
+      {
+        nodeId,
+        data: patch,
+        historyMode,
+      }
+    ).catch((error) => {
+      console.warn('Failed to sync director stage project to main window', error);
     });
   }, [nodeId, updateNodeData]);
 
@@ -1134,7 +1353,7 @@ export function DirectorStageWorkspace({
       setStatusText(t('directorStage.camera.recordingTooShort'));
       return;
     }
-    const firstKeyframe = cameraPath.keyframes[0];
+    const firstKeyframe = getDirectorStageMotionKeyframes(cameraPath)[0];
     const nextShot: DirectorStageCameraShot = {
       ...shot,
       position: firstKeyframe.position,
@@ -1152,6 +1371,11 @@ export function DirectorStageWorkspace({
       updatedAt: Date.now(),
     });
     applyCameraShotToView(nextShot);
+    setCameraPathTimeline({
+      shotId: shot.id,
+      selectedKeyframeIndex: 0,
+      playheadMs: 0,
+    });
     setStatusText(t('directorStage.camera.recordingSaved', {
       seconds: cameraPathDurationSeconds(cameraPath),
     }));
@@ -1162,13 +1386,23 @@ export function DirectorStageWorkspace({
     if (!recording) {
       return;
     }
+    const camera = cameraRef.current;
+    const orbit = orbitRef.current;
+    if (shouldCommit && camera && orbit) {
+      const now = performance.now();
+      pushCameraPathRecordingKeyframe(
+        recording,
+        readCameraPathKeyframe(camera, orbit.target, Math.max(0, now - recording.startedAt)),
+        now
+      );
+    }
     window.cancelAnimationFrame(recording.animationFrame);
     if (recording.statusTimer !== null) {
       window.clearInterval(recording.statusTimer);
     }
+    restoreDirectorStageObjectVisibility(recording.hiddenLightMarkers);
     cameraPathRecordingRef.current = null;
     setCameraPathRecording(null);
-    const orbit = orbitRef.current;
     if (orbit) {
       orbit.enabled = !isTransformDraggingRef.current;
     }
@@ -1187,7 +1421,7 @@ export function DirectorStageWorkspace({
     }
     stopCameraPathPlayback();
     stopCameraPathRecording(false);
-    applyCameraShotToView(shot);
+    commitActiveCameraShotFromViewRef.current();
     isApplyingCameraShotViewRef.current = true;
     orbit.enabled = true;
     const startedAt = performance.now();
@@ -1199,6 +1433,9 @@ export function DirectorStageWorkspace({
       keyframes: [firstKeyframe],
       animationFrame: 0,
       statusTimer: null as number | null,
+      hiddenLightMarkers: hideDirectorStageObjects(
+        collectDirectorStageLightMarkerObjects(lightGroupRef.current)
+      ),
     };
 
     const sampleFrame = () => {
@@ -1207,17 +1444,16 @@ export function DirectorStageWorkspace({
         return;
       }
       const now = performance.now();
-      const elapsedMs = Math.min(DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS, now - currentRecording.startedAt);
+      const elapsedMs = Math.max(0, now - currentRecording.startedAt);
       const sampleIntervalMs = 1000 / DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE;
-      if (now - currentRecording.lastSampleAt >= sampleIntervalMs || elapsedMs >= DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS) {
-        currentRecording.keyframes.push(readCameraPathKeyframe(camera, orbit.target, elapsedMs));
-        currentRecording.lastSampleAt = now;
+      if (now - currentRecording.lastSampleAt >= sampleIntervalMs) {
+        pushCameraPathRecordingKeyframe(
+          currentRecording,
+          readCameraPathKeyframe(camera, orbit.target, elapsedMs),
+          now
+        );
       }
       requestRenderRef.current(120);
-      if (elapsedMs >= DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS) {
-        stopCameraPathRecording(true);
-        return;
-      }
       currentRecording.animationFrame = window.requestAnimationFrame(sampleFrame);
     };
 
@@ -1229,20 +1465,18 @@ export function DirectorStageWorkspace({
       setCameraPathRecording({
         shotId: currentRecording.shotId,
         startedAt: currentRecording.startedAt,
-        elapsedMs: Math.min(
-          DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS,
-          performance.now() - currentRecording.startedAt
-        ),
+        elapsedMs: Math.max(0, performance.now() - currentRecording.startedAt),
       });
     }, DIRECTOR_STAGE_RECORDING_PREVIEW_UPDATE_MS);
     cameraPathRecordingRef.current = recording;
     setCameraPathRecording({ shotId: shot.id, startedAt, elapsedMs: 0 });
     setStatusText(t('directorStage.camera.recordingStarted'));
     recording.animationFrame = window.requestAnimationFrame(sampleFrame);
-  }, [applyCameraShotToView, stopCameraPathPlayback, stopCameraPathRecording, t]);
+  }, [stopCameraPathPlayback, stopCameraPathRecording, t]);
 
   const playCameraPath = useCallback((shot: DirectorStageCameraShot) => {
-    if (!shot.cameraPath) {
+    const cameraPath = shot.cameraPath;
+    if (!cameraPath) {
       return;
     }
     const camera = cameraRef.current;
@@ -1252,13 +1486,23 @@ export function DirectorStageWorkspace({
     }
     stopCameraPathRecording(false);
     stopCameraPathPlayback();
+    const timelinePlayheadMs = cameraPathTimeline?.shotId === shot.id
+      ? cameraPathTimeline.playheadMs
+      : cameraPath.clipStartMs;
+    const clipEndMs = cameraPath.clipStartMs + cameraPath.clipDurationMs;
+    const startElapsedMs = timelinePlayheadMs > cameraPath.clipStartMs && timelinePlayheadMs < clipEndMs
+      ? timelinePlayheadMs - cameraPath.clipStartMs
+      : 0;
     isApplyingCameraShotViewRef.current = true;
     orbit.enabled = false;
     const startedAt = performance.now();
     const playback = {
       shotId: shot.id,
-      startedAt,
-      durationMs: shot.cameraPath.durationMs,
+      startedAt: startedAt - startElapsedMs,
+      durationMs: cameraPath.clipDurationMs,
+      speed: 1,
+      elapsedMs: startElapsedMs,
+      clipStartMs: cameraPath.clipStartMs,
       animationFrame: 0,
     };
 
@@ -1267,11 +1511,14 @@ export function DirectorStageWorkspace({
       if (!currentPlayback || currentPlayback.shotId !== shot.id || !shot.cameraPath) {
         return;
       }
-      const elapsedMs = Math.min(shot.cameraPath.durationMs, performance.now() - currentPlayback.startedAt);
+      const elapsedMs = Math.min(
+        cameraPath.clipDurationMs,
+        (performance.now() - currentPlayback.startedAt) * currentPlayback.speed
+      );
       applyCameraPathKeyframe(
         camera,
         orbit.target,
-        sampleDirectorStageCameraPath(shot.cameraPath, elapsedMs)
+        sampleDirectorStageCameraPath(cameraPath, cameraPath.clipStartMs + elapsedMs)
       );
       orbit.update();
       requestRenderRef.current();
@@ -1279,8 +1526,16 @@ export function DirectorStageWorkspace({
         shotId: shot.id,
         startedAt: currentPlayback.startedAt,
         durationMs: currentPlayback.durationMs,
+        elapsedMs,
+        speed: currentPlayback.speed,
+        clipStartMs: currentPlayback.clipStartMs,
       });
-      if (elapsedMs >= shot.cameraPath.durationMs) {
+      setCameraPathTimeline((current) => (
+        current?.shotId === shot.id
+          ? { ...current, playheadMs: cameraPath.clipStartMs + elapsedMs }
+          : current
+      ));
+      if (elapsedMs >= cameraPath.clipDurationMs) {
         isApplyingCameraShotViewRef.current = false;
         stopCameraPathPlayback();
         return;
@@ -1291,7 +1546,15 @@ export function DirectorStageWorkspace({
     cameraPathPlaybackRef.current = playback;
     setCameraPathPlayback(playback);
     runFrame();
-  }, [stopCameraPathPlayback, stopCameraPathRecording]);
+  }, [cameraPathTimeline, stopCameraPathPlayback, stopCameraPathRecording]);
+
+  const toggleCameraPathPlayback = useCallback((shot: DirectorStageCameraShot) => {
+    if (cameraPathPlaybackRef.current?.shotId === shot.id) {
+      stopCameraPathPlayback();
+      return;
+    }
+    playCameraPath(shot);
+  }, [playCameraPath, stopCameraPathPlayback]);
 
   const commitActiveCameraShotFromView = useCallback((): boolean => {
     if (isApplyingCameraShotViewRef.current) {
@@ -1335,6 +1598,10 @@ export function DirectorStageWorkspace({
     });
     return true;
   }, []);
+
+  useEffect(() => {
+    commitActiveCameraShotFromViewRef.current = commitActiveCameraShotFromView;
+  }, [commitActiveCameraShotFromView]);
 
   const frameEntityObjectInView = useCallback((entityId: string): boolean => {
     const camera = cameraRef.current;
@@ -1766,6 +2033,11 @@ export function DirectorStageWorkspace({
       }
 
       applyCameraShotToView(cameraShot);
+      setCameraPathTimeline({
+        shotId: cameraShot.id,
+        selectedKeyframeIndex: 0,
+        playheadMs: 0,
+      });
       commitProjectRef.current({
         ...current,
         activeCameraShotId: cameraShot.id,
@@ -2394,10 +2666,27 @@ export function DirectorStageWorkspace({
     }
 
     project.cameraShots.forEach((shot) => {
-      markerGroup.add(buildCameraShotMarker(shot, shot.id === project.activeCameraShotId));
+      markerGroup.add(buildCameraShotMarker(
+        shot,
+        shot.id === project.activeCameraShotId
+      ));
+      const pathGroup = buildCameraPathWorldGroup(
+        shot,
+        shot.id === project.activeCameraShotId,
+        cameraPathTimeline?.shotId === shot.id ? cameraPathTimeline.selectedKeyframeIndex : null
+      );
+      if (pathGroup) {
+        markerGroup.add(pathGroup);
+      }
     });
     requestRenderRef.current();
-  }, [project.activeCameraShotId, project.cameraShots, project.isFreeView]);
+  }, [
+    cameraPathTimeline?.selectedKeyframeIndex,
+    cameraPathTimeline?.shotId,
+    project.activeCameraShotId,
+    project.cameraShots,
+    project.isFreeView,
+  ]);
 
   useEffect(() => {
     requestRenderRef.current();
@@ -3130,12 +3419,29 @@ export function DirectorStageWorkspace({
       if (key === 'g' && !event.repeat) {
         event.preventDefault();
         toggleGroundGrid();
+        return;
+      }
+      if (event.code === 'Space' && !event.repeat) {
+        const shot = timelineCameraShot ?? activeCameraShot;
+        if (!shot?.cameraPath || cameraPathRecordingRef.current || exportingCameraPathShotId) {
+          return;
+        }
+        event.preventDefault();
+        toggleCameraPathPlayback(shot);
       }
     };
 
     window.addEventListener('keydown', handleStageShortcut);
     return () => window.removeEventListener('keydown', handleStageShortcut);
-  }, [frameSelectedEntityInView, setTransformMode, toggleGroundGrid]);
+  }, [
+    activeCameraShot,
+    exportingCameraPathShotId,
+    frameSelectedEntityInView,
+    setTransformMode,
+    timelineCameraShot,
+    toggleCameraPathPlayback,
+    toggleGroundGrid,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -3305,6 +3611,11 @@ export function DirectorStageWorkspace({
       activeCameraShotId: shot.id,
       isFreeView: false,
     }, { history: 'skip' });
+    setCameraPathTimeline({
+      shotId: shot.id,
+      selectedKeyframeIndex: 0,
+      playheadMs: 0,
+    });
   }, [applyCameraShotToView, commitActiveCameraShotFromView, patchProject]);
 
   const deleteCameraShot = useCallback((shotId: string) => {
@@ -3356,7 +3667,296 @@ export function DirectorStageWorkspace({
     patchProject({
       cameraShots: current.cameraShots.map((item) => (item.id === shotId ? nextShot : item)),
     });
+    setCameraPathTimeline((currentTimeline) =>
+      currentTimeline?.shotId === shotId ? null : currentTimeline
+    );
   }, [patchProject, stopCameraPathPlayback, stopCameraPathRecording]);
+
+  const updateCameraPathMotionKeyframes = useCallback((
+    shotId: string,
+    motionKeyframes: DirectorStageCameraKeyframe[],
+    selectedKeyframeIndex: number | null,
+    playheadMs: number,
+    segmentEasings?: Record<string, DirectorStageCameraPathSegmentEasing>
+  ) => {
+    const current = projectRef.current;
+    const shot = current.cameraShots.find((item) => item.id === shotId);
+    if (!shot?.cameraPath || motionKeyframes.length < 2) {
+      return;
+    }
+    const maxTimelineMs = DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS;
+    const sortedKeyframes = motionKeyframes
+      .map((keyframe) => ({
+        ...ensureCameraPathKeyframeId(keyframe),
+        timeMs: Math.max(0, Math.min(maxTimelineMs, keyframe.timeMs)),
+      }))
+      .sort((left, right) => left.timeMs - right.timeMs);
+    const nextDurationMs = Math.max(
+      1,
+      Math.min(
+        DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS,
+        sortedKeyframes[sortedKeyframes.length - 1]?.timeMs ?? shot.cameraPath.durationMs
+      )
+    );
+    const nextClipRange = clampCameraPathClipRange(
+      nextDurationMs,
+      shot.cameraPath.clipStartMs,
+      shot.cameraPath.clipDurationMs
+    );
+    const nextShot: DirectorStageCameraShot = {
+      ...shot,
+      position: sortedKeyframes[0].position,
+      target: sortedKeyframes[0].target,
+      fov: sortedKeyframes[0].fov,
+      focalLengthMm: fovToFocalLength(sortedKeyframes[0].fov),
+      cameraPath: {
+        ...shot.cameraPath,
+        durationMs: nextDurationMs,
+        clipStartMs: nextClipRange.clipStartMs,
+        clipDurationMs: nextClipRange.clipDurationMs,
+        motionKeyframes: sortedKeyframes,
+        segmentEasings: normalizeDirectorStageCameraPathSegmentEasings(
+          sortedKeyframes,
+          segmentEasings ?? shot.cameraPath.segmentEasings
+        ),
+      },
+      updatedAt: Date.now(),
+    };
+    patchProject({
+      cameraShots: current.cameraShots.map((item) => (item.id === shotId ? nextShot : item)),
+    });
+    setCameraPathTimeline({
+      shotId,
+      selectedKeyframeIndex,
+      playheadMs: Math.max(0, Math.min(nextDurationMs, playheadMs)),
+    });
+  }, [patchProject]);
+
+  const jumpCameraPathTimeline = useCallback((shot: DirectorStageCameraShot, timeMs: number) => {
+    if (!shot.cameraPath) {
+      return;
+    }
+    const camera = cameraRef.current;
+    const orbit = orbitRef.current;
+    if (!camera || !orbit) {
+      return;
+    }
+    stopCameraPathPlayback();
+    const clampedTime = Math.max(0, Math.min(shot.cameraPath.durationMs, timeMs));
+    isApplyingCameraShotViewRef.current = true;
+    applyCameraPathKeyframe(
+      camera,
+      orbit.target,
+      sampleDirectorStageCameraPath(shot.cameraPath, clampedTime)
+    );
+    orbit.update();
+    requestRenderRef.current(160);
+    window.requestAnimationFrame(() => {
+      isApplyingCameraShotViewRef.current = false;
+    });
+    setCameraPathTimeline((current) => ({
+      shotId: shot.id,
+      selectedKeyframeIndex: current?.shotId === shot.id ? current.selectedKeyframeIndex : null,
+      playheadMs: clampedTime,
+    }));
+  }, [stopCameraPathPlayback]);
+
+  const addCameraPathKeyframeAtPlayhead = useCallback((shot: DirectorStageCameraShot) => {
+    if (!shot.cameraPath) {
+      return;
+    }
+    const camera = cameraRef.current;
+    const orbit = orbitRef.current;
+    if (!camera || !orbit) {
+      return;
+    }
+    const playheadMs = cameraPathTimeline?.shotId === shot.id
+      ? cameraPathTimeline.playheadMs
+      : 0;
+    const nextKeyframe = ensureCameraPathKeyframeId({
+      ...readCameraPathKeyframe(camera, orbit.target, playheadMs),
+      sourceTimeMs: sampleDirectorStageCameraPathSourceTime(shot.cameraPath, playheadMs),
+    });
+    const sourceKeyframes = getDirectorStageMotionKeyframes(shot.cameraPath);
+    const inheritedSegmentIndex = sourceKeyframes.findIndex((keyframe, index) => {
+      const next = sourceKeyframes[index + 1];
+      return Boolean(next && playheadMs > keyframe.timeMs && playheadMs < next.timeMs);
+    });
+    const inheritedLeft = inheritedSegmentIndex >= 0 ? sourceKeyframes[inheritedSegmentIndex] : null;
+    const inheritedRight = inheritedSegmentIndex >= 0 ? sourceKeyframes[inheritedSegmentIndex + 1] : null;
+    const inheritedEasing = inheritedLeft && inheritedRight
+      ? resolveDirectorStageCameraPathSegmentEasing(shot.cameraPath, inheritedLeft, inheritedRight)
+      : null;
+    const keyframes = sourceKeyframes.filter((keyframe) => Math.abs(keyframe.timeMs - playheadMs) > 80);
+    const nextKeyframes = [...keyframes, nextKeyframe].sort((left, right) => left.timeMs - right.timeMs);
+    const nextSegmentEasings = normalizeDirectorStageCameraPathSegmentEasings(
+      nextKeyframes,
+      shot.cameraPath.segmentEasings
+    );
+    if (inheritedEasing) {
+      const insertedIndex = nextKeyframes.findIndex((keyframe) => keyframe.id === nextKeyframe.id);
+      const previous = nextKeyframes[insertedIndex - 1];
+      const inserted = nextKeyframes[insertedIndex];
+      if (previous && inserted && nextSegmentEasings) {
+        nextSegmentEasings[createDirectorStageCameraPathSegmentKey(previous, inserted)] = inheritedEasing;
+        nextSegmentEasings[createDirectorStageCameraPathSegmentKey(inserted)] = inheritedEasing;
+      }
+    }
+    const selectedIndex = nextKeyframes.findIndex((keyframe) => keyframe === nextKeyframe);
+    updateCameraPathMotionKeyframes(shot.id, nextKeyframes, selectedIndex, playheadMs, nextSegmentEasings);
+  }, [cameraPathTimeline, updateCameraPathMotionKeyframes]);
+
+  const deleteSelectedCameraPathKeyframe = useCallback((shot: DirectorStageCameraShot) => {
+    if (!shot.cameraPath || cameraPathTimeline?.shotId !== shot.id) {
+      return;
+    }
+    const selectedIndex = cameraPathTimeline.selectedKeyframeIndex;
+    if (selectedIndex === null) {
+      return;
+    }
+    const keyframes = getDirectorStageMotionKeyframes(shot.cameraPath);
+    if (keyframes.length <= 2) {
+      return;
+    }
+    const nextKeyframes = keyframes.filter((_, index) => index !== selectedIndex);
+    const nextIndex = Math.min(selectedIndex, nextKeyframes.length - 1);
+    updateCameraPathMotionKeyframes(
+      shot.id,
+      nextKeyframes,
+      nextIndex,
+      nextKeyframes[nextIndex]?.timeMs ?? 0
+    );
+  }, [cameraPathTimeline, updateCameraPathMotionKeyframes]);
+
+  const moveCameraPathKeyframe = useCallback((
+    shot: DirectorStageCameraShot,
+    keyframeIndex: number,
+    timeMs: number
+  ) => {
+    if (!shot.cameraPath) {
+      return;
+    }
+    const keyframes = getDirectorStageMotionKeyframes(shot.cameraPath);
+    const keyframe = keyframes[keyframeIndex];
+    if (!keyframe) {
+      return;
+    }
+    const previous = keyframes[keyframeIndex - 1];
+    const next = keyframes[keyframeIndex + 1];
+    const minGapMs = 100;
+    const minTime = keyframeIndex === 0 ? 0 : (previous?.timeMs ?? 0) + minGapMs;
+    const maxTime = next
+      ? next.timeMs - minGapMs
+      : DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS;
+    const clampedTime = keyframeIndex === 0
+      ? 0
+      : Math.max(minTime, Math.min(maxTime, timeMs));
+    const nextKeyframes = keyframes.map((item, index) =>
+      index === keyframeIndex ? { ...item, timeMs: clampedTime } : item
+    );
+    const sortedKeyframes = nextKeyframes.sort((left, right) => left.timeMs - right.timeMs);
+    const nextSelectedIndex = sortedKeyframes.findIndex((item) => item === nextKeyframes[keyframeIndex]);
+    updateCameraPathMotionKeyframes(
+      shot.id,
+      sortedKeyframes,
+      nextSelectedIndex >= 0 ? nextSelectedIndex : keyframeIndex,
+      clampedTime
+    );
+  }, [updateCameraPathMotionKeyframes]);
+
+  const updateCameraPathClipRange = useCallback((
+    shot: DirectorStageCameraShot,
+    clipStartMs: number,
+    clipDurationMs: number
+  ) => {
+    if (!shot.cameraPath) {
+      return;
+    }
+    const current = projectRef.current;
+    const nextClipRange = clampCameraPathClipRange(
+      shot.cameraPath.durationMs,
+      clipStartMs,
+      clipDurationMs
+    );
+    const nextShot: DirectorStageCameraShot = {
+      ...shot,
+      cameraPath: {
+        ...shot.cameraPath,
+        clipStartMs: nextClipRange.clipStartMs,
+        clipDurationMs: nextClipRange.clipDurationMs,
+      },
+      updatedAt: Date.now(),
+    };
+    patchProject({
+      cameraShots: current.cameraShots.map((item) => (item.id === shot.id ? nextShot : item)),
+    }, { history: 'skip' });
+    setCameraPathTimeline((currentTimeline) => {
+      if (currentTimeline?.shotId !== shot.id) {
+        return currentTimeline;
+      }
+      return {
+        ...currentTimeline,
+        playheadMs: Math.max(
+          nextClipRange.clipStartMs,
+          Math.min(nextClipRange.clipStartMs + nextClipRange.clipDurationMs, currentTimeline.playheadMs)
+        ),
+      };
+    });
+  }, [patchProject]);
+
+  const updateCameraPathSegmentSpeed = useCallback((
+    shot: DirectorStageCameraShot,
+    segmentIndex: number,
+    speed: number,
+    easingPatch?: Omit<DirectorStageCameraPathSegmentEasing, 'speed'>
+  ) => {
+    if (!shot.cameraPath) {
+      return;
+    }
+    const keyframes = getDirectorStageMotionKeyframes(shot.cameraPath);
+    const left = keyframes[segmentIndex];
+    const right = keyframes[segmentIndex + 1];
+    if (!left || !right) {
+      return;
+    }
+    const safeSpeed = Math.max(0.1, Math.min(5, Number.isFinite(speed) ? speed : 1));
+    const currentEasing = resolveDirectorStageCameraPathSegmentEasing(shot.cameraPath, left, right);
+    const currentSpeed = Math.max(0.1, Math.min(5, currentEasing.speed ?? 1));
+    const currentDurationMs = Math.max(100, right.timeMs - left.timeMs);
+    const requestedDurationMs = Math.max(100, Math.round(currentDurationMs * currentSpeed / safeSpeed));
+    const lastKeyframe = keyframes[keyframes.length - 1];
+    const maxPositiveDelta = Math.max(0, DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS - (lastKeyframe?.timeMs ?? 0));
+    const requestedDelta = requestedDurationMs - currentDurationMs;
+    const deltaMs = requestedDelta > 0
+      ? Math.min(requestedDelta, maxPositiveDelta)
+      : requestedDelta;
+    const nextKeyframes = keyframes.map((keyframe, index) => (
+      index <= segmentIndex
+        ? keyframe
+        : { ...keyframe, timeMs: Math.max(0, keyframe.timeMs + deltaMs) }
+    ));
+    const shiftedLeft = nextKeyframes[segmentIndex];
+    const shiftedRight = nextKeyframes[segmentIndex + 1];
+    if (!shiftedLeft || !shiftedRight) {
+      return;
+    }
+    const nextSegmentEasings = normalizeDirectorStageCameraPathSegmentEasings(
+      nextKeyframes,
+      shot.cameraPath.segmentEasings
+    ) ?? {};
+    nextSegmentEasings[createDirectorStageCameraPathSegmentKey(shiftedLeft, shiftedRight)] = {
+      ...currentEasing,
+      ...(easingPatch ?? {}),
+      speed: safeSpeed,
+    };
+    updateCameraPathMotionKeyframes(
+      shot.id,
+      nextKeyframes,
+      segmentIndex,
+      shiftedLeft.timeMs,
+      nextSegmentEasings
+    );
+  }, [updateCameraPathMotionKeyframes]);
 
   const openCameraLensPanel = useCallback((
     shotId: string,
@@ -3472,12 +4072,23 @@ export function DirectorStageWorkspace({
         ...projectRef.current,
         updatedAt: Date.now(),
       };
-      updateNodeData(nodeId, {
+      const snapshotPatch = {
         ...createProjectNodePatch(snapshotProject),
         lastSnapshotUrl: result.imagePath,
         lastSnapshotPreviewUrl: result.previewImagePath,
         lastSnapshotAt: Date.now(),
-      }, { historyMode: 'skip' });
+      };
+      updateNodeData(nodeId, snapshotPatch, { historyMode: 'skip' });
+      void emitToMainWindow<DirectorStageUpdateNodePayload>(
+        DIRECTOR_STAGE_UPDATE_NODE_EVENT,
+        {
+          nodeId,
+          data: snapshotPatch,
+          historyMode: 'skip',
+        }
+      ).catch((error) => {
+        console.warn('Failed to sync director stage snapshot to main window', error);
+      });
       addDerivedExportNode(
         nodeId,
         result.imagePath,
@@ -3490,6 +4101,23 @@ export function DirectorStageWorkspace({
           sizeStrategy: 'generated',
         }
       );
+      void emitToMainWindow<DirectorStageAddExportNodePayload>(
+        DIRECTOR_STAGE_ADD_EXPORT_NODE_EVENT,
+        {
+          sourceNodeId: nodeId,
+          imageUrl: result.imagePath,
+          aspectRatio: snapshotAspectRatio,
+          previewImageUrl: result.previewImagePath,
+          options: {
+            defaultTitle: t('directorStage.snapshot.exportNodeTitle'),
+            resultKind: 'generic',
+            connectToSource: true,
+            sizeStrategy: 'generated',
+          },
+        }
+      ).catch((error) => {
+        console.warn('Failed to ask main window to add director stage snapshot node', error);
+      });
       setStatusText(t('directorStage.status.snapshotSent'));
     } finally {
       setIsCapturing(false);
@@ -3534,13 +4162,8 @@ export function DirectorStageWorkspace({
     if (cameraShotGroupRef.current) {
       hiddenObjects.push(cameraShotGroupRef.current);
     }
-    const previousVisibility = hiddenObjects.map((object) => ({
-      object,
-      visible: object.visible,
-    }));
-    hiddenObjects.forEach((object) => {
-      object.visible = false;
-    });
+    hiddenObjects.push(...collectDirectorStageLightMarkerObjects(lightGroupRef.current));
+    const previousVisibility = hideDirectorStageObjects(hiddenObjects);
 
     const stream = renderer.domElement.captureStream(DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE);
     const chunks: Blob[] = [];
@@ -3561,19 +4184,25 @@ export function DirectorStageWorkspace({
         recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
       });
 
-      recorder.start();
-      const startedAt = performance.now();
+      recorder.start(100);
+      const totalFrames = Math.max(
+        2,
+        Math.round(cameraPath.clipDurationMs / 1000 * DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE) + 1
+      );
       const frameInterval = 1000 / DIRECTOR_STAGE_CAMERA_PATH_SAMPLE_RATE;
       await new Promise<void>((resolve) => {
+        let frameIndex = 0;
+        const startedAt = performance.now();
         const renderNextFrame = () => {
-          const elapsedMs = Math.min(cameraPath.durationMs, performance.now() - startedAt);
+          const sampleFrameIndex = Math.min(frameIndex, totalFrames - 1);
           applyCameraPathKeyframe(
             exportCamera,
             exportTarget,
-            sampleDirectorStageCameraPath(cameraPath, elapsedMs)
+            sampleDirectorStageCameraPathClipFrame(cameraPath, sampleFrameIndex)
           );
           renderer.render(scene, exportCamera);
-          if (elapsedMs >= cameraPath.durationMs) {
+          frameIndex += 1;
+          if (performance.now() - startedAt >= cameraPath.clipDurationMs && frameIndex >= totalFrames) {
             resolve();
             return;
           }
@@ -3587,9 +4216,7 @@ export function DirectorStageWorkspace({
       return new Uint8Array(await blob.arrayBuffer());
     } finally {
       stream.getTracks().forEach((track) => track.stop());
-      previousVisibility.forEach(({ object, visible }) => {
-        object.visible = visible;
-      });
+      restoreDirectorStageObjectVisibility(previousVisibility);
       renderer.dispose();
       requestRenderRef.current();
     }
@@ -3602,18 +4229,6 @@ export function DirectorStageWorkspace({
     stopCameraPathRecording(false);
     stopCameraPathPlayback();
     const defaultFileName = sanitizeRecordingFileName(resolveCameraShotDisplayName(shot));
-    const outputPath = await save({
-      defaultPath: defaultFileName,
-      filters: [
-        {
-          name: 'MP4',
-          extensions: ['mp4'],
-        },
-      ],
-    });
-    if (!outputPath) {
-      return;
-    }
 
     setExportingCameraPathShotId(shot.id);
     setStatusText(t('directorStage.camera.exporting'));
@@ -3624,20 +4239,27 @@ export function DirectorStageWorkspace({
       );
       const result = await transcodeDirectorStageRecordingToMp4({
         webmBytes,
-        outputPath,
+        outputPath: null,
         outputFileName: defaultFileName,
+        targetDurationMs: shot.cameraPath.clipDurationMs,
         mediaContext: createCurrentProjectMediaContext('video'),
       });
       const recordingSize = calculateDirectorStageRecordingSize(projectRef.current.snapshot.aspectRatio);
+      const clipDurationSeconds = shot.cameraPath.clipDurationMs / 1000;
       const preparedVideo = await prepareNodeVideoFromSource(
         result.videoUrl,
         createCurrentProjectMediaContext('video')
-      ).catch(() => ({
-        videoUrl: result.videoUrl,
-        previewImageUrl: null,
-        aspectRatio: recordingSize.aspectRatioText,
-        duration: shot.cameraPath ? shot.cameraPath.durationMs / 1000 : 0,
-      }));
+      )
+        .then((video) => ({
+          ...video,
+          duration: clipDurationSeconds,
+        }))
+        .catch(() => ({
+          videoUrl: result.videoUrl,
+          previewImageUrl: null,
+          aspectRatio: recordingSize.aspectRatioText,
+          duration: clipDurationSeconds,
+        }));
       addDerivedVideoNode(
         nodeId,
         preparedVideo.videoUrl,
@@ -3652,10 +4274,29 @@ export function DirectorStageWorkspace({
           connectToSource: true,
         }
       );
-      setStatusText(t('directorStage.camera.exported'));
+      void emitToMainWindow<DirectorStageAddVideoNodePayload>(
+        DIRECTOR_STAGE_ADD_VIDEO_NODE_EVENT,
+        {
+          sourceNodeId: nodeId,
+          videoUrl: preparedVideo.videoUrl,
+          previewImageUrl: preparedVideo.previewImageUrl,
+          aspectRatio: preparedVideo.aspectRatio,
+          duration: preparedVideo.duration,
+          options: {
+            defaultTitle: t('directorStage.camera.recordingNodeTitle', {
+              name: resolveCameraShotDisplayName(shot),
+            }),
+            videoFileName: result.outputFileName,
+            connectToSource: true,
+          },
+        }
+      ).catch((error) => {
+        console.warn('Failed to ask main window to add director stage recording node', error);
+      });
+      setStatusText(t('directorStage.camera.nodeCreated'));
     } catch (error) {
       console.error('Failed to export director stage camera recording', error);
-      setStatusText(t('directorStage.camera.exportFailed'));
+      setStatusText(t('directorStage.camera.nodeCreateFailed'));
     } finally {
       setExportingCameraPathShotId(null);
     }
@@ -3695,6 +4336,175 @@ export function DirectorStageWorkspace({
     ? cameraShotFocalLengthValue(cameraLensPanelShot)
     : null;
   const showBodyControls = supportsDirectorStageLimbControls(selectedEntity);
+
+  const renderCameraPathTimeline = () => {
+    if (!timelineCameraShot) {
+      return null;
+    }
+    const activeTimelinePath = timelineCameraPath && timelineMotionKeyframes.length >= 2
+      ? timelineCameraPath
+      : null;
+    const hasTimelinePath = Boolean(activeTimelinePath);
+    const selectedIndex = cameraPathTimeline?.shotId === timelineCameraShot.id
+      ? cameraPathTimeline.selectedKeyframeIndex
+      : null;
+    const playheadMs = cameraPathTimeline?.shotId === timelineCameraShot.id
+      ? cameraPathTimeline.playheadMs
+      : 0;
+
+    return (
+      <DirectorStageCameraTimeline
+        durationMs={timelineCameraPath?.durationMs ?? DIRECTOR_STAGE_CAMERA_PATH_CLIP_MAX_DURATION_MS}
+        motionKeyframes={timelineMotionKeyframes}
+        selectedKeyframeIndex={selectedIndex}
+        playheadMs={playheadMs}
+        clipStartMs={timelineCameraPath?.clipStartMs ?? 0}
+        clipDurationMs={
+          timelineCameraPath
+            ? timelineCameraPath.clipDurationMs
+            : DIRECTOR_STAGE_CAMERA_PATH_CLIP_MAX_DURATION_MS
+        }
+        segmentEasings={timelineCameraPath?.segmentEasings}
+        labels={{
+          title: t('directorStage.camera.timelineTitle'),
+          summary: activeTimelinePath
+            ? t('directorStage.camera.timelineSummary', {
+                motion: timelineMotionKeyframes.length,
+                seconds: cameraPathDurationSeconds(activeTimelinePath),
+              })
+            : t('directorStage.camera.timelineEmptySummary'),
+          emptyTitle: t('directorStage.camera.timelineEmptyTitle'),
+          emptyHint: t('directorStage.camera.timelineEmptyHint'),
+          motionTrack: t('directorStage.camera.motionTrack'),
+          addKeyframe: t('directorStage.camera.addKeyframe'),
+          deleteKeyframe: t('directorStage.camera.deleteKeyframe'),
+          previousKeyframe: t('directorStage.camera.previousKeyframe'),
+          nextKeyframe: t('directorStage.camera.nextKeyframe'),
+          seconds: t('directorStage.camera.seconds'),
+          selected: t('directorStage.camera.selectedKeyframe'),
+          locked: t('directorStage.camera.lockedKeyframe'),
+          recordPath: t('directorStage.camera.recordPath'),
+          stopRecording: t('directorStage.camera.stopRecording'),
+          recording: t('directorStage.camera.recording'),
+          playPath: t('directorStage.camera.playPath'),
+          pausePlayback: t('directorStage.camera.pausePlayback'),
+          exportPath: t('directorStage.camera.createVideoNode'),
+          clearPath: t('directorStage.camera.clearPath'),
+          totalDuration: t('directorStage.camera.totalDuration'),
+          maxDurationHint: t('directorStage.camera.maxDurationHint'),
+          clipRange: t('directorStage.camera.clipRange'),
+        }}
+        onPlayheadChange={(timeMs) => {
+          if (hasTimelinePath) {
+            jumpCameraPathTimeline(timelineCameraShot, timeMs);
+          }
+        }}
+        onSelectKeyframe={(index) => {
+          const keyframe = timelineMotionKeyframes[index];
+          setCameraPathTimeline({
+            shotId: timelineCameraShot.id,
+            selectedKeyframeIndex: index,
+            playheadMs: keyframe?.timeMs ?? playheadMs,
+          });
+        }}
+        onMoveKeyframe={(index, timeMs) => {
+          if (hasTimelinePath) {
+            moveCameraPathKeyframe(timelineCameraShot, index, timeMs);
+          }
+        }}
+        onAddKeyframe={() => hasTimelinePath && addCameraPathKeyframeAtPlayhead(timelineCameraShot)}
+        onDeleteKeyframe={() => hasTimelinePath && deleteSelectedCameraPathKeyframe(timelineCameraShot)}
+        onRecordToggle={() => {
+          if (cameraPathRecording?.shotId === timelineCameraShot.id) {
+            stopCameraPathRecording(true);
+            return;
+          }
+          startCameraPathRecording(timelineCameraShot);
+        }}
+        onPlayToggle={() => {
+          if (!hasTimelinePath) {
+            return;
+          }
+          toggleCameraPathPlayback(timelineCameraShot);
+        }}
+        onExport={() => {
+          if (hasTimelinePath) {
+            void exportCameraPathVideo(timelineCameraShot);
+          }
+        }}
+        onClear={() => {
+          if (hasTimelinePath) {
+            clearCameraPath(timelineCameraShot.id);
+          }
+        }}
+        onClipRangeChange={(clipStartMs, clipDurationMs) => {
+          if (hasTimelinePath) {
+            updateCameraPathClipRange(timelineCameraShot, clipStartMs, clipDurationMs);
+          }
+        }}
+        hasCameraPath={hasTimelinePath}
+        isRecording={cameraPathRecording?.shotId === timelineCameraShot.id}
+        isPlaying={cameraPathPlayback?.shotId === timelineCameraShot.id}
+        isExporting={exportingCameraPathShotId === timelineCameraShot.id}
+      />
+    );
+  };
+
+  const renderCameraPathEasingEditor = () => {
+    if (!timelineCameraShot || !timelineCameraPath || !selectedCameraPathSegment) {
+      return null;
+    }
+
+    return (
+      <DirectorStageCameraEasingEditor
+        preset={selectedCameraPathSegment.easing.preset}
+        curve={selectedCameraPathSegment.easing.curve}
+        speed={selectedCameraPathSegment.easing.speed ?? 1}
+        labels={{
+          title: t('directorStage.camera.easing.title'),
+          subtitle: t('directorStage.camera.easing.subtitle', {
+            from: formatCameraPathSeconds(selectedCameraPathSegment.left.timeMs),
+            to: formatCameraPathSeconds(selectedCameraPathSegment.right.timeMs),
+          }),
+          customHint: t('directorStage.camera.easing.customHint'),
+          curveLabel: t('directorStage.camera.easing.curveLabel'),
+          speedLabel: t('directorStage.camera.easing.speedLabel'),
+          speedHint: t('directorStage.camera.easing.speedHint'),
+          presets: {
+            linear: t('directorStage.camera.easing.presets.linear'),
+            easeIn: t('directorStage.camera.easing.presets.easeIn'),
+            easeOut: t('directorStage.camera.easing.presets.easeOut'),
+            easeInOut: t('directorStage.camera.easing.presets.easeInOut'),
+            accelerate: t('directorStage.camera.easing.presets.accelerate'),
+            decelerate: t('directorStage.camera.easing.presets.decelerate'),
+            custom: t('directorStage.camera.easing.presets.custom'),
+          },
+        }}
+        onChange={(preset, curve) => {
+          const presetCurve = preset === 'custom'
+            ? curve
+            : DIRECTOR_STAGE_CAMERA_PATH_EASING_PRESETS[preset] ?? DIRECTOR_STAGE_CAMERA_PATH_DEFAULT_EASING.curve;
+          const timingSpeed = resolveCameraPathCurveTimingSpeed(preset, presetCurve);
+          updateCameraPathSegmentSpeed(
+            timelineCameraShot,
+            selectedCameraPathSegment.index,
+            timingSpeed,
+            {
+              preset,
+              curve: presetCurve,
+            }
+          );
+        }}
+        onSpeedChange={(speed) => {
+          updateCameraPathSegmentSpeed(
+            timelineCameraShot,
+            selectedCameraPathSegment.index,
+            speed
+          );
+        }}
+      />
+    );
+  };
 
   const renderPoseControls = () => {
     if (!selectedEntity || !showPoseControls) {
@@ -4061,10 +4871,10 @@ export function DirectorStageWorkspace({
     : '';
 
   return (
-    <div
-      className="fixed inset-0 z-[100000] flex flex-col bg-[#0f1012] text-white"
-    >
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-[#17191d] px-4">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#0f1012] text-white">
+      <header
+        className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-[#17191d] px-4"
+      >
         <div className="flex min-w-0 items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.04]">
             <Clapperboard className="h-4.5 w-4.5 text-white/78" />
@@ -4075,7 +4885,6 @@ export function DirectorStageWorkspace({
               {cameraPathRecording
                 ? t('directorStage.camera.recordingStatus', {
                     seconds: (cameraPathRecording.elapsedMs / 1000).toFixed(1),
-                    max: DIRECTOR_STAGE_CAMERA_PATH_MAX_DURATION_MS / 1000,
                   })
                 : cameraPathPlayback
                   ? t('directorStage.camera.playingStatus')
@@ -4087,7 +4896,7 @@ export function DirectorStageWorkspace({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" data-ui-modal-drag-ignore="true">
           {statusText ? <div className="text-xs text-emerald-300">{statusText}</div> : null}
           <UiButton
             type="button"
@@ -4145,22 +4954,17 @@ export function DirectorStageWorkspace({
             <Download className="h-3.5 w-3.5" />
             {isCapturing ? t('directorStage.snapshot.capturing') : t('directorStage.snapshot.send')}
           </UiButton>
-          <button
-            type="button"
-            className="flex h-9 w-9 items-center justify-center rounded-md border border-white/10 bg-white/[0.03] text-white/62 transition-colors hover:bg-white/[0.08] hover:text-white"
-            onClick={() => {
-              commitDeferredProjectEdit();
-              onClose();
-            }}
-            title={t('common.close')}
-          >
-            <X className="h-4 w-4" />
-          </button>
         </div>
       </header>
 
-      <main className="grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_320px] grid-rows-[minmax(0,1fr)_112px]">
-        <aside className="row-span-2 flex min-h-0 flex-col border-r border-white/10 bg-[#15171a]">
+      <main
+        className={`grid min-h-0 flex-1 grid-cols-[280px_minmax(0,1fr)_320px] ${
+          showExpandedCameraPathTimeline
+            ? 'grid-rows-[minmax(0,1fr)_136px_112px]'
+            : 'grid-rows-[minmax(0,1fr)_112px]'
+        }`}
+      >
+        <aside className={`${showExpandedCameraPathTimeline ? 'row-span-3' : 'row-span-2'} flex min-h-0 flex-col border-r border-white/10 bg-[#15171a]`}>
           <div className="grid grid-cols-2 gap-1 border-b border-white/10 p-2">
             {(['a3d', 'library'] as const).map((tab) => (
               <button
@@ -4450,17 +5254,29 @@ export function DirectorStageWorkspace({
 
         <section className="relative min-h-0 overflow-hidden bg-[#101114]">
           <div ref={containerRef} className="absolute inset-0" />
+          {showCameraPathTimeline ? (
+            <button
+              type="button"
+              className="absolute bottom-0 left-1/2 z-40 flex h-5 w-28 -translate-x-1/2 translate-y-px items-center justify-center rounded-t-md border border-b-0 border-white/12 bg-[#17191d]/95 text-white/38 shadow-lg shadow-black/25 transition-colors hover:border-emerald-300/35 hover:bg-[#1f2425] hover:text-emerald-100"
+              title={isCameraPathTimelineCollapsed
+                ? t('directorStage.camera.expandTimeline')
+                : t('directorStage.camera.collapseTimeline')}
+              aria-label={isCameraPathTimelineCollapsed
+                ? t('directorStage.camera.expandTimeline')
+                : t('directorStage.camera.collapseTimeline')}
+              aria-expanded={!isCameraPathTimelineCollapsed}
+              onClick={() => setIsCameraPathTimelineCollapsed((current) => !current)}
+            >
+              {isCameraPathTimelineCollapsed
+                ? <ChevronDown className="h-3.5 w-3.5" />
+                : <ChevronDown className="h-3.5 w-3.5 rotate-180" />}
+            </button>
+          ) : null}
           {cameraPathRecording ? (
             <div className="pointer-events-none absolute left-1/2 top-4 z-30 w-[280px] -translate-x-1/2 rounded-md border border-red-300/25 bg-red-950/70 px-3 py-2 shadow-xl shadow-black/35 backdrop-blur">
               <div className="flex items-center justify-between text-xs text-red-50">
                 <span>{t('directorStage.camera.recording')}</span>
                 <span className="font-mono">{(cameraPathRecording.elapsedMs / 1000).toFixed(1)}s</span>
-              </div>
-              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/12">
-                <div
-                  className="h-full rounded-full bg-red-300"
-                  style={{ width: `${Math.round(cameraPathRecordingProgress * 100)}%` }}
-                />
               </div>
             </div>
           ) : null}
@@ -4579,7 +5395,7 @@ export function DirectorStageWorkspace({
           ) : null}
         </section>
 
-        <aside className="row-span-2 flex min-h-0 flex-col border-l border-white/10 bg-[#15171a]">
+        <aside className={`${showExpandedCameraPathTimeline ? 'row-span-3' : 'row-span-2'} flex min-h-0 flex-col border-l border-white/10 bg-[#15171a]`}>
           <div className="border-b border-white/10 p-3">
             <div className="text-sm font-semibold">{t('directorStage.properties.title')}</div>
             <div className="mt-1 truncate text-xs text-white/45">
@@ -4766,6 +5582,8 @@ export function DirectorStageWorkspace({
                 {renderTransformInputs('scale', 'directorStage.transform.scale')}
               </section>
             ) : null}
+
+            {renderCameraPathEasingEditor()}
 
             <section className="space-y-3">
               <div className="flex items-center justify-between">
@@ -4969,7 +5787,9 @@ export function DirectorStageWorkspace({
           </div>
         </aside>
 
-        <footer className="col-start-2 flex min-w-0 items-center gap-3 border-t border-white/10 bg-[#17191d] px-3">
+        {showExpandedCameraPathTimeline ? renderCameraPathTimeline() : null}
+
+        <footer className={`col-start-2 flex min-w-0 items-center gap-3 border-t border-white/10 bg-[#17191d] px-3 ${showExpandedCameraPathTimeline ? 'row-start-3' : 'row-start-2'}`}>
           <UiButton
             type="button"
             variant={project.isFreeView ? 'primary' : 'muted'}
@@ -4995,9 +5815,6 @@ export function DirectorStageWorkspace({
               const isActiveShot = !project.isFreeView && project.activeCameraShotId === shot.id;
               const canDeleteShot = project.cameraShots.length > 1;
               const isLensPanelOpen = cameraLensPanel?.shotId === shot.id;
-              const isRecordingShot = cameraPathRecording?.shotId === shot.id;
-              const isPlayingShot = cameraPathPlayback?.shotId === shot.id;
-              const isExportingShot = exportingCameraPathShotId === shot.id;
               const hasCameraPath = Boolean(shot.cameraPath);
               const focalLength = cameraShotFocalLengthValue(shot);
               return (
@@ -5028,69 +5845,6 @@ export function DirectorStageWorkspace({
                           })
                         : cameraShotPositionSummary(shot)}
                     </div>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={Boolean(cameraPathRecording && !isRecordingShot) || Boolean(exportingCameraPathShotId)}
-                    className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/42 transition-colors ${
-                      isRecordingShot
-                        ? 'bg-red-400/18 text-red-100'
-                        : 'hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-35'
-                    }`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (isRecordingShot) {
-                        stopCameraPathRecording(true);
-                      } else {
-                        startCameraPathRecording(shot);
-                      }
-                    }}
-                    title={isRecordingShot
-                      ? t('directorStage.camera.stopRecording')
-                      : t('directorStage.camera.recordPath')}
-                    aria-label={isRecordingShot
-                      ? t('directorStage.camera.stopRecording')
-                      : t('directorStage.camera.recordPath')}
-                  >
-                    <Radio className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!hasCameraPath || Boolean(cameraPathRecording) || Boolean(exportingCameraPathShotId)}
-                    className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/42 transition-colors ${
-                      isPlayingShot
-                        ? 'bg-emerald-300/14 text-emerald-100'
-                        : 'hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-35'
-                    }`}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      if (isPlayingShot) {
-                        stopCameraPathPlayback();
-                      } else {
-                        playCameraPath(shot);
-                      }
-                    }}
-                    title={t('directorStage.camera.playPath')}
-                    aria-label={t('directorStage.camera.playPath')}
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!hasCameraPath || Boolean(cameraPathRecording) || Boolean(exportingCameraPathShotId)}
-                    className="mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-white/42 transition-colors hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-35"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void exportCameraPathVideo(shot);
-                    }}
-                    title={t('directorStage.camera.exportPath')}
-                    aria-label={t('directorStage.camera.exportPath')}
-                  >
-                    {isExportingShot ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Download className="h-3.5 w-3.5" />
-                    )}
                   </button>
                   <button
                     type="button"

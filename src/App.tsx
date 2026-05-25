@@ -82,6 +82,8 @@ import {
   type ClipLibraryPanelProjectContext,
 } from "./features/clip-library/application/clipLibraryPanelBridge";
 import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedClipLibraryWindow";
+import { DIRECTOR_STAGE_WINDOW_LABEL } from "./features/director-stage/application/directorStageWindowBridge";
+import { DetachedDirectorStageWindow } from "./features/director-stage/ui/DetachedDirectorStageWindow";
 import { isTauriRuntime } from "./lib/tauriRuntime";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
@@ -1395,6 +1397,12 @@ function DetachedClipLibraryPanelApp() {
   return <DetachedClipLibraryWindow />;
 }
 
+function DetachedDirectorStageApp() {
+  useApplyGlobalAppearance();
+
+  return <DetachedDirectorStageWindow />;
+}
+
 function App() {
   if (!isTauriRuntime()) {
     return <MainApp />;
@@ -1408,6 +1416,10 @@ function App() {
 
   if (currentWindowLabel === ASSET_PANEL_WINDOW_LABEL) {
     return <DetachedAssetPanelApp />;
+  }
+
+  if (currentWindowLabel === DIRECTOR_STAGE_WINDOW_LABEL) {
+    return <DetachedDirectorStageApp />;
   }
 
   return <MainApp />;

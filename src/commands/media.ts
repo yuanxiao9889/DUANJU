@@ -23,6 +23,22 @@ export interface ExtractAudioFromVideoResult {
   outputFileName: string;
 }
 
+export interface TrimMediaSourcePayload {
+  source: string;
+  mediaType: 'video' | 'audio';
+  startTime: number;
+  endTime: number;
+  outputFileStem?: string | null;
+  mediaContext?: MediaPersistContext;
+}
+
+export interface TrimMediaSourceResult {
+  mediaPath: string;
+  duration: number;
+  mimeType: string;
+  outputFileName: string;
+}
+
 function normalizeMediaContext(
   context: MediaPersistContext | undefined,
   fallbackMediaType: MediaPersistType,
@@ -74,5 +90,20 @@ export async function extractAudioFromVideo(
       outputFileStem: payload.outputFileStem?.trim() || null,
     },
     mediaContext: normalizeMediaContext(payload.mediaContext, 'audio'),
+  });
+}
+
+export async function trimMediaSourceWithFfmpeg(
+  payload: TrimMediaSourcePayload
+): Promise<TrimMediaSourceResult> {
+  return await invoke<TrimMediaSourceResult>('trim_media_source', {
+    payload: {
+      source: payload.source,
+      mediaType: payload.mediaType,
+      startTime: payload.startTime,
+      endTime: payload.endTime,
+      outputFileStem: payload.outputFileStem?.trim() || null,
+    },
+    mediaContext: normalizeMediaContext(payload.mediaContext, payload.mediaType),
   });
 }

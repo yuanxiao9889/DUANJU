@@ -88,6 +88,7 @@ export default defineConfig(async () => ({
     },
   },
   optimizeDeps: {
+    force: true,
     exclude: [
       "@tiptap/react",
       "@tiptap/starter-kit",

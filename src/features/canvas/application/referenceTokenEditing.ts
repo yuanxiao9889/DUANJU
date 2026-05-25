@@ -5,6 +5,17 @@ export interface TextRange {
   end: number;
 }
 
+export interface ApplyTextareaTextEditOptions {
+  textarea: HTMLTextAreaElement | null | undefined;
+  nextText: string;
+  range: TextRange;
+}
+
+export interface ApplyTextareaTextEditResult {
+  applied: boolean;
+  value: string;
+}
+
 export interface ReferenceTokenMatch extends TextRange {
   token: string;
   value: number;
@@ -354,6 +365,66 @@ export function insertReferenceToken(
   return {
     nextText: `${before}${insertion}${after}`,
     nextCursor: before.length + insertion.length,
+  };
+}
+
+export function applyTextareaTextEdit({
+  textarea,
+  nextText,
+  range,
+}: ApplyTextareaTextEditOptions): ApplyTextareaTextEditResult {
+  if (!textarea) {
+    return {
+      applied: false,
+      value: nextText,
+    };
+  }
+
+  const currentText = textarea.value;
+  const safeStart = clamp(Math.min(range.start, range.end), 0, currentText.length);
+  const safeEnd = clamp(Math.max(range.start, range.end), 0, currentText.length);
+  const replacementText = nextText.slice(
+    safeStart,
+    nextText.length - (currentText.length - safeEnd),
+  );
+  const expectedText =
+    `${currentText.slice(0, safeStart)}${replacementText}${currentText.slice(safeEnd)}`;
+
+  if (nextText !== expectedText) {
+    return {
+      applied: false,
+      value: nextText,
+    };
+  }
+
+  textarea.focus();
+  textarea.setSelectionRange(safeStart, safeEnd);
+  if (document.execCommand('insertText', false, replacementText)) {
+    return {
+      applied: true,
+      value: textarea.value,
+    };
+  }
+
+  if (
+    typeof textarea.setRangeText === 'function'
+  ) {
+    textarea.setRangeText(replacementText, safeStart, safeEnd, 'end');
+    textarea.dispatchEvent(new InputEvent('input', {
+      bubbles: true,
+      cancelable: false,
+      data: replacementText,
+      inputType: safeStart === safeEnd ? 'insertText' : 'insertReplacementText',
+    }));
+    return {
+      applied: true,
+      value: textarea.value,
+    };
+  }
+
+  return {
+    applied: false,
+    value: nextText,
   };
 }
 

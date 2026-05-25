@@ -16,6 +16,7 @@ const MIN_TRIM_DURATION = 0.1;
 const TIME_EPSILON = 0.01;
 const PREVIEW_SEEK_INTERVAL_MS = 80;
 const TIME_STEP_DECIMALS = 1;
+const DURATION_SEEK_PROBE_TIME_SECONDS = 24 * 60 * 60;
 const RANGE_TRACK_COLORS = [
   'rgba(255,255,255,0.10)',
   'rgba(0,163,255,0.72)',
@@ -73,6 +74,67 @@ function formatMediaTime(value: number, mediaType: 'video' | 'audio'): string {
     : formatAudioDuration(wholeSeconds);
 
   return `${base}.${fraction}`;
+}
+
+function hasUsableMediaDuration(duration: number): boolean {
+  return Number.isFinite(duration) && duration > 0;
+}
+
+function waitForDurationProbe(mediaElement: HTMLMediaElement): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const cleanup = () => {
+      mediaElement.removeEventListener('seeked', handleReady);
+      mediaElement.removeEventListener('durationchange', handleReady);
+      mediaElement.removeEventListener('error', handleError);
+    };
+
+    const handleReady = () => {
+      cleanup();
+      resolve();
+    };
+
+    const handleError = () => {
+      cleanup();
+      reject(new Error('Failed to probe media duration'));
+    };
+
+    mediaElement.addEventListener('seeked', handleReady);
+    mediaElement.addEventListener('durationchange', handleReady);
+    mediaElement.addEventListener('error', handleError);
+  });
+}
+
+async function probeMediaDuration(mediaElement: HTMLMediaElement): Promise<number> {
+  if (hasUsableMediaDuration(mediaElement.duration)) {
+    return mediaElement.duration;
+  }
+
+  const previousTime = Number.isFinite(mediaElement.currentTime)
+    ? Math.max(0, mediaElement.currentTime)
+    : 0;
+
+  try {
+    const probe = waitForDurationProbe(mediaElement);
+    mediaElement.currentTime = DURATION_SEEK_PROBE_TIME_SECONDS;
+    await probe;
+  } catch {
+    // Keep the editor usable when the browser cannot probe this container.
+  }
+
+  const resolvedDuration =
+    hasUsableMediaDuration(mediaElement.duration)
+      ? mediaElement.duration
+      : Number.isFinite(mediaElement.currentTime) && mediaElement.currentTime > 0
+        ? mediaElement.currentTime
+        : 0;
+
+  try {
+    mediaElement.currentTime = resolvedDuration > previousTime ? previousTime : 0;
+  } catch {
+    // Best-effort preview restore.
+  }
+
+  return hasUsableMediaDuration(resolvedDuration) ? resolvedDuration : 0;
 }
 
 function normalizeTrimRange(startTime: number, endTime: number, duration: number): {
@@ -197,6 +259,7 @@ export function MediaTrimToolEditor({
     [draftRange, duration]
   );
   const trimDuration = Math.max(0, liveRange.endTime - liveRange.startTime);
+  const hasUsableDuration = hasUsableMediaDuration(duration);
   const sliderMax = Math.max(duration, MIN_TRIM_DURATION);
   const displayedCurrentTime = isRangeDragging && previewTime !== null
     ? previewTime
@@ -329,15 +392,12 @@ export function MediaTrimToolEditor({
     return nextRange;
   }, [duration, syncOptions, updateDraftTrimRange]);
 
-  const handleLoadedMetadata = useCallback(() => {
+  const applyLoadedMediaDuration = useCallback((nextDuration: number) => {
     const mediaElement = mediaRef.current;
     if (!mediaElement) {
       return;
     }
 
-    const nextDuration = Number.isFinite(mediaElement.duration)
-      ? Math.max(0, mediaElement.duration)
-      : 0;
     setDuration(nextDuration);
 
     if (currentTime > nextDuration) {
@@ -355,6 +415,24 @@ export function MediaTrimToolEditor({
     setDraftRange([nextInitialRange.startTime, nextInitialRange.endTime]);
     syncOptions(nextInitialRange.startTime, nextInitialRange.endTime, nextDuration);
   }, [currentTime, options.endTime, options.startTime, syncOptions]);
+
+  const handleLoadedMetadata = useCallback(() => {
+    const mediaElement = mediaRef.current;
+    if (!mediaElement) {
+      return;
+    }
+
+    if (hasUsableMediaDuration(mediaElement.duration)) {
+      applyLoadedMediaDuration(mediaElement.duration);
+      return;
+    }
+
+    void probeMediaDuration(mediaElement).then((probedDuration) => {
+      if (hasUsableMediaDuration(probedDuration)) {
+        applyLoadedMediaDuration(probedDuration);
+      }
+    });
+  }, [applyLoadedMediaDuration]);
 
   const handleTimeUpdate = useCallback(() => {
     const mediaElement = mediaRef.current;
@@ -458,6 +536,12 @@ export function MediaTrimToolEditor({
           )}
 
           <div className="mt-3 space-y-2">
+            {!hasUsableDuration ? (
+              <div className="rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                {t('toolDialog.mediaTrim.durationUnavailable')}
+              </div>
+            ) : null}
+
             <div className="flex items-center justify-between text-[11px] text-text-muted">
               <span>{t('toolDialog.mediaTrim.totalDuration')}: {formatMediaTime(duration, mediaType)}</span>
               <span>{t('toolDialog.mediaTrim.outputDuration')}: {formatMediaTime(trimDuration, mediaType)}</span>

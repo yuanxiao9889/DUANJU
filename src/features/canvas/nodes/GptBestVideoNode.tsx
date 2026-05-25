@@ -21,6 +21,7 @@ import { resolveErrorContent, showErrorDialog } from '@/features/canvas/applicat
 import { flushCurrentProjectToDiskSafely } from '@/features/canvas/application/projectPersistence';
 import { optimizeCanvasPrompt } from '@/features/canvas/application/promptOptimization';
 import {
+  applyTextareaTextEdit,
   buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
@@ -724,7 +725,12 @@ export const GptBestVideoNode = memo(
           selection.start,
           pickerItem.insertToken
         );
-        handlePromptChange(nextText);
+        const editResult = applyTextareaTextEdit({
+          textarea: promptRef.current,
+          nextText,
+          range: { start: selection.start, end: selection.end },
+        });
+        handlePromptChange(editResult.value);
         setShowReferencePicker(false);
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);

@@ -85,6 +85,23 @@ function resolveLocalizedExtractAudioErrorMessage(message: string, t: TFunction)
   return null;
 }
 
+function resolveLocalizedTrimErrorMessage(message: string, t: TFunction): string | null {
+  const normalizedMessage = message.trim().toLowerCase();
+  if (!normalizedMessage) {
+    return null;
+  }
+
+  if (
+    normalizedMessage.includes('media duration is not available')
+    || normalizedMessage.includes('trim range is too short')
+    || normalizedMessage.includes('failed to load media metadata')
+  ) {
+    return t('toolDialog.mediaTrim.invalidRange');
+  }
+
+  return null;
+}
+
 export function resolveNodeToolErrorContent(
   error: unknown,
   toolType: NodeToolType,
@@ -94,6 +111,16 @@ export function resolveNodeToolErrorContent(
 
   if (toolType === NODE_TOOL_TYPES.extractAudio) {
     const localizedMessage = resolveLocalizedExtractAudioErrorMessage(message, t);
+    if (localizedMessage) {
+      return {
+        message: localizedMessage,
+        details,
+      };
+    }
+  }
+
+  if (toolType === NODE_TOOL_TYPES.crop) {
+    const localizedMessage = resolveLocalizedTrimErrorMessage(message, t);
     if (localizedMessage) {
       return {
         message: localizedMessage,
@@ -263,6 +290,7 @@ export async function applyNodeToolResult({
         videoFileName: result.outputFileName ?? undefined,
         aspectRatio,
         duration: result.duration,
+        mimeType: result.mimeType ?? null,
         displayName: t('toolDialog.trimResultTitle'),
       },
       { inheritParentFromNodeId: sourceNode.id }

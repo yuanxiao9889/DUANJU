@@ -1,5 +1,5 @@
-import { memo, useMemo } from "react";
-import { Position, type NodeProps } from "@xyflow/react";
+import { memo, useEffect, useMemo } from "react";
+import { Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import { FileText, Images, LayoutTemplate, PackageSearch, Sparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -349,6 +349,7 @@ function ResultContent({ data }: { data: CommerceResultGroupNodeData }) {
 
 export const CommerceStageNode = memo(
   ({ id, type, data, selected, width, height }: CommerceStageNodeProps) => {
+    const updateNodeInternals = useUpdateNodeInternals();
     const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
     const deleteNode = useCanvasStore((state) => state.deleteNode);
     const resolvedWidth = resolveScriptNodeDimension(width, DEFAULT_WIDTH);
@@ -388,6 +389,10 @@ export const CommerceStageNode = memo(
         accent: "emerald" as const,
       };
     }, [type]);
+
+    useEffect(() => {
+      updateNodeInternals(id);
+    }, [data, id, resolvedHeight, resolvedWidth, type, updateNodeInternals]);
 
     return (
       <div className="relative h-full w-full">

@@ -53,6 +53,7 @@ import {
 } from "@/features/canvas/application/promptReferenceImageBindings";
 import { flushCurrentProjectToDiskSafely } from "@/features/canvas/application/projectPersistence";
 import {
+  applyTextareaTextEdit,
   buildShortReferenceToken,
   findReferenceTokens,
   insertReferenceToken,
@@ -719,8 +720,13 @@ export const JimengImageNode = memo(
           cursor,
           marker,
         );
+        const editResult = applyTextareaTextEdit({
+          textarea: promptRef.current,
+          nextText,
+          range: { start: cursor, end: cursor },
+        });
 
-        handlePromptChange(nextText);
+        handlePromptChange(editResult.value);
         setShowImagePicker(false);
         pickerSelectionRef.current = null;
         setPickerActiveIndex(0);
