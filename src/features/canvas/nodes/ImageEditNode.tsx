@@ -214,6 +214,39 @@ interface PromptReferenceTokenCandidate {
   value: number;
 }
 
+function resolveGroupedResultParentId(sourceNodeId: string): string | undefined {
+  const state = useCanvasStore.getState();
+  const nodeMap = new Map(state.nodes.map((node) => [node.id, node] as const));
+  const sourceNode = nodeMap.get(sourceNodeId);
+  if (
+    sourceNode?.parentId &&
+    nodeMap.get(sourceNode.parentId)?.type === CANVAS_NODE_TYPES.group
+  ) {
+    return sourceNode.parentId;
+  }
+
+  const groupedResults = state.edges
+    .filter((edge) => edge.source === sourceNodeId)
+    .map((edge) => nodeMap.get(edge.target))
+    .filter((node): node is NonNullable<typeof node> => {
+      if (!node || node.type !== CANVAS_NODE_TYPES.exportImage || !node.parentId) {
+        return false;
+      }
+      return nodeMap.get(node.parentId)?.type === CANVAS_NODE_TYPES.group;
+    })
+    .map((node) => {
+      const startedAtValue = (node.data as ExportImageNodeData).generationStartedAt;
+      const startedAt = typeof startedAtValue === "number" ? startedAtValue : 0;
+      return {
+        parentId: node.parentId,
+        startedAt,
+      };
+    })
+    .sort((left, right) => right.startedAt - left.startedAt);
+
+  return groupedResults[0]?.parentId;
+}
+
 const PICKER_Y_OFFSET_PX = 20;
 const IMAGE_EDIT_NODE_MIN_WIDTH = 480;
 const IMAGE_EDIT_NODE_MIN_HEIGHT = 180;
@@ -1588,6 +1621,7 @@ export const ImageEditNode = memo(
           CANVAS_NODE_TYPES.exportImage,
           newNodePosition,
           resultNodeData,
+          { parentId: resolveGroupedResultParentId(id) },
         );
         addEdge(id, newNodeId);
       }

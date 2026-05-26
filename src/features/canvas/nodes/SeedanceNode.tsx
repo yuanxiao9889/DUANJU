@@ -117,10 +117,12 @@ import {
   SEEDANCE_DURATION_OPTIONS,
   SEEDANCE_INPUT_MODE_OPTIONS,
   SEEDANCE_MODEL_OPTIONS,
+  getSeedanceResolutionOptionsForModel,
   normalizeSeedanceAspectRatio,
   normalizeSeedanceDurationSeconds,
   normalizeSeedanceInputMode,
   normalizeSeedanceModelId,
+  normalizeSeedanceResolutionForModel,
 } from "@/features/seedance/domain/seedanceOptions";
 import {
   isSeedanceAssetUri,
@@ -847,7 +849,10 @@ export const SeedanceNode = memo(
       () => normalizeSeedanceDurationSeconds(data.durationSeconds),
       [data.durationSeconds],
     );
-    const selectedResolution = "720p";
+    const selectedResolution = useMemo(
+      () => normalizeSeedanceResolutionForModel(data.resolution, selectedModelId),
+      [data.resolution, selectedModelId],
+    );
     const resolvedGenerateAudio = data.generateAudio ?? true;
     const resolvedReturnLastFrame = data.returnLastFrame ?? false;
     const resolvedWidth = Math.max(
@@ -2028,6 +2033,14 @@ export const SeedanceNode = memo(
         })),
       [t],
     );
+    const translatedResolutionOptions = useMemo(
+      () =>
+        getSeedanceResolutionOptionsForModel(selectedModelId).map((option) => ({
+          value: option.value,
+          label: t(option.labelKey),
+        })),
+      [selectedModelId, t],
+    );
     const combinedError = promptOptimizationError ?? data.lastError ?? null;
     const canUndoPromptOptimization = Boolean(
       lastPromptOptimizationUndoState &&
@@ -2465,6 +2478,16 @@ export const SeedanceNode = memo(
                     onChange={(nextValue) =>
                       updateSeedanceNodeData({
                         durationSeconds: nextValue as SeedanceDurationSeconds,
+                      })
+                    }
+                  />
+                  <FixedControlChip
+                    label={t("node.seedance.resolutionLabel")}
+                    value={selectedResolution}
+                    options={translatedResolutionOptions}
+                    onChange={(nextValue) =>
+                      updateSeedanceNodeData({
+                        resolution: nextValue,
                       })
                     }
                   />

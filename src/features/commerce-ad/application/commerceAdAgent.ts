@@ -182,7 +182,7 @@ function readDesignDirections(record: Record<string, unknown>): CommerceAdDesign
     .filter((item): item is CommerceAdDesignDirection => Boolean(item));
 }
 
-function readDetailPages(record: Record<string, unknown>, fallbackLockedCopy: string): CommerceAdDetailPage[] {
+function readDetailPages(record: Record<string, unknown>): CommerceAdDetailPage[] {
   return readRecordArray(record, 'detailPages')
     .map((item, index): CommerceAdDetailPage | null => {
       const title = readString(item, 'title');
@@ -198,7 +198,7 @@ function readDetailPages(record: Record<string, unknown>, fallbackLockedCopy: st
         id: normalizeId(readString(item, 'id') || title || `detail-page-${index + 1}`, `detail-page-${index + 1}`),
         pageNo: Math.max(1, Math.round(Number(item.pageNo) || index + 1)),
         title,
-        lockedCopy: lockedCopy || (index === 0 ? fallbackLockedCopy : ''),
+        lockedCopy,
         optimizedCopy,
         layoutNotes,
         prompt,
@@ -210,6 +210,111 @@ function readDetailPages(record: Record<string, unknown>, fallbackLockedCopy: st
       ...item,
       pageNo: index + 1,
     }));
+}
+
+function normalizeCopyForComparison(value: string): string {
+  return value.replace(/\s+/gu, ' ').trim();
+}
+
+function buildSingleLockedCopyPage(
+  lockedDocumentInfo: string,
+  sourcePage: Partial<CommerceAdDetailPage> | undefined,
+  userIdeaInfo: string
+): CommerceAdDetailPage[] {
+  const lockedCopy = lockedDocumentInfo.trim();
+  if (!lockedCopy) {
+    return [];
+  }
+
+  return [
+    {
+      id: sourcePage?.id || 'detail-page-1',
+      pageNo: 1,
+      title: sourcePage?.title || '产品信息总览',
+      lockedCopy,
+      optimizedCopy: sourcePage?.optimizedCopy || (userIdeaInfo ? `围绕详情页目标优化表达：${userIdeaInfo}` : ''),
+      layoutNotes: sourcePage?.layoutNotes || '根据文档信息组织一页清晰的详情页信息结构。',
+      prompt: sourcePage?.prompt || [
+        '制作电商详情页第 1 页：产品信息总览',
+        `必须原样展示以下文档信息：${lockedCopy}`,
+        userIdeaInfo,
+      ].filter(Boolean).join('\n'),
+    },
+  ];
+}
+
+function sanitizeAutoDetailPages(
+  parsedPages: CommerceAdDetailPage[],
+  lockedDocumentInfo: string,
+  userIdeaInfo: string
+): CommerceAdDetailPage[] {
+  const sourceCopy = lockedDocumentInfo.trim();
+  if (!sourceCopy) {
+    return parsedPages
+      .filter((page) => page.lockedCopy.trim().length > 0)
+      .map((page, index) => ({ ...page, pageNo: index + 1 }));
+  }
+
+  const normalizedSourceCopy = normalizeCopyForComparison(sourceCopy);
+  const validPages = parsedPages.filter((page) => {
+    const lockedCopy = page.lockedCopy.trim();
+    if (!lockedCopy) {
+      return false;
+    }
+
+    return sourceCopy.includes(lockedCopy);
+  });
+  const shouldDropWholeSourcePage = validPages.length > 1;
+  const seenLockedCopies: string[] = [];
+  const sanitizedPages = validPages
+    .filter((page) => {
+      const normalizedLockedCopy = normalizeCopyForComparison(page.lockedCopy);
+      if (shouldDropWholeSourcePage && normalizedLockedCopy === normalizedSourceCopy) {
+        return false;
+      }
+      if (seenLockedCopies.some((seenCopy) => (
+        seenCopy === normalizedLockedCopy
+        || seenCopy.includes(normalizedLockedCopy)
+        || normalizedLockedCopy.includes(seenCopy)
+      ))) {
+        return false;
+      }
+
+      seenLockedCopies.push(normalizedLockedCopy);
+      return true;
+    })
+    .map((page, index) => ({
+      ...page,
+      pageNo: index + 1,
+    }));
+
+  if (sanitizedPages.length > 0) {
+    return sanitizedPages;
+  }
+
+  return buildSingleLockedCopyPage(sourceCopy, parsedPages[0], userIdeaInfo);
+}
+
+function preserveManualDetailPages(
+  parsedPages: CommerceAdDetailPage[],
+  existingPages: CommerceAdDetailPage[] | undefined
+): CommerceAdDetailPage[] {
+  if (!existingPages || existingPages.length === 0) {
+    return parsedPages;
+  }
+
+  return existingPages.map((existingPage, index) => {
+    const parsedPage = parsedPages.find((page) => page.id === existingPage.id)
+      ?? parsedPages.find((page) => page.pageNo === existingPage.pageNo)
+      ?? parsedPages[index];
+    return {
+      ...(parsedPage ?? existingPage),
+      id: existingPage.id,
+      pageNo: index + 1,
+      title: parsedPage?.title || existingPage.title,
+      lockedCopy: existingPage.lockedCopy,
+    };
+  });
 }
 
 function readGuidance(record: Record<string, unknown>): CommerceAdAgentGuidance | undefined {
@@ -665,13 +770,22 @@ export async function runCommerceAdAgentTurn(
     '- 品牌名、型号名、平台名、必要的英文广告文案可以保留原文，其余说明尽量中文。',
     '- batch.corePrompt 和 batch.ratioPrompts 也要尽量写中文，保持可读、可直接用于出图。',
     '- This agent now targets ecommerce detail-page images: output brief.detailPages and plan one generated image per page.',
-    '- product.lockedDocumentInfo is source copy that MUST NOT be rewritten. Copy it verbatim into product.lockedDocumentInfo and into relevant detailPages[].lockedCopy.',
-    '- Never paraphrase lockedDocumentInfo inside optimizedCopy. If a page needs that copy, place the exact original text in lockedCopy and make the page prompt explicitly require it verbatim.',
+    '- In auto mode, product.lockedDocumentInfo is a full source document. Decide page count from semantic relevance, continuity, and content volume; do NOT force 2 pages, 3 pages, or any fixed count.',
+    '- In auto mode, group related facts into coherent pages such as product identity, core selling points, functional specs, use scenarios, craft/materials, size/model/restrictions, but only when those groups exist in the source.',
+    '- In auto mode, each detailPages[].lockedCopy MUST be a non-empty contiguous verbatim excerpt from product.lockedDocumentInfo. Do not create a page without lockedCopy.',
+    '- In auto mode, each source fact should appear in only one page. Do not duplicate the same lockedCopy or copy the whole source document into multiple pages.',
+    '- In auto mode, if the source information is short, output only 1 page. Never create extra pages just to fill a page count.',
+    '- In manualPages mode, existing detailPages are user-authored fixed page information. Preserve page count, page order, pageNo, id, title when present, and especially lockedCopy exactly byte-for-byte.',
+    '- product.lockedDocumentInfo and detailPages[].lockedCopy are source copy that MUST NOT be rewritten, summarized, corrected, translated, reordered inside a page, or paraphrased.',
+    '- Never paraphrase lockedDocumentInfo or lockedCopy inside optimizedCopy. If a page needs locked copy, place the exact original text only in lockedCopy and make the page prompt explicitly require it verbatim.',
     '- product.userIdeaInfo can be optimized for clarity and conversion, but do not change facts. Put the polished version in brief.optimizedUserIdeaInfo and related detailPages[].optimizedCopy.',
     '- brief.detailPages must contain id, pageNo, title, lockedCopy, optimizedCopy, layoutNotes, prompt. Each prompt should be production-ready for one detail-page image.',
-    '- If product.detailInputMode is manualPages and existing detailPages are provided, preserve page count, page order, pageNo, title, and lockedCopy. Only optimize/fill optimizedCopy, layoutNotes, and prompt.',
-    '- batch.generationMode must be detailPages, variantsPerRatio must be 1, and detailPageCount must match brief.detailPages.length.',
-    '- Product inference may use the reference image when provided.',
+    '- If product.detailInputMode is manualPages and existing detailPages are provided, only optimize/fill optimizedCopy, layoutNotes, and prompt.',
+    '- batch.generationMode must be detailPages and detailPageCount must match brief.detailPages.length. Preserve requested aspectRatios, variantsPerRatio, and batchCount from current batch settings when present.',
+    '- Product inference may use up to 5 product reference images when provided. Treat the first image as the main product identity and use later images for angle, material, detail, packaging, and usage-scene evidence.',
+    '- product.images[].description explains what each uploaded image represents, such as material detail, side view, packaging, scale, usage scene, texture, craft, or flaw/restriction evidence. Use these descriptions to decide detail-page pagination, selling-point emphasis, layout notes, and per-page prompts.',
+    '- Do not default every page to the main product image. When a reference image is described as a detail/side/material/packaging/scene image, assign that visual evidence to the most relevant detail page and mention it explicitly in layoutNotes and prompt.',
+    '- Synthesize visual understanding across all reference images, but do not invent locked on-image text from images alone. Text that must appear verbatim still comes only from product.lockedDocumentInfo or detailPages[].lockedCopy.',
     '- Act like a Chinese visual design consultant, not a command executor.',
     '- Every assistant reply must explain in Chinese what is understood, what is uncertain, and what the user can choose next.',
     '- Always populate guidance with structured cards for the UI.',
@@ -686,6 +800,17 @@ export async function runCommerceAdAgentTurn(
     '',
     'Current product state:',
     JSON.stringify(input.product, null, 2),
+    '',
+    `Reference image count: ${input.referenceImages.length}`,
+    input.product?.images?.length
+      ? JSON.stringify(input.product.images.map((image, index) => ({
+          index: index + 1,
+          role: index === 0 ? 'main' : 'reference',
+          label: image.label,
+          description: image.description,
+          kind: image.kind,
+        })), null, 2)
+      : '',
     '',
     'Current brief state:',
     JSON.stringify(input.brief, null, 2),
@@ -737,7 +862,10 @@ export async function runCommerceAdAgentTurn(
       : {};
     const lockedDocumentInfo = readString(productRecord, 'lockedDocumentInfo') || input.product?.lockedDocumentInfo || '';
     const userIdeaInfo = readString(productRecord, 'userIdeaInfo') || input.product?.userIdeaInfo || input.product?.userInfo || message;
-    const parsedDetailPages = readDetailPages(briefRecord, lockedDocumentInfo);
+    const rawParsedDetailPages = readDetailPages(briefRecord);
+    const parsedDetailPages = input.product?.detailInputMode === 'manualPages'
+      ? preserveManualDetailPages(rawParsedDetailPages, input.brief?.detailPages)
+      : sanitizeAutoDetailPages(rawParsedDetailPages, lockedDocumentInfo, userIdeaInfo);
 
     const productData: Partial<CommerceAdProductState> = {
       brand: readString(productRecord, 'brand') || input.product?.brand || '',
@@ -858,7 +986,8 @@ export async function runCommerceAdAgentTurn(
         aspectRatios: readStringArray(batchRecord, 'aspectRatios').length > 0
           ? readStringArray(batchRecord, 'aspectRatios')
           : input.batch?.aspectRatios ?? ['4:5'],
-        variantsPerRatio: 1,
+        variantsPerRatio: input.batch?.variantsPerRatio ?? 1,
+        batchCount: input.batch?.batchCount ?? 1,
         corePrompt,
         ratioPrompts: Object.fromEntries(
           Object.entries(ratioPrompts).map(([ratio, prompt]) => [
@@ -900,7 +1029,8 @@ export async function runCommerceAdAgentTurn(
           buildDetailFallbackCorePrompt(input.product, fallbackBrief),
           fallbackVisualPreference
         ),
-        variantsPerRatio: 1,
+        variantsPerRatio: input.batch?.variantsPerRatio ?? 1,
+        batchCount: input.batch?.batchCount ?? 1,
         detailPages: fallbackBrief.detailPages ?? [],
         detailPageIds: fallbackBrief.detailPages?.map((page) => page.id) ?? [],
         detailPageCount: fallbackBrief.detailPages?.length ?? 0,

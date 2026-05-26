@@ -1994,6 +1994,9 @@ export function Canvas() {
   const detachNodesFromGroup = useCanvasStore(
     (state) => state.detachNodesFromGroup,
   );
+  const fitGroupNodeToChildren = useCanvasStore(
+    (state) => state.fitGroupNodeToChildren,
+  );
   const openToolDialog = useCanvasStore((state) => state.openToolDialog);
   const closeToolDialog = useCanvasStore((state) => state.closeToolDialog);
   const activeToolDialog = useCanvasStore((state) => state.activeToolDialog);
@@ -7056,6 +7059,7 @@ export function Canvas() {
 
         const groupAssignments = new Map<string, string[]>();
         const detachedNodeIds: string[] = [];
+        const affectedGroupIds = new Set<string>();
 
         draggedNodeIds.forEach((draggedNodeId) => {
           const draggedNode = currentNodes.find(
@@ -7075,12 +7079,16 @@ export function Canvas() {
             draggedNode,
             currentNodes,
           );
+          if (currentGroupId) {
+            affectedGroupIds.add(currentGroupId);
+          }
           if (!targetGroupId) {
             if (currentGroupId) {
               detachedNodeIds.push(draggedNodeId);
             }
             return;
           }
+          affectedGroupIds.add(targetGroupId);
 
           if (targetGroupId === currentGroupId) {
             return;
@@ -7101,6 +7109,12 @@ export function Canvas() {
         if (detachedNodeIds.length > 0) {
           didGroupMembershipChange =
             detachNodesFromGroup(detachedNodeIds) || didGroupMembershipChange;
+        }
+
+        if (affectedGroupIds.size > 0) {
+          affectedGroupIds.forEach((groupNodeId) => {
+            fitGroupNodeToChildren(groupNodeId);
+          });
         }
 
         if (didGroupMembershipChange) {
@@ -7213,6 +7227,7 @@ export function Canvas() {
       );
       const groupAssignments = new Map<string, string[]>();
       const detachedNodeIds: string[] = [];
+      const affectedGroupIds = new Set<string>();
       altCopyState.copiedNodeIds.forEach((copiedNodeId) => {
         const copiedNode = currentNodes.find(
           (currentNode) => currentNode.id === copiedNodeId,
@@ -7228,12 +7243,16 @@ export function Canvas() {
             ? copiedNode.parentId
             : null;
         const targetGroupId = findContainingGroupId(copiedNode, currentNodes);
+        if (currentGroupId) {
+          affectedGroupIds.add(currentGroupId);
+        }
         if (!targetGroupId) {
           if (currentGroupId) {
             detachedNodeIds.push(copiedNodeId);
           }
           return;
         }
+        affectedGroupIds.add(targetGroupId);
 
         if (targetGroupId === currentGroupId) {
           return;
@@ -7250,6 +7269,9 @@ export function Canvas() {
       if (detachedNodeIds.length > 0) {
         detachNodesFromGroup(detachedNodeIds);
       }
+      affectedGroupIds.forEach((groupNodeId) => {
+        fitGroupNodeToChildren(groupNodeId);
+      });
 
       if (altCopyState.copiedNodeIds.length > 0) {
         setSelectedNode(altCopyState.copiedNodeIds[0]);
@@ -7259,6 +7281,7 @@ export function Canvas() {
     [
       applyNodesChange,
       detachNodesFromGroup,
+      fitGroupNodeToChildren,
       mergeImageNodesForCompare,
       reparentNodesToGroup,
       scheduleCanvasPersist,

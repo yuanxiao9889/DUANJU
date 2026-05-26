@@ -75,6 +75,17 @@ export const SEEDANCE_RESOLUTION_OPTIONS: SeedanceOptionDefinition<SeedanceResol
     labelKey: `node.seedance.resolutionOptions.${value}`,
   }));
 
+export function getSeedanceResolutionOptionsForModel(
+  modelId: SeedanceModelId | string | null | undefined
+): SeedanceOptionDefinition<SeedanceResolution>[] {
+  const normalizedModelId = normalizeSeedanceModelId(modelId);
+  return SEEDANCE_RESOLUTION_OPTIONS.filter(
+    (option) =>
+      normalizedModelId !== 'doubao-seedance-2-0-fast-260128' ||
+      option.value !== '1080p'
+  );
+}
+
 const SUPPORTED_SEEDANCE_MODEL_IDS = new Set<SeedanceModelId>(SEEDANCE_MODEL_IDS);
 const SUPPORTED_SEEDANCE_INPUT_MODES = new Set<SeedanceInputMode>(SEEDANCE_INPUT_MODES);
 const SUPPORTED_SEEDANCE_ASPECT_RATIOS = new Set<SeedanceAspectRatio>(SEEDANCE_ASPECT_RATIOS);
@@ -119,4 +130,15 @@ export function normalizeSeedanceResolution(
   return SUPPORTED_SEEDANCE_RESOLUTIONS.has(resolution as SeedanceResolution)
     ? (resolution as SeedanceResolution)
     : '720p';
+}
+
+export function normalizeSeedanceResolutionForModel(
+  resolution: SeedanceResolution | string | null | undefined,
+  modelId: SeedanceModelId | string | null | undefined
+): SeedanceResolution {
+  const normalizedResolution = normalizeSeedanceResolution(resolution);
+  return normalizeSeedanceModelId(modelId) === 'doubao-seedance-2-0-fast-260128' &&
+    normalizedResolution === '1080p'
+    ? '720p'
+    : normalizedResolution;
 }

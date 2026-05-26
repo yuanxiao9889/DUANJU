@@ -13,6 +13,7 @@ export interface CommerceAdProductImage {
   previewImageUrl: string;
   aspectRatio: string;
   label: string;
+  description: string;
   kind: 'main' | 'reference' | 'logo' | 'packaging';
 }
 
@@ -81,6 +82,7 @@ export interface CommerceAdBatchGenerateState {
   generationMode: 'detailPages' | 'legacyRatios';
   aspectRatios: string[];
   variantsPerRatio: number;
+  batchCount: number;
   modelId: string;
   size: string;
   corePrompt: string;
@@ -114,6 +116,7 @@ export interface CommerceAdGenerationBatch {
   corePrompt: string;
   aspectRatios: string[];
   variantsPerRatio: number;
+  batchCount?: number;
   generationMode?: 'detailPages' | 'legacyRatios';
   detailPageCount?: number;
   detailPages?: CommerceAdDetailPage[];
@@ -288,6 +291,7 @@ function normalizeProductImage(value: unknown, index: number): CommerceAdProduct
     previewImageUrl,
     aspectRatio: normalizeString(record.aspectRatio) || '1:1',
     label: normalizeString(record.label) || `Image ${index + 1}`,
+    description: normalizeString(record.description),
     kind,
   };
 }
@@ -469,6 +473,7 @@ export function createDefaultCommerceAdBatchGenerateState(): CommerceAdBatchGene
     generationMode: 'detailPages',
     aspectRatios: ['4:5'],
     variantsPerRatio: 1,
+    batchCount: 1,
     modelId: '',
     size: '2K',
     corePrompt: '',
@@ -500,9 +505,8 @@ export function normalizeCommerceAdBatchGenerateState(value: unknown): CommerceA
     aspectRatios: normalizeStringArray(record.aspectRatios).length > 0
       ? normalizeStringArray(record.aspectRatios)
       : ['4:5'],
-    variantsPerRatio: generationMode === 'detailPages'
-      ? 1
-      : Math.max(1, Math.min(8, Math.round(Number(record.variantsPerRatio) || 4))),
+    variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(record.variantsPerRatio) || 1))),
+    batchCount: Math.max(1, Math.min(20, Math.round(Number(record.batchCount) || 1))),
     modelId: normalizeString(record.modelId),
     size: normalizeString(record.size) || '2K',
     corePrompt: normalizeString(record.corePrompt),
@@ -552,6 +556,7 @@ export function normalizeCommerceAdResultGroupState(value: unknown): CommerceAdR
             corePrompt: normalizeString(item.corePrompt),
             aspectRatios: normalizeStringArray(item.aspectRatios),
             variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(item.variantsPerRatio) || 1))),
+            batchCount: Math.max(1, Math.min(20, Math.round(Number(item.batchCount) || 1))),
             generationMode: ['detailPages', 'legacyRatios'].includes(item.generationMode ?? '')
               ? item.generationMode as CommerceAdGenerationBatch['generationMode']
               : undefined,

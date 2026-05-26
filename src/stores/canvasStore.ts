@@ -3927,7 +3927,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       let nextDragHistorySnapshot = state.dragHistorySnapshot;
       let refitGroupNodeIds: string[] = [];
 
-      if (hasInteractionEnd && interactionNodeIds.length > 0) {
+      if (hasResizeEnd && interactionNodeIds.length > 0) {
         const refitResult = fitGroupsForChangedNodesWithIds(nextNodes, interactionNodeIds);
         nextNodes = refitResult.nodes;
         refitGroupNodeIds = refitResult.groupNodeIds;

@@ -311,6 +311,10 @@ const STORYBOARD_PROVIDER_DISPLAY_NAME_OVERRIDES: Record<
   string,
   { zh: string; en: string }
 > = {
+  newapi: {
+    zh: '自定义 NewAPI',
+    en: 'Custom NewAPI',
+  },
   volcengine: {
     zh: 'Seedance2.0官方',
     en: 'Official Seedance 2.0',
@@ -663,6 +667,7 @@ export function SettingsDialog({
       p.id !== 'alibaba'
       && p.id !== 'coding'
       && p.id !== SCRIPT_DEEPSEEK_PROVIDER_ID
+      && p.id !== 'compatible'
       && p.id !== 'jimeng'
       && p.id !== SEEDANCE_OFFICIAL_VIDEO_PROVIDER_ID
     )),
@@ -3263,12 +3268,6 @@ export function SettingsDialog({
                                 }))
                               }
                               storyboardNewApiModelConfig={localStoryboardNewApiModelConfig}
-                              onStoryboardNewApiFormatChange={(format) =>
-                                setLocalStoryboardNewApiModelConfig((previous) => ({
-                                  ...previous,
-                                  apiFormat: format,
-                                }))
-                              }
                               onStoryboardNewApiEndpointUrlChange={(value) =>
                                 setLocalStoryboardNewApiModelConfig((previous) => ({
                                   ...previous,

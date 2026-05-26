@@ -4,7 +4,6 @@ import { Plus, Trash2 } from 'lucide-react';
 import { UiInput, UiSelect } from '@/components/ui';
 import {
   STORYBOARD_COMPATIBLE_API_FORMATS,
-  STORYBOARD_NEWAPI_API_FORMATS,
   STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPES,
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
@@ -12,7 +11,6 @@ import {
   type ScriptCompatibleProviderConfig,
   type StoryboardCompatibleApiFormat,
   type StoryboardCompatibleModelConfig,
-  type StoryboardNewApiApiFormat,
   type StoryboardNewApiCustomModelType,
   type StoryboardNewApiModelConfig,
 } from '@/features/canvas/models';
@@ -56,7 +54,6 @@ interface ProviderModelSettingsSectionProps {
   onStoryboardCompatibleFormatChange: (format: StoryboardCompatibleApiFormat) => void;
   onStoryboardCompatibleEndpointUrlChange: (value: string) => void;
   storyboardNewApiModelConfig: StoryboardNewApiModelConfig;
-  onStoryboardNewApiFormatChange: (format: StoryboardNewApiApiFormat) => void;
   onStoryboardNewApiEndpointUrlChange: (value: string) => void;
   grsaiNanoBananaProModel: string;
   onGrsaiNanoBananaProModelChange: (value: string) => void;
@@ -67,12 +64,6 @@ const STORYBOARD_COMPATIBLE_FORMAT_LABEL_KEYS: Record<StoryboardCompatibleApiFor
   'openai-chat': 'settings.storyboardCompatibleFormatOpenaiChat',
   'openai-edits': 'settings.storyboardCompatibleFormatOpenaiEdits',
   'gemini-generate-content': 'settings.storyboardCompatibleFormatGeminiGenerateContent',
-};
-
-const STORYBOARD_NEWAPI_FORMAT_LABEL_KEYS: Record<StoryboardNewApiApiFormat, string> = {
-  openai: 'settings.storyboardNewApiFormatOpenai',
-  'openai-images': 'settings.storyboardNewApiFormatOpenaiImages',
-  gemini: 'settings.storyboardNewApiFormatGemini',
 };
 
 const STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPE_LABEL_KEYS: Record<
@@ -120,24 +111,6 @@ function resolveStoryboardCustomModelIdPlaceholder(providerId: string, fallback:
   return fallback;
 }
 
-function resolveStoryboardNewApiEndpointPlaceholder(apiFormat: StoryboardNewApiApiFormat): string {
-  return apiFormat === 'gemini'
-    ? 'https://your-newapi-host'
-    : 'https://your-newapi-host/v1';
-}
-
-function resolveStoryboardNewApiHintKey(apiFormat: StoryboardNewApiApiFormat): string {
-  if (apiFormat === 'openai-images') {
-    return 'settings.storyboardNewApiHintOpenaiImages';
-  }
-
-  if (apiFormat === 'gemini') {
-    return 'settings.storyboardNewApiHintGemini';
-  }
-
-  return 'settings.storyboardNewApiHintOpenai';
-}
-
 export function ProviderModelSettingsSection({
   provider,
   isScriptTab,
@@ -169,7 +142,6 @@ export function ProviderModelSettingsSection({
   onStoryboardCompatibleFormatChange,
   onStoryboardCompatibleEndpointUrlChange,
   storyboardNewApiModelConfig,
-  onStoryboardNewApiFormatChange,
   onStoryboardNewApiEndpointUrlChange,
   grsaiNanoBananaProModel,
   onGrsaiNanoBananaProModelChange,
@@ -521,37 +493,17 @@ export function ProviderModelSettingsSection({
           <div className="space-y-3">
             <div>
               <div className="mb-1 text-xs font-medium text-text-dark">
-                {t('settings.storyboardNewApiFormat')}
-              </div>
-              <UiSelect
-                value={storyboardNewApiModelConfig.apiFormat}
-                onChange={(event) =>
-                  onStoryboardNewApiFormatChange(event.target.value as StoryboardNewApiApiFormat)
-                }
-                className="h-9 text-sm"
-              >
-                {STORYBOARD_NEWAPI_API_FORMATS.map((format) => (
-                  <option key={format} value={format}>
-                    {t(STORYBOARD_NEWAPI_FORMAT_LABEL_KEYS[format])}
-                  </option>
-                ))}
-              </UiSelect>
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-text-dark">
                 {t('settings.storyboardNewApiEndpointUrl')}
               </div>
               <UiInput
                 value={storyboardNewApiModelConfig.endpointUrl}
                 onChange={(event) => onStoryboardNewApiEndpointUrlChange(event.target.value)}
-                placeholder={resolveStoryboardNewApiEndpointPlaceholder(
-                  storyboardNewApiModelConfig.apiFormat
-                )}
+                placeholder="https://your-newapi-host/v1"
                 className="h-9 text-sm"
               />
             </div>
             <div className="rounded-md border border-border-dark bg-black/10 px-3 py-2 text-[11px] leading-5 text-text-muted">
-              {t(resolveStoryboardNewApiHintKey(storyboardNewApiModelConfig.apiFormat))}
+              {t('settings.storyboardNewApiHint')}
             </div>
           </div>
         </div>

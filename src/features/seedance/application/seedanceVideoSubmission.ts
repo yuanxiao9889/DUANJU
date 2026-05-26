@@ -32,6 +32,7 @@ import {
   normalizeSeedanceInputMode,
   normalizeSeedanceModelId,
   normalizeSeedanceResolution,
+  normalizeSeedanceResolutionForModel,
 } from '@/features/seedance/domain/seedanceOptions';
 import {
   isSeedanceAssetUri,
@@ -378,6 +379,7 @@ export async function submitSeedanceVideoTask(
   }
 
   const inputMode = normalizeSeedanceInputMode(payload.inputMode);
+  const modelId = normalizeSeedanceModelId(payload.modelId);
   const [referenceImages, referenceVideos, referenceAudios] = await Promise.all([
     prepareReferenceImages(payload.referenceImageSources),
     prepareReferenceVideos(payload.referenceVideoSources),
@@ -386,7 +388,7 @@ export async function submitSeedanceVideoTask(
 
   const createPayload: CreateSeedanceVideoTaskPayload = {
     apiKey: normalizedApiKey,
-    model: normalizeSeedanceModelId(payload.modelId),
+    model: modelId,
     content: buildSeedanceContentPayload({
       prompt: normalizedPrompt,
       inputMode,
@@ -396,7 +398,7 @@ export async function submitSeedanceVideoTask(
     }),
     ratio: normalizeSeedanceAspectRatio(payload.aspectRatio),
     duration: normalizeSeedanceDurationSeconds(payload.durationSeconds),
-    resolution: normalizeSeedanceResolution(payload.resolution),
+    resolution: normalizeSeedanceResolutionForModel(payload.resolution, modelId),
     generateAudio: payload.generateAudio ?? true,
     returnLastFrame: payload.returnLastFrame ?? false,
     watermark: false,

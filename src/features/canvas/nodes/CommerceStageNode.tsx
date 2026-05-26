@@ -43,6 +43,9 @@ type CommerceStageNodeProps = NodeProps & {
 
 const DEFAULT_WIDTH = 360;
 const DEFAULT_HEIGHT = 460;
+const COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT = 5;
+const COMMERCE_START_IMAGE_GENERATION_EVENT = "commerce-ad:start-image-generation";
+const COMMERCE_RETRY_IMAGE_GENERATION_EVENT = "commerce-ad:retry-image-generation";
 
 function FieldRow({
   label,
@@ -127,21 +130,35 @@ function ChipList({ items, fallbackText = "" }: { items: string[]; fallbackText?
 
 function ProductContent({ data }: { data: CommerceProductNodeData }) {
   const { t } = useTranslation();
-  const primaryImage = data.images[0] ?? null;
+  const visibleImages = data.images.slice(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT);
   const inference = data.inference;
 
   return (
-    <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
-      {primaryImage ? (
-        <div className="overflow-hidden rounded-xl border border-white/[0.07] bg-black/[0.14]">
-          <img
-            src={resolveImageDisplayUrl(
-              primaryImage.previewImageUrl || primaryImage.imageUrl,
-            )}
-            alt={primaryImage.label}
-            className="h-40 w-full object-contain"
-            draggable={false}
-          />
+    <div className="nodrag nowheel flex min-h-0 flex-1 flex-col gap-3">
+      {visibleImages.length > 0 ? (
+        <div className="grid grid-cols-5 gap-1.5 rounded-xl border border-white/[0.07] bg-black/[0.14] p-1.5">
+          {visibleImages.map((image, index) => (
+            <div
+              key={image.id}
+              className={`relative overflow-hidden rounded-lg border border-white/[0.08] bg-black/[0.16] ${
+                index === 0 ? "col-span-3 row-span-2 aspect-[4/3]" : "aspect-square"
+              }`}
+            >
+              <img
+                src={resolveImageDisplayUrl(
+                  image.previewImageUrl || image.imageUrl,
+                )}
+                alt={image.label}
+                className="h-full w-full object-contain"
+                draggable={false}
+              />
+              <span className="absolute left-1 top-1 rounded-full bg-black/65 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                {index === 0
+                  ? t("commerceAd.fields.productImageMain")
+                  : t("commerceAd.fields.productImageReference", { index })}
+              </span>
+            </div>
+          ))}
         </div>
       ) : (
         <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
@@ -162,6 +179,33 @@ function ProductContent({ data }: { data: CommerceProductNodeData }) {
         label={t("commerceAd.fields.userIdeaInfo")}
         value={data.userIdeaInfo || data.userInfo}
       />
+      {visibleImages.some((image) => image.description?.trim()) ? (
+        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
+          <div className="mb-2 text-xs font-medium text-text-dark">
+            {t("commerceAd.fields.productImageDescriptions")}
+          </div>
+          <div className="space-y-1.5">
+            {visibleImages.map((image, index) => {
+              const description = image.description?.trim();
+              if (!description) {
+                return null;
+              }
+
+              return (
+                <div key={image.id} className="text-xs leading-5 text-text-dark/85">
+                  <span className="text-text-muted">
+                    {index === 0
+                      ? t("commerceAd.fields.productImageMain")
+                      : t("commerceAd.fields.productImageReference", { index })}
+                    ：
+                  </span>
+                  {description}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       {inference ? (
         <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
           <div className="mb-2 text-xs font-medium text-text-dark">
@@ -215,31 +259,6 @@ function BriefContent({ data }: { data: CommerceBriefNodeData }) {
         value={data.optimizedUserIdeaInfo}
       />
       <ChipList items={data.sellingPoints} fallbackText={data.normalizedBrief} />
-      {data.detailPages.length > 0 ? (
-        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
-          <div className="mb-2 text-xs font-medium text-text-dark">
-            {t("commerceAd.fields.detailPages")}
-          </div>
-          <div className="space-y-2">
-            {data.detailPages.slice(0, 6).map((page) => (
-              <div
-                key={page.id}
-                className="rounded-lg border border-white/[0.07] bg-black/[0.08] px-3 py-2"
-              >
-                <div className="text-xs font-medium text-text-dark">
-                  {t("commerceAd.agent.detailPages.resultTitle", {
-                    page: page.pageNo,
-                    title: page.title || t("commerceAd.agent.detailPages.untitled"),
-                  })}
-                </div>
-                <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-text-muted">
-                  {page.lockedCopy || page.optimizedCopy || page.layoutNotes || page.prompt}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -261,6 +280,14 @@ function BatchContent({ id, data }: { id: string; data: CommerceBatchGenerateNod
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const pages = useMemo(() => normalizeBatchPages(data), [data]);
   const activePage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null;
+  const imageCount = data.generationMode === "detailPages"
+    ? (data.detailPageCount || 0) * data.aspectRatios.length * data.variantsPerRatio * data.batchCount
+    : data.variantsPerRatio;
+  const canStartGeneration = imageCount > 0 && pages.length > 0;
+
+  const handleStartGeneration = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(COMMERCE_START_IMAGE_GENERATION_EVENT));
+  }, []);
 
   useEffect(() => {
     if (!activePageId || !pages.some((page) => page.id === activePageId)) {
@@ -293,28 +320,28 @@ function BatchContent({ id, data }: { id: string; data: CommerceBatchGenerateNod
   }, [id, nodes, pages, t, updateNodeData]);
 
   return (
-    <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
-      <div className="grid grid-cols-2 gap-2">
+    <div className="nodrag nowheel flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pr-1">
+      <div className="shrink-0 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <FieldRow
+            label={t("commerceAd.fields.ratios")}
+            value={data.aspectRatios.join(" / ")}
+          />
+          <FieldRow
+            label={t("commerceAd.fields.count")}
+            value={String(imageCount)}
+          />
+        </div>
+        <FieldRow label={t("commerceAd.fields.model")} value={data.modelId} />
+        <FieldRow label={t("commerceAd.fields.size")} value={data.size} />
         <FieldRow
-          label={t("commerceAd.fields.ratios")}
-          value={data.aspectRatios.join(" / ")}
-        />
-        <FieldRow
-          label={t("commerceAd.fields.count")}
-          value={data.generationMode === "detailPages"
-            ? String(data.detailPageCount || 0)
-            : String(data.variantsPerRatio)}
+          label={t("commerceAd.fields.unifiedStyle")}
+          value={data.stylePromptFragment}
         />
       </div>
-      <FieldRow label={t("commerceAd.fields.model")} value={data.modelId} />
-      <FieldRow label={t("commerceAd.fields.size")} value={data.size} />
-      <FieldRow
-        label={t("commerceAd.fields.unifiedStyle")}
-        value={data.stylePromptFragment}
-      />
       {pages.length > 0 ? (
-        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
-          <div className="mb-3 flex gap-1 overflow-x-auto pb-1">
+        <div className={`${SCRIPT_NODE_SECTION_CARD_CLASS} flex min-h-0 flex-1 flex-col overflow-hidden`}>
+          <div className="mb-3 flex shrink-0 gap-1 overflow-x-auto pb-1">
             {pages.map((page) => (
               <button
                 key={page.id}
@@ -331,30 +358,28 @@ function BatchContent({ id, data }: { id: string; data: CommerceBatchGenerateNod
             ))}
           </div>
           {activePage ? (
-            <div className="space-y-2">
-              <label className="block text-[11px] text-text-muted">
+            <div className="flex min-h-0 flex-1 flex-col gap-2">
+              <label className="flex shrink-0 flex-col text-[11px] text-text-muted">
                 <span>{t("commerceAd.agent.detailPages.lockedCopy")}</span>
                 <textarea
                   value={activePage.lockedCopy}
                   onChange={(event) => updatePage(activePage.id, { lockedCopy: event.target.value })}
-                  rows={4}
-                  className={`mt-1 ${SCRIPT_NODE_TEXTAREA_CLASS}`}
+                  className={`mt-1 h-[clamp(88px,18%,140px)] min-h-[88px] ${SCRIPT_NODE_TEXTAREA_CLASS}`}
                 />
               </label>
-              <label className="block text-[11px] text-text-muted">
+              <label className="flex min-h-0 flex-1 flex-col text-[11px] text-text-muted">
                 <span>{t("commerceAd.agent.detailPages.imagePrompt")}</span>
                 <textarea
                   value={activePage.prompt}
                   onChange={(event) => updatePage(activePage.id, { prompt: event.target.value })}
-                  rows={7}
-                  className={`mt-1 ${SCRIPT_NODE_TEXTAREA_CLASS}`}
+                  className={`mt-1 min-h-[120px] flex-1 ${SCRIPT_NODE_TEXTAREA_CLASS}`}
                 />
               </label>
             </div>
           ) : null}
         </div>
       ) : data.corePrompt ? (
-        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
+        <div className={`${SCRIPT_NODE_SECTION_CARD_CLASS} ui-scrollbar min-h-0 flex-1 overflow-y-auto`}>
           <div className="mb-2 text-xs font-medium text-text-dark">
             {t("commerceAd.fields.corePrompt")}
           </div>
@@ -363,10 +388,19 @@ function BatchContent({ id, data }: { id: string; data: CommerceBatchGenerateNod
           </p>
         </div>
       ) : (
-        <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
+        <div className={`${SCRIPT_NODE_EMPTY_HINT_CLASS} flex min-h-0 flex-1 items-center justify-center`}>
           {t("commerceAd.nodes.batchEmpty")}
         </div>
       )}
+      <button
+        type="button"
+        className="nodrag nowheel inline-flex h-9 w-full shrink-0 items-center justify-center gap-2 rounded-lg border border-text-dark/15 bg-text-dark/10 px-3 text-sm font-medium text-text-dark transition-colors hover:bg-text-dark/15 disabled:cursor-not-allowed disabled:opacity-50"
+        onClick={handleStartGeneration}
+        disabled={!canStartGeneration}
+      >
+        <Sparkles className="h-4 w-4" />
+        {t("commerceAd.agent.startImageGeneration")}
+      </button>
     </div>
   );
 }
@@ -404,41 +438,29 @@ function VisualPreferenceContent({ data }: { data: CommerceVisualPreferenceNodeD
           )}
         </div>
       </div>
-      {data.summary ? (
-        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
-          <div className="mb-2 text-xs font-medium text-text-dark">
-            {t("commerceAd.fields.preferenceSummary")}
-          </div>
-          <p className="whitespace-pre-wrap text-sm leading-5 text-text-dark/85">
-            {data.summary}
-          </p>
-        </div>
-      ) : null}
-      {data.promptFragment ? (
-        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
-          <div className="mb-2 text-xs font-medium text-text-dark">
-            {t("commerceAd.fields.visualPromptFragment")}
-          </div>
-          <p className="whitespace-pre-wrap text-sm leading-5 text-text-dark/85">
-            {data.promptFragment}
-          </p>
-        </div>
-      ) : (
+      {!data.designStyle && !data.colorPalette && !data.platformVisual && !data.language ? (
         <div className={SCRIPT_NODE_EMPTY_HINT_CLASS}>
           {t("commerceAd.nodes.visualPreferenceEmpty")}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
 function ResultContent({ data }: { data: CommerceResultGroupNodeData }) {
   const { t } = useTranslation();
+  const nodes = useCanvasStore((state) => state.nodes);
   const activeBatch =
     data.batches.find((batch) => batch.id === data.activeBatchId) ??
     data.batches[0] ??
     null;
   const images = activeBatch?.images ?? [];
+
+  const handleRetryImage = useCallback((batchId: string, imageId: string) => {
+    window.dispatchEvent(new CustomEvent(COMMERCE_RETRY_IMAGE_GENERATION_EVENT, {
+      detail: { batchId, imageId },
+    }));
+  }, []);
 
   return (
     <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
@@ -453,24 +475,46 @@ function ResultContent({ data }: { data: CommerceResultGroupNodeData }) {
             </span>
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {images.slice(0, 8).map((image) => (
-              <div
-                key={image.id}
-                className="min-h-[72px] rounded-lg border border-white/[0.07] bg-black/[0.1] px-2 py-2 text-xs text-text-muted"
-              >
-                <div className="font-medium text-text-dark">
-                  {image.detailPageNo
-                    ? t("commerceAd.agent.detailPages.resultTitle", {
-                        page: image.detailPageNo,
-                        title: image.detailPageTitle || t("commerceAd.agent.detailPages.untitled"),
-                      })
-                    : image.aspectRatio}
-                </div>
-                <div className="mt-1">
-                  {t(`commerceAd.status.${image.status}`)}
-                </div>
-              </div>
-            ))}
+            {images.slice(0, 8).map((image) => {
+                const imageNode = image.nodeId
+                  ? nodes.find((node) => node.id === image.nodeId)
+                  : null;
+                const nodePhase = imageNode?.data && typeof imageNode.data === "object"
+                  ? (imageNode.data as { generationPhase?: unknown }).generationPhase
+                  : null;
+                const status = nodePhase === "failed" ? "failed" : image.status;
+                return (
+                  <div
+                    key={image.id}
+                    className={`min-h-[72px] rounded-lg border px-2 py-2 text-xs text-text-muted ${
+                      status === "failed"
+                        ? "border-rose-400/35 bg-rose-500/10"
+                        : "border-white/[0.07] bg-black/[0.1]"
+                    }`}
+                  >
+                    <div className="font-medium text-text-dark">
+                      {image.detailPageNo
+                        ? t("commerceAd.agent.detailPages.resultTitle", {
+                            page: image.detailPageNo,
+                            title: image.detailPageTitle || t("commerceAd.agent.detailPages.untitled"),
+                          })
+                        : image.aspectRatio}
+                    </div>
+                    <div className="mt-1">
+                      {t(`commerceAd.status.${status}`)}
+                    </div>
+                    {status === "failed" ? (
+                      <button
+                        type="button"
+                        className="nodrag nowheel mt-2 inline-flex h-7 items-center justify-center rounded-md border border-rose-300/30 bg-rose-500/10 px-2 text-[11px] font-medium text-rose-100 transition hover:bg-rose-500/20"
+                        onClick={() => handleRetryImage(activeBatch.id, image.id)}
+                      >
+                        {t("commerceAd.agent.retryImageGeneration")}
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
           </div>
         </>
       ) : (
@@ -556,6 +600,7 @@ export const CommerceStageNode = memo(
           height={resolvedHeight}
           minHeight={260}
           isEditing={false}
+          contentClassName={type === CANVAS_NODE_TYPES.commerceBatchGenerate ? "overflow-hidden" : ""}
           onToggleEdit={() => setSelectedNode(id)}
           onDelete={() => deleteNode(id)}
           onClick={() => setSelectedNode(id)}

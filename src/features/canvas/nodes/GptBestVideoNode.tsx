@@ -1232,7 +1232,7 @@ export const GptBestVideoNode = memo(
 
         <div
           ref={promptPanelRef}
-          className={`relative min-h-0 flex-1 rounded-[var(--node-radius)] border bg-surface-dark/90 px-3 py-3 ${
+          className={`relative flex min-h-0 flex-1 flex-col rounded-[var(--node-radius)] border bg-surface-dark/90 px-3 py-3 ${
             selected
               ? 'border-accent shadow-[0_0_0_2px_rgba(59,130,246,0.5),0_4px_20px_rgba(59,130,246,0.2)]'
               : 'border-[rgba(15,23,42,0.22)] hover:border-[rgba(15,23,42,0.34)] hover:shadow-[0_4px_16px_rgba(0,0,0,0.12)] dark:border-[rgba(255,255,255,0.22)] dark:hover:border-[rgba(255,255,255,0.34)] dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.25)]'

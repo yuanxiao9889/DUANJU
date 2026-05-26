@@ -313,7 +313,7 @@ export const SEEDANCE_ASPECT_RATIOS = [
   '9:16',
 ] as const;
 export const SEEDANCE_DURATION_SECONDS = [-1, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
-export const SEEDANCE_RESOLUTIONS = ['480p', '720p'] as const;
+export const SEEDANCE_RESOLUTIONS = ['480p', '720p', '1080p'] as const;
 export const GPT_BEST_VIDEO_SOURCE_KINDS = ['seedance', 'grok'] as const;
 export const GPT_BEST_VIDEO_DURATION_SECONDS = [6, 10] as const;
 export const GPT_BEST_VIDEO_SIZES = [
