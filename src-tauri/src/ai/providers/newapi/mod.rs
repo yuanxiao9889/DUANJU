@@ -2264,22 +2264,22 @@ impl NewApiProvider {
                 image_size_override: None,
             });
             attempts.push(GenerateContentAttempt {
-                request_kind: "generateContent-resized-2k-fallback",
+                request_kind: "generateContent-resized-reference-fallback",
                 include_aspect_ratio: false,
                 include_prompt_preferences: false,
                 include_top_p: true,
                 force_png_reference_images: true,
                 resize_reference_images_to_max_dimension: Some(1536),
-                image_size_override: Some("2K"),
+                image_size_override: None,
             });
             attempts.push(GenerateContentAttempt {
-                request_kind: "generateContent-resized-1k-fallback",
+                request_kind: "generateContent-compact-reference-fallback",
                 include_aspect_ratio: false,
                 include_prompt_preferences: false,
                 include_top_p: true,
                 force_png_reference_images: true,
                 resize_reference_images_to_max_dimension: Some(1024),
-                image_size_override: Some("1K"),
+                image_size_override: None,
             });
             attempts.push(GenerateContentAttempt {
                 request_kind: "generateContent-image-fallback",
@@ -2677,9 +2677,10 @@ impl NewApiProvider {
 
 #[cfg(test)]
 mod tests {
-    use super::NewApiProvider;
+    use super::{GenerateContentAttempt, NewApiProvider};
     use crate::ai::AIError;
     use crate::ai::AIProvider;
+    use base64::{engine::general_purpose::STANDARD, Engine};
     use serde_json::{json, Value};
     use std::collections::HashMap;
 
@@ -2953,6 +2954,77 @@ mod tests {
                     }
                 })
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn generate_content_reference_fallbacks_keep_requested_image_size() {
+        let provider = NewApiProvider::new();
+        let reference_png = {
+            let mut buffer = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+                1,
+                1,
+                image::Rgba([255, 255, 255, 255]),
+            ))
+            .write_to(&mut buffer, image::ImageFormat::Png)
+            .expect("expected test png encoding");
+            format!("data:image/png;base64,{}", STANDARD.encode(buffer.into_inner()))
+        };
+
+        for (request_model, size) in [("monkey-pro", "4K"), ("monkey-2", "4K"), ("monkey-2", "2K")] {
+            let request = crate::ai::GenerateRequest {
+                prompt: "make it night".to_string(),
+                model: format!("oopii/{}", request_model),
+                size: size.to_string(),
+                aspect_ratio: "16:9".to_string(),
+                reference_images: Some(vec![reference_png.clone()]),
+                extra_params: None,
+            };
+
+            for attempt in [
+                GenerateContentAttempt {
+                    request_kind: "generateContent-resized-image-fallback",
+                    include_aspect_ratio: false,
+                    include_prompt_preferences: false,
+                    include_top_p: true,
+                    force_png_reference_images: true,
+                    resize_reference_images_to_max_dimension: Some(1536),
+                    image_size_override: None,
+                },
+                GenerateContentAttempt {
+                    request_kind: "generateContent-resized-reference-fallback",
+                    include_aspect_ratio: false,
+                    include_prompt_preferences: false,
+                    include_top_p: true,
+                    force_png_reference_images: true,
+                    resize_reference_images_to_max_dimension: Some(1536),
+                    image_size_override: None,
+                },
+                GenerateContentAttempt {
+                    request_kind: "generateContent-compact-reference-fallback",
+                    include_aspect_ratio: false,
+                    include_prompt_preferences: false,
+                    include_top_p: true,
+                    force_png_reference_images: true,
+                    resize_reference_images_to_max_dimension: Some(1024),
+                    image_size_override: None,
+                },
+            ] {
+                let body = provider
+                    .build_generate_content_body(&request, request_model, attempt)
+                    .await
+                    .expect("expected generateContent body");
+
+                assert_eq!(
+                    body.pointer("/generationConfig/imageConfig/imageSize"),
+                    Some(&Value::String(size.to_string())),
+                    "fallback {} should preserve requested output size for {} {}",
+                    attempt.request_kind,
+                    request_model,
+                    size
+                );
+            }
         }
     }
 

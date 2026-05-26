@@ -692,7 +692,7 @@
       "waitingResultDelayed": "Already waited {{minutes}} minutes with no result yet. Still waiting...",
       "submittingRequest": "Submitting request...",
       "optimizedReferenceRequest": "Reference images prepared. Generating...",
-      "optimizedReferenceRequestDowngraded": "Reference images prepared. 4K was changed to 2K...",
+      "optimizedReferenceRequestDowngraded": "Reference images prepared. Keeping the selected resolution...",
       "selectToEdit": "Select this node and enter a prompt below to generate or edit image",
       "submissionFailed": "Request was not sent",
       "generationFailed": "Generation failed",

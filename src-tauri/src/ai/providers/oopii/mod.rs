@@ -63,6 +63,8 @@ impl OopiiProvider {
             "gpt-5.4" => DEFAULT_OOPII_TEXT_MODEL.to_string(),
             "gpt-5.5" => OOPII_ALT_TEXT_MODEL.to_string(),
             "gpt-image-2" => OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL.to_string(),
+            "monkey-pro" => OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL.to_string(),
+            "monkey-2" => OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL.to_string(),
             "gemini-3-pro-image-preview" => OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL.to_string(),
             "gemini-3.1-flash-image-preview" => {
                 OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL.to_string()
@@ -86,6 +88,8 @@ impl OopiiProvider {
         } else if normalized.contains("gemini")
             || normalized.contains("imagen")
             || normalized.contains("monkey-image")
+            || normalized == "monkey-pro"
+            || normalized == "monkey-2"
         {
             OOPII_STORYBOARD_GEMINI_API_FORMAT
         } else {
@@ -274,7 +278,8 @@ mod tests {
 
     use super::{
         OopiiProvider, DEFAULT_OOPII_TEXT_MODEL, OOPII_ALT_TEXT_MODEL, OOPII_PROVIDER_ID,
-        OOPII_STORYBOARD_BASE_URL,
+        OOPII_STORYBOARD_BASE_URL, OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL,
+        OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL,
     };
     use crate::ai::AIProvider;
     use crate::ai::GenerateRequest;
@@ -449,6 +454,49 @@ mod tests {
                 "display_name": "monkey-pro",
             })
         );
+    }
+
+    #[test]
+    fn normalizes_monkey_short_aliases_to_gemini_storyboard_models() {
+        for (model, request_model, display_name) in [
+            (
+                "oopii/monkey-pro",
+                OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL,
+                "monkey-pro",
+            ),
+            (
+                "oopii/monkey-2",
+                OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL,
+                "monkey-2",
+            ),
+        ] {
+            let mut request = GenerateRequest {
+                prompt: "test".to_string(),
+                model: model.to_string(),
+                size: "2K".to_string(),
+                aspect_ratio: "1:1".to_string(),
+                reference_images: None,
+                extra_params: None,
+            };
+
+            OopiiProvider::inject_newapi_config(&mut request).unwrap();
+            let payload = request
+                .extra_params
+                .as_ref()
+                .and_then(|params| params.get("newapi_config"))
+                .cloned()
+                .unwrap();
+
+            assert_eq!(
+                payload,
+                json!({
+                    "api_format": "gemini",
+                    "endpoint_url": OOPII_STORYBOARD_BASE_URL,
+                    "request_model": request_model,
+                    "display_name": display_name,
+                })
+            );
+        }
     }
 
     #[test]

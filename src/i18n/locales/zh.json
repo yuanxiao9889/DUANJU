@@ -690,7 +690,7 @@
       "waitingResultDelayed": "已经等待 {{minutes}} 分钟了，还没有结果。继续等待中...",
       "submittingRequest": "正在提交请求...",
       "optimizedReferenceRequest": "参考图已预处理，正在生成...",
-      "optimizedReferenceRequestDowngraded": "参考图已预处理，4K 已自动改为 2K...",
+      "optimizedReferenceRequestDowngraded": "参考图已预处理，保持所选分辨率...",
       "selectToEdit": "选中后在下方输入提示词生成或编辑图片",
       "submissionFailed": "请求未成功发出",
       "generationFailed": "生成失败",
