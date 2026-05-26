@@ -2484,6 +2484,7 @@ function isScriptAssetReferenceNodeType(type: CanvasNodeType): boolean {
 function isCommerceStageNodeType(type: CanvasNodeType): boolean {
   return type === CANVAS_NODE_TYPES.commerceProduct
     || type === CANVAS_NODE_TYPES.commerceBrief
+    || type === CANVAS_NODE_TYPES.commerceVisualPreference
     || type === CANVAS_NODE_TYPES.commerceBatchGenerate
     || type === CANVAS_NODE_TYPES.commerceResultGroup;
 }

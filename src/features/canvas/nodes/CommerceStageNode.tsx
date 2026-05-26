@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
 import { FileText, Images, LayoutTemplate, PackageSearch, Sparkles } from "lucide-react";
@@ -20,6 +20,7 @@ import {
   SCRIPT_NODE_EMPTY_HINT_CLASS,
   SCRIPT_NODE_SCROLL_AREA_CLASS,
   SCRIPT_NODE_SECTION_CARD_CLASS,
+  SCRIPT_NODE_TEXTAREA_CLASS,
   ScriptNodeCard,
   resolveScriptNodeDimension,
 } from "./ScriptNodeCard";
@@ -153,7 +154,14 @@ function ProductContent({ data }: { data: CommerceProductNodeData }) {
       />
       <FieldRow label={t("commerceAd.fields.brand")} value={data.brand} />
       <FieldRow label={t("commerceAd.fields.category")} value={data.category} />
-      <FieldRow label={t("commerceAd.fields.userInfo")} value={data.userInfo} />
+      <FieldRow
+        label={t("commerceAd.fields.lockedDocumentInfo")}
+        value={data.lockedDocumentInfo}
+      />
+      <FieldRow
+        label={t("commerceAd.fields.userIdeaInfo")}
+        value={data.userIdeaInfo || data.userInfo}
+      />
       {inference ? (
         <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
           <div className="mb-2 text-xs font-medium text-text-dark">
@@ -202,13 +210,88 @@ function BriefContent({ data }: { data: CommerceBriefNodeData }) {
       <FieldRow label={t("commerceAd.fields.audience")} value={data.audience} />
       <FieldRow label={t("commerceAd.fields.style")} value={data.style} />
       <FieldRow label={t("commerceAd.fields.headline")} value={data.headline} />
+      <FieldRow
+        label={t("commerceAd.fields.optimizedUserIdeaInfo")}
+        value={data.optimizedUserIdeaInfo}
+      />
       <ChipList items={data.sellingPoints} fallbackText={data.normalizedBrief} />
+      {data.detailPages.length > 0 ? (
+        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
+          <div className="mb-2 text-xs font-medium text-text-dark">
+            {t("commerceAd.fields.detailPages")}
+          </div>
+          <div className="space-y-2">
+            {data.detailPages.slice(0, 6).map((page) => (
+              <div
+                key={page.id}
+                className="rounded-lg border border-white/[0.07] bg-black/[0.08] px-3 py-2"
+              >
+                <div className="text-xs font-medium text-text-dark">
+                  {t("commerceAd.agent.detailPages.resultTitle", {
+                    page: page.pageNo,
+                    title: page.title || t("commerceAd.agent.detailPages.untitled"),
+                  })}
+                </div>
+                <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-text-muted">
+                  {page.lockedCopy || page.optimizedCopy || page.layoutNotes || page.prompt}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function BatchContent({ data }: { data: CommerceBatchGenerateNodeData }) {
+function normalizeBatchPages(data: CommerceBatchGenerateNodeData) {
+  if (data.detailPages.length > 0) {
+    return data.detailPages.map((page, index) => ({
+      ...page,
+      pageNo: index + 1,
+    }));
+  }
+  return [];
+}
+
+function BatchContent({ id, data }: { id: string; data: CommerceBatchGenerateNodeData }) {
   const { t } = useTranslation();
+  const updateNodeData = useCanvasStore((state) => state.updateNodeData);
+  const nodes = useCanvasStore((state) => state.nodes);
+  const [activePageId, setActivePageId] = useState<string | null>(null);
+  const pages = useMemo(() => normalizeBatchPages(data), [data]);
+  const activePage = pages.find((page) => page.id === activePageId) ?? pages[0] ?? null;
+
+  useEffect(() => {
+    if (!activePageId || !pages.some((page) => page.id === activePageId)) {
+      setActivePageId(pages[0]?.id ?? null);
+    }
+  }, [activePageId, pages]);
+
+  const updatePage = useCallback((pageId: string, patch: { lockedCopy?: string; prompt?: string }) => {
+    const nextPages = pages.map((page) => (
+      page.id === pageId ? { ...page, ...patch } : page
+    ));
+    updateNodeData(id, {
+      detailPages: nextPages,
+      detailPageIds: nextPages.map((page) => page.id),
+      detailPageCount: nextPages.length,
+      corePrompt: nextPages.map((page) => [
+        `${t("commerceAd.agent.detailPages.pageBadge", { page: page.pageNo })} ${page.title}`,
+        page.lockedCopy,
+        page.prompt,
+      ].filter(Boolean).join("\n")).join("\n\n"),
+    } as Partial<CommerceBatchGenerateNodeData>);
+
+    const briefNode = nodes.find((node) => node.type === CANVAS_NODE_TYPES.commerceBrief);
+    if (briefNode) {
+      updateNodeData(briefNode.id, {
+        detailPages: nextPages,
+        updatedAt: Date.now(),
+      } as Partial<CommerceBriefNodeData>);
+    }
+  }, [id, nodes, pages, t, updateNodeData]);
+
   return (
     <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
       <div className="grid grid-cols-2 gap-2">
@@ -218,12 +301,59 @@ function BatchContent({ data }: { data: CommerceBatchGenerateNodeData }) {
         />
         <FieldRow
           label={t("commerceAd.fields.count")}
-          value={String(data.variantsPerRatio)}
+          value={data.generationMode === "detailPages"
+            ? String(data.detailPageCount || 0)
+            : String(data.variantsPerRatio)}
         />
       </div>
       <FieldRow label={t("commerceAd.fields.model")} value={data.modelId} />
       <FieldRow label={t("commerceAd.fields.size")} value={data.size} />
-      {data.corePrompt ? (
+      <FieldRow
+        label={t("commerceAd.fields.unifiedStyle")}
+        value={data.stylePromptFragment}
+      />
+      {pages.length > 0 ? (
+        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
+          <div className="mb-3 flex gap-1 overflow-x-auto pb-1">
+            {pages.map((page) => (
+              <button
+                key={page.id}
+                type="button"
+                onClick={() => setActivePageId(page.id)}
+                className={`nodrag nowheel shrink-0 rounded-md border px-2 py-1 text-[11px] transition-colors ${
+                  activePage?.id === page.id
+                    ? "border-text-dark/30 bg-text-dark/10 text-text-dark"
+                    : "border-border-dark/60 bg-bg-dark/70 text-text-muted hover:text-text-dark"
+                }`}
+              >
+                {t("commerceAd.agent.detailPages.pageBadge", { page: page.pageNo })}
+              </button>
+            ))}
+          </div>
+          {activePage ? (
+            <div className="space-y-2">
+              <label className="block text-[11px] text-text-muted">
+                <span>{t("commerceAd.agent.detailPages.lockedCopy")}</span>
+                <textarea
+                  value={activePage.lockedCopy}
+                  onChange={(event) => updatePage(activePage.id, { lockedCopy: event.target.value })}
+                  rows={4}
+                  className={`mt-1 ${SCRIPT_NODE_TEXTAREA_CLASS}`}
+                />
+              </label>
+              <label className="block text-[11px] text-text-muted">
+                <span>{t("commerceAd.agent.detailPages.imagePrompt")}</span>
+                <textarea
+                  value={activePage.prompt}
+                  onChange={(event) => updatePage(activePage.id, { prompt: event.target.value })}
+                  rows={7}
+                  className={`mt-1 ${SCRIPT_NODE_TEXTAREA_CLASS}`}
+                />
+              </label>
+            </div>
+          ) : null}
+        </div>
+      ) : data.corePrompt ? (
         <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
           <div className="mb-2 text-xs font-medium text-text-dark">
             {t("commerceAd.fields.corePrompt")}
@@ -329,7 +459,12 @@ function ResultContent({ data }: { data: CommerceResultGroupNodeData }) {
                 className="min-h-[72px] rounded-lg border border-white/[0.07] bg-black/[0.1] px-2 py-2 text-xs text-text-muted"
               >
                 <div className="font-medium text-text-dark">
-                  {image.aspectRatio}
+                  {image.detailPageNo
+                    ? t("commerceAd.agent.detailPages.resultTitle", {
+                        page: image.detailPageNo,
+                        title: image.detailPageTitle || t("commerceAd.agent.detailPages.untitled"),
+                      })
+                    : image.aspectRatio}
                 </div>
                 <div className="mt-1">
                   {t(`commerceAd.status.${image.status}`)}
@@ -432,7 +567,7 @@ export const CommerceStageNode = memo(
           ) : type === CANVAS_NODE_TYPES.commerceVisualPreference ? (
             <VisualPreferenceContent data={data as CommerceVisualPreferenceNodeData} />
           ) : type === CANVAS_NODE_TYPES.commerceBatchGenerate ? (
-            <BatchContent data={data as CommerceBatchGenerateNodeData} />
+            <BatchContent id={id} data={data as CommerceBatchGenerateNodeData} />
           ) : (
             <ResultContent data={data as CommerceResultGroupNodeData} />
           )}

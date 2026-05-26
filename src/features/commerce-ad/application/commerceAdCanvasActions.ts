@@ -31,6 +31,14 @@ export interface CommerceAdCanvasActionsContext {
   setCenter?: (x: number, y: number, options?: { zoom?: number; duration?: number }) => void;
 }
 
+export interface CommerceAdAgentActionOptions {
+  focusLastTouched?: boolean;
+  targetNodeIds?: Partial<Record<
+    'product' | 'brief' | 'visualPreference' | 'batch' | 'result',
+    string | null
+  >>;
+}
+
 function findNode(nodes: CanvasNode[], type: CanvasNode['type']): CanvasNode | null {
   return nodes.find((node) => node.type === type) ?? null;
 }
@@ -39,9 +47,13 @@ function ensureStageNode(
   context: CommerceAdCanvasActionsContext,
   type: CanvasNode['type'],
   position: { x: number; y: number },
-  data: Partial<CanvasNodeData>
+  data: Partial<CanvasNodeData>,
+  preferredNodeId?: string | null
 ): string {
-  const existing = findNode(context.getNodes(), type);
+  const nodes = context.getNodes();
+  const existing = preferredNodeId
+    ? nodes.find((node) => node.id === preferredNodeId && node.type === type)
+    : findNode(nodes, type);
   if (existing) {
     context.updateNodeData(existing.id, data);
     return existing.id;
@@ -59,8 +71,10 @@ function ensureEdge(context: CommerceAdCanvasActionsContext, sourceId: string | 
 
 export function applyCommerceAdAgentActions(
   actions: CommerceAdAgentAction[],
-  context: CommerceAdCanvasActionsContext
+  context: CommerceAdCanvasActionsContext,
+  options: CommerceAdAgentActionOptions = {}
 ): string | null {
+  const shouldFocusLastTouched = options.focusLastTouched ?? true;
   let productId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceProduct)?.id ?? null;
   let briefId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceBrief)?.id ?? null;
   let visualPreferenceId = findNode(context.getNodes(), CANVAS_NODE_TYPES.commerceVisualPreference)?.id ?? null;
@@ -74,7 +88,8 @@ export function applyCommerceAdAgentActions(
         context,
         CANVAS_NODE_TYPES.commerceProduct,
         STAGE_LAYOUT.product,
-        action.data as Partial<CommerceProductNodeData>
+        action.data as Partial<CommerceProductNodeData>,
+        options.targetNodeIds?.product
       );
       lastTouchedId = productId;
     }
@@ -84,7 +99,8 @@ export function applyCommerceAdAgentActions(
         context,
         CANVAS_NODE_TYPES.commerceBrief,
         STAGE_LAYOUT.brief,
-        action.data as Partial<CommerceBriefNodeData>
+        action.data as Partial<CommerceBriefNodeData>,
+        options.targetNodeIds?.brief
       );
       ensureEdge(context, productId, briefId);
       lastTouchedId = briefId;
@@ -95,7 +111,8 @@ export function applyCommerceAdAgentActions(
         context,
         CANVAS_NODE_TYPES.commerceVisualPreference,
         STAGE_LAYOUT.visualPreference,
-        action.data as Partial<CommerceVisualPreferenceNodeData>
+        action.data as Partial<CommerceVisualPreferenceNodeData>,
+        options.targetNodeIds?.visualPreference
       );
       ensureEdge(context, productId, briefId);
       ensureEdge(context, briefId, visualPreferenceId);
@@ -107,7 +124,8 @@ export function applyCommerceAdAgentActions(
         context,
         CANVAS_NODE_TYPES.commerceBatchGenerate,
         STAGE_LAYOUT.batch,
-        action.data as Partial<CommerceBatchGenerateNodeData>
+        action.data as Partial<CommerceBatchGenerateNodeData>,
+        options.targetNodeIds?.batch
       );
       ensureEdge(context, productId, briefId);
       ensureEdge(context, briefId, visualPreferenceId);
@@ -120,7 +138,8 @@ export function applyCommerceAdAgentActions(
         context,
         CANVAS_NODE_TYPES.commerceResultGroup,
         STAGE_LAYOUT.results,
-        action.data as Partial<CommerceResultGroupNodeData>
+        action.data as Partial<CommerceResultGroupNodeData>,
+        options.targetNodeIds?.result
       );
       ensureEdge(context, briefId, visualPreferenceId);
       ensureEdge(context, visualPreferenceId ?? briefId, batchId);
@@ -129,7 +148,7 @@ export function applyCommerceAdAgentActions(
     }
   }
 
-  if (lastTouchedId) {
+  if (lastTouchedId && shouldFocusLastTouched) {
     context.setSelectedNode(lastTouchedId);
     const node = context.getNodes().find((item) => item.id === lastTouchedId);
     if (node && context.setCenter) {

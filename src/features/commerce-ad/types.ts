@@ -31,10 +31,23 @@ export interface CommerceAdProductState {
   brand: string;
   productName: string;
   category: string;
+  detailInputMode: 'auto' | 'manualPages';
+  lockedDocumentInfo: string;
+  userIdeaInfo: string;
   userInfo: string;
   inference: CommerceAdProductInference | null;
   lastAnalyzedAt: number | null;
   lastError: string | null;
+}
+
+export interface CommerceAdDetailPage {
+  id: string;
+  pageNo: number;
+  title: string;
+  lockedCopy: string;
+  optimizedCopy: string;
+  layoutNotes: string;
+  prompt: string;
 }
 
 export interface CommerceAdBriefState {
@@ -48,6 +61,8 @@ export interface CommerceAdBriefState {
   mustInclude: string;
   constraints: string;
   normalizedBrief: string;
+  optimizedUserIdeaInfo: string;
+  detailPages: CommerceAdDetailPage[];
   updatedAt: number | null;
 }
 
@@ -63,12 +78,17 @@ export interface CommerceAdVisualPreferenceState {
 }
 
 export interface CommerceAdBatchGenerateState {
+  generationMode: 'detailPages' | 'legacyRatios';
   aspectRatios: string[];
   variantsPerRatio: number;
   modelId: string;
   size: string;
   corePrompt: string;
   ratioPrompts: Record<string, string>;
+  detailPages: CommerceAdDetailPage[];
+  detailPageIds: string[];
+  detailPageCount: number;
+  stylePromptFragment: string;
   status: 'idle' | 'ready' | 'generating' | 'failed';
   lastGeneratedAt: number | null;
   lastError: string | null;
@@ -77,6 +97,9 @@ export interface CommerceAdBatchGenerateState {
 export interface CommerceAdGeneratedImageRecord {
   id: string;
   aspectRatio: string;
+  detailPageId?: string;
+  detailPageNo?: number;
+  detailPageTitle?: string;
   nodeId: string | null;
   prompt: string;
   status: 'queued' | 'running' | 'succeeded' | 'failed';
@@ -91,6 +114,9 @@ export interface CommerceAdGenerationBatch {
   corePrompt: string;
   aspectRatios: string[];
   variantsPerRatio: number;
+  generationMode?: 'detailPages' | 'legacyRatios';
+  detailPageCount?: number;
+  detailPages?: CommerceAdDetailPage[];
   images: CommerceAdGeneratedImageRecord[];
 }
 
@@ -233,6 +259,11 @@ function normalizeTimestamp(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+function normalizePositiveInteger(value: unknown, fallback: number): number {
+  const normalized = Math.round(Number(value));
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : fallback;
+}
+
 function normalizeProductImage(value: unknown, index: number): CommerceAdProductImage | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -267,6 +298,9 @@ export function createDefaultCommerceAdProductState(): CommerceAdProductState {
     brand: '',
     productName: '',
     category: '',
+    detailInputMode: 'auto',
+    lockedDocumentInfo: '',
+    userIdeaInfo: '',
     userInfo: '',
     inference: null,
     lastAnalyzedAt: null,
@@ -284,6 +318,8 @@ export function normalizeCommerceAdProductState(value: unknown): CommerceAdProdu
       ? record.inference as Partial<CommerceAdProductInference>
       : null;
 
+  const detailInputMode = record.detailInputMode === 'manualPages' ? 'manualPages' : 'auto';
+
   return {
     images: Array.isArray(record.images)
       ? record.images
@@ -293,6 +329,9 @@ export function normalizeCommerceAdProductState(value: unknown): CommerceAdProdu
     brand: normalizeString(record.brand),
     productName: normalizeString(record.productName),
     category: normalizeString(record.category),
+    detailInputMode,
+    lockedDocumentInfo: normalizeString(record.lockedDocumentInfo),
+    userIdeaInfo: normalizeString(record.userIdeaInfo) || normalizeString(record.userInfo),
     userInfo: normalizeString(record.userInfo),
     inference: inferenceRecord
       ? {
@@ -310,6 +349,44 @@ export function normalizeCommerceAdProductState(value: unknown): CommerceAdProdu
   };
 }
 
+export function normalizeCommerceAdDetailPages(value: unknown): CommerceAdDetailPage[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item, index): CommerceAdDetailPage | null => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) {
+        return null;
+      }
+      const record = item as Partial<CommerceAdDetailPage>;
+      const title = normalizeString(record.title);
+      const lockedCopy = normalizeString(record.lockedCopy);
+      const optimizedCopy = normalizeString(record.optimizedCopy);
+      const layoutNotes = normalizeString(record.layoutNotes);
+      const prompt = normalizeString(record.prompt);
+      if (!title && !lockedCopy && !optimizedCopy && !layoutNotes && !prompt) {
+        return null;
+      }
+
+      return {
+        id: normalizeString(record.id) || `commerce-detail-page-${index + 1}`,
+        pageNo: normalizePositiveInteger(record.pageNo, index + 1),
+        title,
+        lockedCopy,
+        optimizedCopy,
+        layoutNotes,
+        prompt,
+      };
+    })
+    .filter((item): item is CommerceAdDetailPage => Boolean(item))
+    .sort((left, right) => left.pageNo - right.pageNo)
+    .map((item, index) => ({
+      ...item,
+      pageNo: index + 1,
+    }));
+}
+
 export function createDefaultCommerceAdBriefState(): CommerceAdBriefState {
   return {
     usage: '',
@@ -322,6 +399,8 @@ export function createDefaultCommerceAdBriefState(): CommerceAdBriefState {
     mustInclude: '',
     constraints: '',
     normalizedBrief: '',
+    optimizedUserIdeaInfo: '',
+    detailPages: [],
     updatedAt: null,
   };
 }
@@ -343,6 +422,8 @@ export function normalizeCommerceAdBriefState(value: unknown): CommerceAdBriefSt
     mustInclude: normalizeString(record.mustInclude),
     constraints: normalizeString(record.constraints),
     normalizedBrief: normalizeString(record.normalizedBrief),
+    optimizedUserIdeaInfo: normalizeString(record.optimizedUserIdeaInfo),
+    detailPages: normalizeCommerceAdDetailPages(record.detailPages),
     updatedAt: normalizeTimestamp(record.updatedAt),
   };
 }
@@ -385,12 +466,17 @@ export function normalizeCommerceAdVisualPreferenceState(value: unknown): Commer
 
 export function createDefaultCommerceAdBatchGenerateState(): CommerceAdBatchGenerateState {
   return {
-    aspectRatios: ['1:1', '4:5', '9:16'],
-    variantsPerRatio: 4,
+    generationMode: 'detailPages',
+    aspectRatios: ['4:5'],
+    variantsPerRatio: 1,
     modelId: '',
     size: '2K',
     corePrompt: '',
     ratioPrompts: {},
+    detailPages: [],
+    detailPageIds: [],
+    detailPageCount: 0,
+    stylePromptFragment: '',
     status: 'idle',
     lastGeneratedAt: null,
     lastError: null,
@@ -403,14 +489,20 @@ export function normalizeCommerceAdBatchGenerateState(value: unknown): CommerceA
       ? value as Partial<CommerceAdBatchGenerateState>
       : {};
   const status = ['idle', 'ready', 'generating', 'failed'].includes(record.status ?? '')
-    ? record.status as CommerceAdBatchGenerateState['status']
-    : 'idle';
+      ? record.status as CommerceAdBatchGenerateState['status']
+      : 'idle';
+  const generationMode = ['detailPages', 'legacyRatios'].includes(record.generationMode ?? '')
+    ? record.generationMode as CommerceAdBatchGenerateState['generationMode']
+    : 'detailPages';
 
   return {
+    generationMode,
     aspectRatios: normalizeStringArray(record.aspectRatios).length > 0
       ? normalizeStringArray(record.aspectRatios)
-      : ['1:1', '4:5', '9:16'],
-    variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(record.variantsPerRatio) || 4))),
+      : ['4:5'],
+    variantsPerRatio: generationMode === 'detailPages'
+      ? 1
+      : Math.max(1, Math.min(8, Math.round(Number(record.variantsPerRatio) || 4))),
     modelId: normalizeString(record.modelId),
     size: normalizeString(record.size) || '2K',
     corePrompt: normalizeString(record.corePrompt),
@@ -422,6 +514,13 @@ export function normalizeCommerceAdBatchGenerateState(value: unknown): CommerceA
               .filter(([, item]) => item.length > 0)
           )
         : {},
+    detailPages: normalizeCommerceAdDetailPages(record.detailPages),
+    detailPageIds: normalizeStringArray(record.detailPageIds),
+    detailPageCount: Math.max(
+      normalizeCommerceAdDetailPages(record.detailPages).length,
+      Math.round(Number(record.detailPageCount) || 0)
+    ),
+    stylePromptFragment: normalizeString(record.stylePromptFragment),
     status,
     lastGeneratedAt: normalizeTimestamp(record.lastGeneratedAt),
     lastError: normalizeString(record.lastError) || null,
@@ -453,6 +552,11 @@ export function normalizeCommerceAdResultGroupState(value: unknown): CommerceAdR
             corePrompt: normalizeString(item.corePrompt),
             aspectRatios: normalizeStringArray(item.aspectRatios),
             variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(item.variantsPerRatio) || 1))),
+            generationMode: ['detailPages', 'legacyRatios'].includes(item.generationMode ?? '')
+              ? item.generationMode as CommerceAdGenerationBatch['generationMode']
+              : undefined,
+            detailPageCount: Math.max(0, Math.round(Number(item.detailPageCount) || 0)) || undefined,
+            detailPages: normalizeCommerceAdDetailPages(item.detailPages),
             images: Array.isArray(item.images)
               ? item.images
                   .map((image, imageIndex): CommerceAdGeneratedImageRecord | null => {
@@ -466,6 +570,11 @@ export function normalizeCommerceAdResultGroupState(value: unknown): CommerceAdR
                     return {
                       id: normalizeString(imageRecord.id) || `commerce-image-${imageIndex + 1}`,
                       aspectRatio: normalizeString(imageRecord.aspectRatio) || '1:1',
+                      detailPageId: normalizeString(imageRecord.detailPageId) || undefined,
+                      detailPageNo: imageRecord.detailPageNo
+                        ? Math.max(1, Math.round(Number(imageRecord.detailPageNo) || 1))
+                        : undefined,
+                      detailPageTitle: normalizeString(imageRecord.detailPageTitle) || undefined,
                       nodeId: normalizeString(imageRecord.nodeId) || null,
                       prompt: normalizeString(imageRecord.prompt),
                       status,

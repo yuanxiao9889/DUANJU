@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import {
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   Check,
   ChevronDown,
   ChevronRight,
@@ -12,10 +14,12 @@ import {
   Megaphone,
   MessageSquareText,
   PackageCheck,
+  Plus,
   Send,
   Settings,
   Shirt,
   Sparkles,
+  Trash2,
   WandSparkles,
   X,
 } from 'lucide-react';
@@ -42,6 +46,7 @@ import {
 import {
   applyCommerceAdAgentActions,
   type CommerceAdCanvasActionsContext,
+  type CommerceAdAgentActionOptions,
 } from '@/features/commerce-ad/application/commerceAdCanvasActions';
 import {
   isLikelyVisionTextModel,
@@ -56,6 +61,7 @@ import {
   type CommerceAdAgentAction,
   type CommerceAdAgentGuidance,
   type CommerceAdBatchGenerateState,
+  type CommerceAdDetailPage,
   type CommerceAdGeneratedImageRecord,
   type CommerceAdGenerationBatch,
   type CommerceAdProductImage,
@@ -157,6 +163,13 @@ const BRAND_ACCENT_PRESETS = [
   { key: 'black', color: '#111827' },
 ] as const;
 
+type CommerceAgentTask =
+  | 'chat'
+  | 'syncProductInfo'
+  | 'inferProduct'
+  | 'syncVisualPreference'
+  | 'paginateDetailPages';
+
 function clampAgentPanelWidth(value: number): number {
   return Math.min(
     COMMERCE_AGENT_PANEL_MAX_WIDTH,
@@ -213,11 +226,29 @@ function createLocalMessage(
   };
 }
 
-function findStageNode<T extends CanvasNode['data']>(
+function resolveActiveStageNode<T extends CanvasNode['data']>(
   nodes: CanvasNode[],
-  type: CanvasNode['type']
+  type: CanvasNode['type'],
+  selectedNodeId: string | null
 ): (CanvasNode & { data: T }) | null {
-  return (nodes.find((node) => node.type === type) as (CanvasNode & { data: T }) | undefined) ?? null;
+  const matchingNodes = nodes.filter((node) => node.type === type);
+  if (matchingNodes.length === 0) {
+    return null;
+  }
+
+  const selectedMatch = selectedNodeId
+    ? matchingNodes.find((node) => node.id === selectedNodeId)
+    : null;
+  if (selectedMatch) {
+    return selectedMatch as CanvasNode & { data: T };
+  }
+
+  const markedSelectedMatch = matchingNodes.find((node) => node.selected);
+  if (markedSelectedMatch) {
+    return markedSelectedMatch as CanvasNode & { data: T };
+  }
+
+  return matchingNodes[matchingNodes.length - 1] as CanvasNode & { data: T };
 }
 
 function mergeProductImages(
@@ -230,6 +261,9 @@ function mergeProductImages(
     brand: product?.brand ?? '',
     productName: product?.productName ?? '',
     category: product?.category ?? '',
+    detailInputMode: product?.detailInputMode ?? 'auto',
+    lockedDocumentInfo: product?.lockedDocumentInfo ?? '',
+    userIdeaInfo: product?.userIdeaInfo ?? product?.userInfo ?? '',
     userInfo: product?.userInfo ?? '',
     inference: product?.inference ?? null,
     lastAnalyzedAt: product?.lastAnalyzedAt ?? null,
@@ -244,13 +278,32 @@ function normalizeProductImageRoles(images: CommerceAdProductImage[]): CommerceA
   }));
 }
 
-function createImageChangedProductState(images: CommerceAdProductImage[], userInfo: string): CommerceAdProductState {
+function composeProductUserInfo(lockedDocumentInfo: string, userIdeaInfo: string): string {
+  return [
+    lockedDocumentInfo.trim()
+      ? `文档信息（不可改）：\n${lockedDocumentInfo.trim()}`
+      : '',
+    userIdeaInfo.trim()
+      ? `想法补充（AI 可优化）：\n${userIdeaInfo.trim()}`
+      : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function createImageChangedProductState(
+  images: CommerceAdProductImage[],
+  lockedDocumentInfo: string,
+  userIdeaInfo: string,
+  detailInputMode: CommerceAdProductState['detailInputMode'] = 'auto'
+): CommerceAdProductState {
   return {
     images: normalizeProductImageRoles(images),
     brand: '',
     productName: '',
     category: '',
-    userInfo,
+    detailInputMode,
+    lockedDocumentInfo,
+    userIdeaInfo,
+    userInfo: composeProductUserInfo(lockedDocumentInfo, userIdeaInfo),
     inference: null,
     lastAnalyzedAt: null,
     lastError: null,
@@ -335,32 +388,112 @@ function resolveCommerceAspectRatiosForModel(
   return defaultRatio ? [defaultRatio] : ['1:1'];
 }
 
-function buildGenerationBatch(
-  batch: CommerceBatchGenerateNodeData | null,
+function normalizeDetailPagesForEditing(pages: CommerceAdDetailPage[]): CommerceAdDetailPage[] {
+  return pages.map((page, index) => ({
+    ...page,
+    id: page.id || `commerce-detail-page-${Date.now()}-${index + 1}`,
+    pageNo: index + 1,
+  }));
+}
+
+function createDetailPageDraft(partial: Partial<CommerceAdDetailPage> = {}): CommerceAdDetailPage {
+  return {
+    id: partial.id || `commerce-detail-page-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    pageNo: partial.pageNo ?? 1,
+    title: partial.title ?? '',
+    lockedCopy: partial.lockedCopy ?? '',
+    optimizedCopy: partial.optimizedCopy ?? '',
+    layoutNotes: partial.layoutNotes ?? '',
+    prompt: partial.prompt ?? '',
+  };
+}
+
+function buildFallbackDetailPages(
+  product: Partial<CommerceAdProductState> | null | undefined,
+  brief: Partial<CommerceBriefNodeData> | null | undefined,
   corePrompt: string
+): CommerceAdDetailPage[] {
+  const existingPages = brief?.detailPages?.length
+    ? normalizeDetailPagesForEditing(brief.detailPages)
+    : [];
+  if (existingPages.length > 0) {
+    return existingPages;
+  }
+
+  const lockedCopy = product?.lockedDocumentInfo?.trim() ?? '';
+  const optimizedCopy = brief?.optimizedUserIdeaInfo?.trim()
+    || product?.userIdeaInfo?.trim()
+    || product?.userInfo?.trim()
+    || '';
+  const title = brief?.headline?.trim() || product?.productName?.trim() || '产品核心卖点';
+  return [
+    createDetailPageDraft({
+      pageNo: 1,
+      title,
+      lockedCopy,
+      optimizedCopy,
+      layoutNotes: brief?.style || '',
+      prompt: corePrompt,
+    }),
+  ];
+}
+
+function composeDetailPagePrompt(
+  page: CommerceAdDetailPage,
+  corePrompt: string,
+  visualPreference: CommerceAdVisualPreferenceState | null | undefined
+): string {
+  return [
+    corePrompt.trim(),
+    `详情页第 ${page.pageNo} 页：${page.title || '未命名页面'}`,
+    page.lockedCopy.trim()
+      ? `必须原样出现在画面上的文档信息，不得改写：\n${page.lockedCopy.trim()}`
+      : '',
+    page.optimizedCopy.trim()
+      ? `可优化表达后的说明文案：\n${page.optimizedCopy.trim()}`
+      : '',
+    page.layoutNotes.trim()
+      ? `版式备注：${page.layoutNotes.trim()}`
+      : '',
+    page.prompt.trim(),
+    visualPreference?.promptFragment?.trim() ?? '',
+    '生成电商详情页分页图片，页面信息层级清晰，商品主体准确，画面文字必须清晰可读。',
+  ].filter(Boolean).join('\n\n');
+}
+
+function buildDetailPageGenerationBatch(
+  batch: CommerceBatchGenerateNodeData | null,
+  corePrompt: string,
+  detailPages: CommerceAdDetailPage[],
+  visualPreference: CommerceAdVisualPreferenceState | null | undefined
 ): CommerceAdGenerationBatch {
-  const aspectRatios = batch?.aspectRatios?.length ? batch.aspectRatios : ['1:1'];
-  const variantsPerRatio = Math.max(1, Math.min(8, batch?.variantsPerRatio ?? 4));
+  const aspectRatio = batch?.aspectRatios?.[0] ?? '4:5';
+  const aspectRatios = [aspectRatio];
   const batchId = `commerce-batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const images: CommerceAdGeneratedImageRecord[] = aspectRatios.flatMap((aspectRatio) =>
-    Array.from({ length: variantsPerRatio }, (_, index) => ({
-      id: `${batchId}-${aspectRatio.replace(':', 'x')}-${index + 1}`,
-      aspectRatio,
-      nodeId: null,
-      prompt: batch?.ratioPrompts?.[aspectRatio] || corePrompt,
-      status: 'queued',
-      imageUrl: null,
-      previewImageUrl: null,
-      error: null,
-    }))
-  );
+  const pages = normalizeDetailPagesForEditing(detailPages);
+  const images: CommerceAdGeneratedImageRecord[] = pages.map((page) => ({
+    id: `${batchId}-page-${page.pageNo}`,
+    aspectRatio,
+    detailPageId: page.id,
+    detailPageNo: page.pageNo,
+    detailPageTitle: page.title,
+    nodeId: null,
+    prompt: composeDetailPagePrompt(page, batch?.ratioPrompts?.[aspectRatio] || corePrompt, visualPreference),
+    status: 'queued',
+    imageUrl: null,
+    previewImageUrl: null,
+    error: null,
+  }));
 
   return {
     id: batchId,
     createdAt: Date.now(),
     corePrompt,
     aspectRatios,
-    variantsPerRatio,
+    variantsPerRatio: 1,
+    generationMode: 'detailPages',
+    detailPageCount: pages.length,
+    detailPages: pages,
     images,
   };
 }
@@ -378,6 +511,8 @@ function hasProductInfo(product: Partial<CommerceAdProductState> | null | undefi
     product.productName,
     product.brand,
     product.category,
+    product.lockedDocumentInfo,
+    product.userIdeaInfo,
     product.userInfo,
     product.inference?.summary,
   ].some((value) => typeof value === 'string' && value.trim().length > 0);
@@ -745,7 +880,7 @@ function CommerceAdWorkspaceInner() {
   const flow = useReactFlow<CanvasNode, CanvasEdge>();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const replaceFileInputRef = useRef<HTMLInputElement | null>(null);
-  const manualProductInfoRef = useRef<HTMLTextAreaElement | null>(null);
+  const userIdeaInfoRef = useRef<HTMLTextAreaElement | null>(null);
   const productInfoContentRef = useRef<HTMLElement | null>(null);
   const visualPreferenceContentRef = useRef<HTMLElement | null>(null);
   const batchSettingsContentRef = useRef<HTMLElement | null>(null);
@@ -754,8 +889,11 @@ function CommerceAdWorkspaceInner() {
   const replaceImageIdRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<CommerceAdAgentMessage[]>(DEFAULT_AGENT_MESSAGES);
   const [draft, setDraft] = useState('');
-  const [manualProductInfo, setManualProductInfo] = useState('');
+  const [detailInputMode, setDetailInputMode] = useState<CommerceAdProductState['detailInputMode']>('auto');
+  const [lockedDocumentInfo, setLockedDocumentInfo] = useState('');
+  const [userIdeaInfo, setUserIdeaInfo] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [activeAgentTask, setActiveAgentTask] = useState<CommerceAgentTask | null>(null);
   const [uploading, setUploading] = useState(false);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [selectedGuidanceChoiceKeys, setSelectedGuidanceChoiceKeys] = useState<string[]>([]);
@@ -778,6 +916,7 @@ function CommerceAdWorkspaceInner() {
   const [isProductHeaderCompact, setIsProductHeaderCompact] = useState(false);
 
   const nodes = useCanvasStore((state) => state.nodes);
+  const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const addNode = useCanvasStore((state) => state.addNode);
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const addEdge = useCanvasStore((state) => state.addEdge);
@@ -785,24 +924,24 @@ function CommerceAdWorkspaceInner() {
   const settings = useSettingsStore((state) => state);
 
   const productNode = useMemo(
-    () => findStageNode<CommerceProductNodeData>(nodes, CANVAS_NODE_TYPES.commerceProduct),
-    [nodes]
+    () => resolveActiveStageNode<CommerceProductNodeData>(nodes, CANVAS_NODE_TYPES.commerceProduct, selectedNodeId),
+    [nodes, selectedNodeId]
   );
   const briefNode = useMemo(
-    () => findStageNode<CommerceBriefNodeData>(nodes, CANVAS_NODE_TYPES.commerceBrief),
-    [nodes]
+    () => resolveActiveStageNode<CommerceBriefNodeData>(nodes, CANVAS_NODE_TYPES.commerceBrief, selectedNodeId),
+    [nodes, selectedNodeId]
   );
   const batchNode = useMemo(
-    () => findStageNode<CommerceBatchGenerateNodeData>(nodes, CANVAS_NODE_TYPES.commerceBatchGenerate),
-    [nodes]
+    () => resolveActiveStageNode<CommerceBatchGenerateNodeData>(nodes, CANVAS_NODE_TYPES.commerceBatchGenerate, selectedNodeId),
+    [nodes, selectedNodeId]
   );
   const visualPreferenceNode = useMemo(
-    () => findStageNode<CommerceVisualPreferenceNodeData>(nodes, CANVAS_NODE_TYPES.commerceVisualPreference),
-    [nodes]
+    () => resolveActiveStageNode<CommerceVisualPreferenceNodeData>(nodes, CANVAS_NODE_TYPES.commerceVisualPreference, selectedNodeId),
+    [nodes, selectedNodeId]
   );
   const resultNode = useMemo(
-    () => findStageNode<CommerceResultGroupNodeData>(nodes, CANVAS_NODE_TYPES.commerceResultGroup),
-    [nodes]
+    () => resolveActiveStageNode<CommerceResultGroupNodeData>(nodes, CANVAS_NODE_TYPES.commerceResultGroup, selectedNodeId),
+    [nodes, selectedNodeId]
   );
 
   const activeTextProvider = useMemo(
@@ -874,6 +1013,18 @@ function CommerceAdWorkspaceInner() {
   }, [visualPreferenceNode?.data]);
 
   useEffect(() => {
+    const productData = productNode?.data;
+    setDetailInputMode(productData?.detailInputMode ?? 'auto');
+    setLockedDocumentInfo(productData?.lockedDocumentInfo ?? '');
+    setUserIdeaInfo(productData?.userIdeaInfo ?? productData?.userInfo ?? '');
+  }, [
+    productNode?.data?.detailInputMode,
+    productNode?.data?.lockedDocumentInfo,
+    productNode?.data?.userIdeaInfo,
+    productNode?.data?.userInfo,
+  ]);
+
+  useEffect(() => {
     if (!isAgentPanelResizing || typeof window === 'undefined') {
       return;
     }
@@ -936,7 +1087,7 @@ function CommerceAdWorkspaceInner() {
       if (!nextCollapsed) {
         scrollSectionContentIntoView(productInfoContentRef.current);
         requestAnimationFrame(() => {
-          manualProductInfoRef.current?.focus();
+          userIdeaInfoRef.current?.focus();
         });
       }
       return nextCollapsed;
@@ -1138,7 +1289,6 @@ function CommerceAdWorkspaceInner() {
       return nextKeys;
     });
   }, [guidanceChoiceValues, t]);
-  const currentVariants = batchNode?.data.variantsPerRatio ?? 4;
   const imageModels = useMemo(
     () => listImageModels(
       settings.storyboardCompatibleModelConfig,
@@ -1173,6 +1323,15 @@ function CommerceAdWorkspaceInner() {
   const currentRatios = useMemo(() => {
     return resolveCommerceAspectRatiosForModel(selectedImageModel, batchNode?.data.aspectRatios ?? []);
   }, [batchNode?.data.aspectRatios, selectedImageModel]);
+  const currentPageRatio = currentRatios[0] ?? selectedImageModel.defaultAspectRatio ?? '4:5';
+  const detailPages = useMemo(
+    () => normalizeDetailPagesForEditing(
+      batchNode?.data.detailPages?.length
+        ? batchNode.data.detailPages
+        : briefNode?.data.detailPages ?? []
+    ),
+    [batchNode?.data.detailPages, briefNode?.data.detailPages]
+  );
   const imageProviderOptions = useMemo(() => {
     const providerIds = Array.from(new Set(imageModels.map((model) => model.providerId)));
     return providerIds
@@ -1217,14 +1376,18 @@ function CommerceAdWorkspaceInner() {
     setCenter: flow.setCenter,
   }), [addEdge, addNode, flow.setCenter, setSelectedNode, updateNodeData]);
 
-  const applyActions = useCallback((actions: CommerceAdAgentAction[]) => {
-    return applyCommerceAdAgentActions(actions, canvasActionContext);
+  const applyActions = useCallback((
+    actions: CommerceAdAgentAction[],
+    options?: CommerceAdAgentActionOptions
+  ) => {
+    return applyCommerceAdAgentActions(actions, canvasActionContext, options);
   }, [canvasActionContext]);
 
   const runAgent = useCallback(async (
     userMessage: string,
     productOverride?: CommerceAdProductState,
-    visualPreferenceOverride?: CommerceAdVisualPreferenceState
+    visualPreferenceOverride?: CommerceAdVisualPreferenceState,
+    task: CommerceAgentTask = 'chat'
   ) => {
     const trimmedMessage = userMessage.trim();
     if (!trimmedMessage && !productOverride && productImages.length === 0) {
@@ -1239,11 +1402,12 @@ function CommerceAdWorkspaceInner() {
     }
 
     setIsThinking(true);
+    setActiveAgentTask(task);
     setStatusText(t('commerceAd.agent.statusThinking'));
     try {
       const product = productOverride ?? productNode?.data ?? null;
       const result = await runCommerceAdAgentTurn({
-        userMessage: trimmedMessage || manualProductInfo,
+        userMessage: trimmedMessage || composeProductUserInfo(lockedDocumentInfo, userIdeaInfo),
         product,
         brief: briefNode?.data ?? null,
         visualPreference: visualPreferenceOverride ?? visualPreferenceNode?.data ?? visualPreferenceDraft,
@@ -1260,7 +1424,15 @@ function CommerceAdWorkspaceInner() {
       const nextActions = shouldAllowBatchActions
         ? result.actions
         : result.actions.filter((action) => action.type !== 'upsertBatchGenerate');
-      applyActions(nextActions);
+      applyActions(nextActions, {
+        targetNodeIds: {
+          product: productNode?.id ?? null,
+          brief: briefNode?.id ?? null,
+          visualPreference: visualPreferenceNode?.id ?? null,
+          batch: batchNode?.id ?? null,
+          result: resultNode?.id ?? null,
+        },
+      });
       setMessages((items) => [...items, result.assistantMessage]);
       setStatusText(t('commerceAd.agent.statusSynced'));
     } catch (error) {
@@ -1272,19 +1444,26 @@ function CommerceAdWorkspaceInner() {
       setStatusText(t('commerceAd.agent.statusFailed'));
     } finally {
       setIsThinking(false);
+      setActiveAgentTask(null);
     }
   }, [
     applyActions,
     batchNode?.data,
+    batchNode?.id,
     briefNode?.data,
+    briefNode?.id,
     canUseVisionModel,
-    manualProductInfo,
+    lockedDocumentInfo,
     productImages,
     productReferenceImages,
     productNode?.data,
+    productNode?.id,
+    resultNode?.id,
     t,
+    userIdeaInfo,
     visualPreferenceDraft,
     visualPreferenceNode?.data,
+    visualPreferenceNode?.id,
   ]);
 
   const handleUploadClick = useCallback(() => {
@@ -1292,11 +1471,20 @@ function CommerceAdWorkspaceInner() {
   }, []);
 
   const resetCommerceDataAfterProductImageChange = useCallback((nextImages: CommerceAdProductImage[]) => {
-    const userInfo = manualProductInfo.trim() || productNode?.data.userInfo || '';
+    const nextLockedDocumentInfo = lockedDocumentInfo.trim() || productNode?.data.lockedDocumentInfo || '';
+    const nextUserIdeaInfo = userIdeaInfo.trim()
+      || productNode?.data.userIdeaInfo
+      || productNode?.data.userInfo
+      || '';
     if (productNode) {
       updateNodeData(
         productNode.id,
-        createImageChangedProductState(nextImages, userInfo) as Partial<CanvasNodeData>
+        createImageChangedProductState(
+          nextImages,
+          nextLockedDocumentInfo,
+          nextUserIdeaInfo,
+          detailInputMode
+        ) as Partial<CanvasNodeData>
       );
     }
     if (briefNode) {
@@ -1315,12 +1503,17 @@ function CommerceAdWorkspaceInner() {
     }
     if (batchNode) {
       updateNodeData(batchNode.id, {
-        aspectRatios: currentRatios,
-        variantsPerRatio: currentVariants,
+        generationMode: 'detailPages',
+        aspectRatios: [currentPageRatio],
+        variantsPerRatio: 1,
         modelId: selectedImageModel.id,
         size: selectedResolution.value,
         corePrompt: '',
         ratioPrompts: {},
+        detailPageIds: [],
+        detailPageCount: 0,
+        detailPages: [],
+        stylePromptFragment: '',
         status: 'idle',
         lastGeneratedAt: null,
         lastError: null,
@@ -1335,14 +1528,15 @@ function CommerceAdWorkspaceInner() {
   }, [
     batchNode,
     briefNode,
-    currentRatios,
-    currentVariants,
-    manualProductInfo,
+    currentPageRatio,
+    detailInputMode,
+    lockedDocumentInfo,
     productNode,
     resultNode,
     selectedImageModel.id,
     selectedResolution.value,
     updateNodeData,
+    userIdeaInfo,
     visualPreferenceNode,
   ]);
 
@@ -1359,28 +1553,28 @@ function CommerceAdWorkspaceInner() {
 
   const handleInsertProductInfoField = useCallback((label: string) => {
     const title = `${label}：`;
-    const titleIndex = manualProductInfo.indexOf(title);
+    const titleIndex = userIdeaInfo.indexOf(title);
 
     if (titleIndex >= 0) {
       const cursorPosition = titleIndex + title.length;
-      manualProductInfoRef.current?.focus();
+      userIdeaInfoRef.current?.focus();
       requestAnimationFrame(() => {
-        manualProductInfoRef.current?.setSelectionRange(cursorPosition, cursorPosition);
+        userIdeaInfoRef.current?.setSelectionRange(cursorPosition, cursorPosition);
       });
       return;
     }
 
-    const trimmedEnd = manualProductInfo.replace(/\s+$/u, '');
+    const trimmedEnd = userIdeaInfo.replace(/\s+$/u, '');
     const prefix = trimmedEnd.length > 0 ? `${trimmedEnd}\n` : '';
     const nextValue = `${prefix}${title}`;
     const cursorPosition = nextValue.length;
 
-    setManualProductInfo(nextValue);
+    setUserIdeaInfo(nextValue);
     requestAnimationFrame(() => {
-      manualProductInfoRef.current?.focus();
-      manualProductInfoRef.current?.setSelectionRange(cursorPosition, cursorPosition);
+      userIdeaInfoRef.current?.focus();
+      userIdeaInfoRef.current?.setSelectionRange(cursorPosition, cursorPosition);
     });
-  }, [manualProductInfo]);
+  }, [userIdeaInfo]);
 
   const handleManualProductInfoKeyDown = useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Tab') {
@@ -1391,15 +1585,15 @@ function CommerceAdWorkspaceInner() {
     const textarea = event.currentTarget;
     const selectionStart = textarea.selectionStart;
     const selectionEnd = textarea.selectionEnd;
-    const nextValue = `${manualProductInfo.slice(0, selectionStart)}\n${manualProductInfo.slice(selectionEnd)}`;
+    const nextValue = `${userIdeaInfo.slice(0, selectionStart)}\n${userIdeaInfo.slice(selectionEnd)}`;
     const cursorPosition = selectionStart + 1;
 
-    setManualProductInfo(nextValue);
+    setUserIdeaInfo(nextValue);
     requestAnimationFrame(() => {
-      manualProductInfoRef.current?.focus();
-      manualProductInfoRef.current?.setSelectionRange(cursorPosition, cursorPosition);
+      userIdeaInfoRef.current?.focus();
+      userIdeaInfoRef.current?.setSelectionRange(cursorPosition, cursorPosition);
     });
-  }, [manualProductInfo]);
+  }, [userIdeaInfo]);
 
   const handleFilesSelected = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []).filter((file) => file.type.startsWith('image/'));
@@ -1489,38 +1683,58 @@ function CommerceAdWorkspaceInner() {
   ]);
 
   const commitManualProductInfo = useCallback(() => {
-    const userInfo = manualProductInfo.trim();
-    if (!userInfo) {
+    const nextLockedDocumentInfo = lockedDocumentInfo.trim();
+    const nextUserIdeaInfo = userIdeaInfo.trim();
+    const userInfo = composeProductUserInfo(nextLockedDocumentInfo, nextUserIdeaInfo);
+    if (!nextLockedDocumentInfo && !nextUserIdeaInfo) {
       return;
     }
     const nextProduct: CommerceAdProductState = {
       ...mergeProductImages(productNode?.data ?? null, []),
+      detailInputMode,
+      lockedDocumentInfo: nextLockedDocumentInfo,
+      userIdeaInfo: nextUserIdeaInfo,
       userInfo,
       lastError: null,
     };
     applyActions([{ type: 'upsertProduct', data: nextProduct }]);
     setStatusText(t('commerceAd.agent.statusThinking'));
-    void runAgent(userInfo, nextProduct);
-  }, [applyActions, manualProductInfo, productNode?.data, runAgent, t]);
+    void runAgent(userInfo, nextProduct, undefined, 'syncProductInfo');
+  }, [applyActions, detailInputMode, lockedDocumentInfo, productNode?.data, runAgent, t, userIdeaInfo]);
 
   const updateVisualPreferenceDraft = useCallback((data: Partial<CommerceAdVisualPreferenceState>) => {
-    setVisualPreferenceDraft((current) => normalizeCommerceAdVisualPreferenceState({
-      ...current,
-      ...data,
-    }));
-  }, []);
+    setVisualPreferenceDraft((current) => {
+      const nextPreference = normalizeCommerceAdVisualPreferenceState({
+        ...current,
+        ...data,
+        updatedAt: Date.now(),
+      });
+      applyActions(
+        [{ type: 'upsertVisualPreference', data: nextPreference }],
+        {
+          focusLastTouched: false,
+          targetNodeIds: { visualPreference: visualPreferenceNode?.id ?? null },
+        }
+      );
+      return nextPreference;
+    });
+  }, [applyActions, visualPreferenceNode?.id]);
 
   const handleSyncVisualPreference = useCallback(() => {
     const nextPreference = buildVisualPreferencePatch(visualPreferenceDraft);
     setVisualPreferenceDraft(nextPreference);
-    applyActions([{ type: 'upsertVisualPreference', data: nextPreference }]);
+    applyActions(
+      [{ type: 'upsertVisualPreference', data: nextPreference }],
+      { targetNodeIds: { visualPreference: visualPreferenceNode?.id ?? null } }
+    );
     setStatusText(t('commerceAd.agent.statusThinking'));
     void runAgent(
       `${t('commerceAd.agent.visualPreference.syncInstruction')}\n${nextPreference.promptFragment}`,
       undefined,
-      nextPreference
+      nextPreference,
+      'syncVisualPreference'
     );
-  }, [applyActions, runAgent, t, visualPreferenceDraft]);
+  }, [applyActions, runAgent, t, visualPreferenceDraft, visualPreferenceNode?.id]);
 
   const handleInferProduct = useCallback(() => {
     const product = productNode?.data ?? null;
@@ -1528,17 +1742,22 @@ function CommerceAdWorkspaceInner() {
       setStatusText(t('commerceAd.agent.needProductImageBeforeInfer'));
       return;
     }
-    void runAgent(manualProductInfo.trim(), product);
-  }, [manualProductInfo, productNode?.data, productReferenceImages.length, runAgent, t]);
+    void runAgent(composeProductUserInfo(lockedDocumentInfo, userIdeaInfo), product, undefined, 'inferProduct');
+  }, [lockedDocumentInfo, productNode?.data, productReferenceImages.length, runAgent, t, userIdeaInfo]);
 
   const updateBatchConfig = useCallback((data: Partial<CommerceAdBatchGenerateState>) => {
     applyActions([{
       type: 'upsertBatchGenerate',
       data: {
-        aspectRatios: currentRatios,
-        variantsPerRatio: currentVariants,
+        generationMode: 'detailPages',
+        aspectRatios: [currentPageRatio],
+        variantsPerRatio: 1,
         modelId: selectedImageModel.id,
         size: selectedResolution.value,
+        detailPageIds: detailPages.map((page) => page.id),
+        detailPageCount: detailPages.length,
+        detailPages,
+        stylePromptFragment: visualPreferenceDraft.promptFragment,
         ...data,
         status: batchNode?.data.corePrompt ? 'ready' : batchNode?.data.status ?? 'idle',
       },
@@ -1547,18 +1766,16 @@ function CommerceAdWorkspaceInner() {
     applyActions,
     batchNode?.data.corePrompt,
     batchNode?.data.status,
-    currentRatios,
-    currentVariants,
+    currentPageRatio,
+    detailPages,
     selectedImageModel.id,
     selectedResolution.value,
+    visualPreferenceDraft.promptFragment,
   ]);
 
-  const toggleRatio = useCallback((ratio: string) => {
-    const next = currentRatios.includes(ratio)
-      ? currentRatios.filter((item) => item !== ratio)
-      : [...currentRatios, ratio];
-    updateBatchConfig({ aspectRatios: next.length > 0 ? next : [ratio] });
-  }, [currentRatios, updateBatchConfig]);
+  const selectPageRatio = useCallback((ratio: string) => {
+    updateBatchConfig({ aspectRatios: [ratio] });
+  }, [updateBatchConfig]);
 
   const handleImageModelChange = useCallback((modelId: string) => {
     const nextModel = getImageModel(
@@ -1574,12 +1791,12 @@ function CommerceAdWorkspaceInner() {
       { extraParams: {} }
     );
     updateBatchConfig({
-      aspectRatios: resolveCommerceAspectRatiosForModel(nextModel, currentRatios),
+      aspectRatios: [resolveCommerceAspectRatiosForModel(nextModel, [currentPageRatio])[0] ?? nextModel.defaultAspectRatio],
       modelId: nextModel.id,
       size: nextResolution.value,
     });
   }, [
-    currentRatios,
+    currentPageRatio,
     settings.storyboardApi2OkModelConfig,
     settings.storyboardCompatibleModelConfig,
     settings.storyboardNewApiModelConfig,
@@ -1594,13 +1811,149 @@ function CommerceAdWorkspaceInner() {
     handleImageModelChange(nextModelId);
   }, [handleImageModelChange, imageModels]);
 
+  const updateDetailPages = useCallback((pages: CommerceAdDetailPage[]) => {
+    const normalizedPages = normalizeDetailPagesForEditing(pages);
+    applyActions(
+      [
+        {
+          type: 'upsertBrief',
+          data: {
+            detailPages: normalizedPages,
+            updatedAt: Date.now(),
+          },
+        },
+        {
+          type: 'upsertBatchGenerate',
+          data: {
+            generationMode: 'detailPages',
+            aspectRatios: [currentPageRatio],
+            variantsPerRatio: 1,
+            detailPages: normalizedPages,
+            detailPageIds: normalizedPages.map((page) => page.id),
+            detailPageCount: normalizedPages.length,
+            stylePromptFragment: visualPreferenceDraft.promptFragment,
+            modelId: selectedImageModel.id,
+            size: selectedResolution.value,
+            status: batchNode?.data.corePrompt ? 'ready' : batchNode?.data.status ?? 'idle',
+          },
+        },
+      ],
+      {
+        focusLastTouched: false,
+        targetNodeIds: {
+          brief: briefNode?.id ?? null,
+          batch: batchNode?.id ?? null,
+        },
+      }
+    );
+  }, [
+    applyActions,
+    batchNode?.data.corePrompt,
+    batchNode?.data.status,
+    batchNode?.id,
+    briefNode?.id,
+    currentPageRatio,
+    selectedImageModel.id,
+    selectedResolution.value,
+    visualPreferenceDraft.promptFragment,
+  ]);
+
+  const handleAddDetailPage = useCallback(() => {
+    const nextPage = createDetailPageDraft({
+      pageNo: detailPages.length + 1,
+      title: t('commerceAd.agent.detailPages.defaultTitle', { page: detailPages.length + 1 }),
+    });
+    updateDetailPages([...detailPages, nextPage]);
+  }, [detailPages, t, updateDetailPages]);
+
+  const handleDeleteDetailPage = useCallback((pageId: string) => {
+    updateDetailPages(detailPages.filter((page) => page.id !== pageId));
+  }, [detailPages, updateDetailPages]);
+
+  const handleMoveDetailPage = useCallback((pageId: string, direction: -1 | 1) => {
+    const currentIndex = detailPages.findIndex((page) => page.id === pageId);
+    const nextIndex = currentIndex + direction;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= detailPages.length) {
+      return;
+    }
+    const nextPages = [...detailPages];
+    const [page] = nextPages.splice(currentIndex, 1);
+    nextPages.splice(nextIndex, 0, page);
+    updateDetailPages(nextPages);
+  }, [detailPages, updateDetailPages]);
+
+  const handleUpdateDetailPage = useCallback((
+    pageId: string,
+    data: Partial<Omit<CommerceAdDetailPage, 'id' | 'pageNo'>>
+  ) => {
+    updateDetailPages(detailPages.map((page) => (
+      page.id === pageId ? { ...page, ...data } : page
+    )));
+  }, [detailPages, updateDetailPages]);
+
+  const handleAiPaginate = useCallback(() => {
+    const product = {
+      ...mergeProductImages(productNode?.data ?? null, []),
+      detailInputMode,
+      lockedDocumentInfo: lockedDocumentInfo.trim(),
+      userIdeaInfo: userIdeaInfo.trim(),
+      userInfo: composeProductUserInfo(lockedDocumentInfo, userIdeaInfo),
+      lastError: null,
+    };
+    applyActions(
+      [{ type: 'upsertProduct', data: product }],
+      {
+        focusLastTouched: false,
+        targetNodeIds: { product: productNode?.id ?? null },
+      }
+    );
+    void runAgent(
+      [
+        t('commerceAd.agent.detailPages.paginateInstruction'),
+        detailInputMode === 'manualPages'
+          ? t('commerceAd.agent.detailPages.manualPaginateInstruction')
+          : '',
+        detailInputMode === 'manualPages' && detailPages.length > 0
+          ? JSON.stringify(detailPages.map((page) => ({
+              pageNo: page.pageNo,
+              title: page.title,
+              lockedCopy: page.lockedCopy,
+              optimizedCopy: page.optimizedCopy,
+            })), null, 2)
+          : '',
+        product.lockedDocumentInfo
+          ? `${t('commerceAd.agent.lockedDocumentInfoLabel')}\n${product.lockedDocumentInfo}`
+          : '',
+        product.userIdeaInfo
+          ? `${t('commerceAd.agent.userIdeaInfoLabel')}\n${product.userIdeaInfo}`
+          : '',
+      ].filter(Boolean).join('\n\n'),
+      product,
+      undefined,
+      'paginateDetailPages'
+    );
+  }, [
+    applyActions,
+    detailInputMode,
+    detailPages,
+    lockedDocumentInfo,
+    productNode?.data,
+    productNode?.id,
+    runAgent,
+    t,
+    userIdeaInfo,
+  ]);
+
   const handleGenerate = useCallback(async () => {
     const corePrompt =
       batchNode?.data.corePrompt
       || briefNode?.data.normalizedBrief
+      || productNode?.data.lockedDocumentInfo
+      || productNode?.data.userIdeaInfo
       || productNode?.data.userInfo
       || productNode?.data.inference?.summary
       || '';
+    const pagesForGeneration = buildFallbackDetailPages(productNode?.data, briefNode?.data, corePrompt);
     if (!hasResolvedProductInfo) {
       setStatusText(t('commerceAd.agent.needProductInfoBeforeBatch'));
       return;
@@ -1609,7 +1962,14 @@ function CommerceAdWorkspaceInner() {
       setStatusText(t('commerceAd.agent.needBriefBeforeGenerate'));
       return;
     }
-    if (productReferenceImages.length === 0 && !(productNode?.data.userInfo ?? '').trim()) {
+    if (
+      productReferenceImages.length === 0
+      && ![
+        productNode?.data.lockedDocumentInfo,
+        productNode?.data.userIdeaInfo,
+        productNode?.data.userInfo,
+      ].some((value) => value?.trim())
+    ) {
       setStatusText(t('commerceAd.agent.needProductReferenceBeforeGenerate'));
       return;
     }
@@ -1625,7 +1985,12 @@ function CommerceAdWorkspaceInner() {
       return;
     }
 
-    const generationBatch = buildGenerationBatch(batchNode?.data ?? null, corePrompt);
+    const generationBatch = buildDetailPageGenerationBatch(
+      batchNode?.data ?? null,
+      corePrompt,
+      pagesForGeneration,
+      visualPreferenceNode?.data ?? visualPreferenceDraft
+    );
     const referenceImages = productReferenceImages;
     const startedAt = Date.now();
     const generationDurationMs = selectedImageModel.expectedDurationMs ?? 60000;
@@ -1652,7 +2017,12 @@ function CommerceAdWorkspaceInner() {
           generationStartedAt: startedAt,
           generationDurationMs,
           resultKind: 'generic',
-          displayName: `${t('commerceAd.nodes.results')} ${imageRecord.aspectRatio}`,
+          displayName: imageRecord.detailPageNo
+            ? t('commerceAd.agent.detailPages.resultTitle', {
+                page: imageRecord.detailPageNo,
+                title: imageRecord.detailPageTitle || t('commerceAd.agent.detailPages.untitled'),
+              })
+            : `${t('commerceAd.nodes.results')} ${imageRecord.aspectRatio}`,
           aspectRatio: imageRecord.aspectRatio,
           generationSummary: {
             sourceType: 'imageEdit',
@@ -1717,6 +2087,11 @@ function CommerceAdWorkspaceInner() {
           corePrompt,
           aspectRatios: submittedBatch.aspectRatios,
           variantsPerRatio: submittedBatch.variantsPerRatio,
+          generationMode: 'detailPages',
+          detailPageIds: pagesForGeneration.map((page) => page.id),
+          detailPageCount: pagesForGeneration.length,
+          detailPages: pagesForGeneration,
+          stylePromptFragment: (visualPreferenceNode?.data ?? visualPreferenceDraft).promptFragment,
           modelId: selectedImageModel.id,
           size: selectedResolution.value,
           status: 'ready',
@@ -1745,6 +2120,7 @@ function CommerceAdWorkspaceInner() {
     applyActions,
     batchNode?.data,
     batchNode?.id,
+    briefNode?.data,
     briefNode?.data.normalizedBrief,
     hasResolvedProductInfo,
     productNode?.data,
@@ -1756,6 +2132,8 @@ function CommerceAdWorkspaceInner() {
     settings.storyboardApiKeys,
     t,
     updateNodeData,
+    visualPreferenceDraft,
+    visualPreferenceNode?.data,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -1765,11 +2143,16 @@ function CommerceAdWorkspaceInner() {
     }
     setDraft('');
     setSelectedGuidanceChoiceKeys([]);
-    void runAgent(text);
+    void runAgent(text, undefined, undefined, 'chat');
   }, [draft, isThinking, runAgent]);
 
   const activeModuleTitle = t(`commerceAd.agent.modules.${activeModule}.title`);
   const isDetailPageModule = activeModule === 'detailPage';
+  const isInferProductRunning = activeAgentTask === 'inferProduct';
+  const isSyncProductInfoRunning = activeAgentTask === 'syncProductInfo';
+  const isSyncVisualPreferenceRunning = activeAgentTask === 'syncVisualPreference';
+  const isPaginatingDetailPages = activeAgentTask === 'paginateDetailPages';
+  const isChatRunning = activeAgentTask === 'chat';
 
   return (
     <div className="flex h-full min-h-0 w-full bg-bg-base">
@@ -1927,7 +2310,7 @@ function CommerceAdWorkspaceInner() {
               onClick={handleInferProduct}
               disabled={productReferenceImages.length === 0 || isThinking || uploading}
             >
-              {isThinking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {isInferProductRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {t('commerceAd.agent.inferProduct')}
             </UiButton>
           </section>
@@ -1948,7 +2331,7 @@ function CommerceAdWorkspaceInner() {
                 {t('commerceAd.agent.productInfoTitle')}
               </span>
               <span className="mt-1 block text-xs leading-5 text-text-muted">
-                {isProductInfoCollapsed && manualProductInfo.trim()
+                {isProductInfoCollapsed && (lockedDocumentInfo.trim() || userIdeaInfo.trim())
                   ? t('commerceAd.agent.productInfoCollapsedFilled')
                   : t('commerceAd.agent.productInfoHint')}
               </span>
@@ -1956,38 +2339,79 @@ function CommerceAdWorkspaceInner() {
           </button>
           {!isProductInfoCollapsed ? (
             <section ref={productInfoContentRef} className="scroll-mt-[132px] space-y-3 py-3">
-              <UiTextAreaField
-                ref={manualProductInfoRef}
-                value={manualProductInfo}
-                onChange={(event) => setManualProductInfo(event.target.value)}
-                onKeyDown={handleManualProductInfoKeyDown}
-                rows={4}
-                placeholder={t('commerceAd.agent.manualProductPlaceholder')}
-              />
-              <div className="flex flex-wrap gap-1.5">
-                {PRODUCT_INFO_FIELD_KEYS.map((fieldKey) => {
-                  const label = t(`commerceAd.agent.productInfoFields.${fieldKey}`);
-                  return (
-                    <button
-                      key={fieldKey}
-                      type="button"
-                      onClick={() => handleInsertProductInfoField(label)}
-                      className="inline-flex h-7 items-center rounded-full border border-border-dark/70 bg-bg-dark/70 px-3 text-xs text-text-muted transition-colors hover:border-text-dark/25 hover:bg-text-dark/10 hover:text-text-dark"
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
+              <div className="grid grid-cols-2 gap-1 rounded-lg border border-border-dark/70 bg-bg-dark/60 p-1">
+                {(['auto', 'manualPages'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      setDetailInputMode(mode);
+                      if (productNode) {
+                        updateNodeData(productNode.id, { detailInputMode: mode } as Partial<CanvasNodeData>);
+                      }
+                    }}
+                    className={`h-8 rounded-md text-xs font-medium transition-colors ${
+                      detailInputMode === mode
+                        ? 'bg-text-dark/12 text-text-dark'
+                        : 'text-text-muted hover:bg-text-dark/[0.06] hover:text-text-dark'
+                    }`}
+                  >
+                    {t(`commerceAd.agent.detailInputMode.${mode}`)}
+                  </button>
+                ))}
               </div>
+              {detailInputMode === 'auto' ? (
+                <>
+                  <label className="block space-y-1.5 text-xs text-text-muted">
+                    <span>{t('commerceAd.agent.lockedDocumentInfoLabel')}</span>
+                    <UiTextAreaField
+                      value={lockedDocumentInfo}
+                      onChange={(event) => setLockedDocumentInfo(event.target.value)}
+                      rows={4}
+                      placeholder={t('commerceAd.agent.lockedDocumentInfoPlaceholder')}
+                    />
+                  </label>
+                  <label className="block space-y-1.5 text-xs text-text-muted">
+                    <span>{t('commerceAd.agent.userIdeaInfoLabel')}</span>
+                    <UiTextAreaField
+                      ref={userIdeaInfoRef}
+                      value={userIdeaInfo}
+                      onChange={(event) => setUserIdeaInfo(event.target.value)}
+                      onKeyDown={handleManualProductInfoKeyDown}
+                      rows={4}
+                      placeholder={t('commerceAd.agent.userIdeaInfoPlaceholder')}
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRODUCT_INFO_FIELD_KEYS.map((fieldKey) => {
+                      const label = t(`commerceAd.agent.productInfoFields.${fieldKey}`);
+                      return (
+                        <button
+                          key={fieldKey}
+                          type="button"
+                          onClick={() => handleInsertProductInfoField(label)}
+                          className="inline-flex h-7 items-center rounded-full border border-border-dark/70 bg-bg-dark/70 px-3 text-xs text-text-muted transition-colors hover:border-text-dark/25 hover:bg-text-dark/10 hover:text-text-dark"
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : (
+                <div className="rounded-lg border border-border-dark/70 bg-bg-dark/45 px-3 py-2 text-xs leading-5 text-text-muted">
+                  {t('commerceAd.agent.detailInputMode.manualHint')}
+                </div>
+              )}
               <UiButton
                 type="button"
                 size="sm"
                 variant="muted"
                 className="w-full gap-2"
                 onClick={commitManualProductInfo}
-                disabled={!manualProductInfo.trim() || isThinking}
+                disabled={detailInputMode === 'auto' && !(lockedDocumentInfo.trim() || userIdeaInfo.trim()) || isThinking}
               >
-                <Sparkles className="h-3.5 w-3.5" />
+                {isSyncProductInfoRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                 {t('commerceAd.agent.syncProductInfo')}
               </UiButton>
             </section>
@@ -2121,11 +2545,137 @@ function CommerceAdWorkspaceInner() {
                     onClick={handleSyncVisualPreference}
                     disabled={isThinking}
                   >
-                    <Sparkles className="h-3.5 w-3.5" />
+                    {isSyncVisualPreferenceRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
                     {t('commerceAd.agent.visualPreference.sync')}
                   </UiButton>
                 </section>
               ) : null}
+              <section className="space-y-3 border-b border-border-dark/60 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-text-dark">
+                      {t('commerceAd.agent.detailPages.title')}
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-text-muted">
+                      {t('commerceAd.agent.detailPages.hint')}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-1.5">
+                    <UiButton
+                      type="button"
+                      size="sm"
+                      variant="muted"
+                      className="gap-1.5 px-2"
+                      onClick={handleAiPaginate}
+                      disabled={isThinking || !(lockedDocumentInfo.trim() || userIdeaInfo.trim() || briefNode?.data.normalizedBrief)}
+                    >
+                      {isPaginatingDetailPages ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                      {t('commerceAd.agent.detailPages.aiPaginate')}
+                    </UiButton>
+                    <UiButton
+                      type="button"
+                      size="sm"
+                      variant="muted"
+                      className="gap-1.5 px-2"
+                      onClick={handleAddDetailPage}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t('commerceAd.agent.detailPages.add')}
+                    </UiButton>
+                  </div>
+                </div>
+                {detailPages.length > 0 ? (
+                  <div className="space-y-2">
+                    {detailPages.map((page, index) => (
+                      <div
+                        key={page.id}
+                        className="space-y-2 rounded-lg border border-border-dark/70 bg-bg-dark/45 p-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-medium text-text-dark">
+                            {t('commerceAd.agent.detailPages.pageBadge', { page: index + 1 })}
+                          </div>
+                          <div className="flex shrink-0 gap-1">
+                            <button
+                              type="button"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border-dark/70 bg-bg-dark text-text-muted transition-colors hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-40"
+                              onClick={() => handleMoveDetailPage(page.id, -1)}
+                              disabled={index === 0}
+                              title={t('commerceAd.agent.detailPages.moveUp')}
+                              aria-label={t('commerceAd.agent.detailPages.moveUp')}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border-dark/70 bg-bg-dark text-text-muted transition-colors hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-40"
+                              onClick={() => handleMoveDetailPage(page.id, 1)}
+                              disabled={index === detailPages.length - 1}
+                              title={t('commerceAd.agent.detailPages.moveDown')}
+                              aria-label={t('commerceAd.agent.detailPages.moveDown')}
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border-dark/70 bg-bg-dark text-text-muted transition-colors hover:border-rose-400/40 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
+                              onClick={() => handleDeleteDetailPage(page.id)}
+                              disabled={detailPages.length <= 1}
+                              title={t('commerceAd.agent.detailPages.delete')}
+                              aria-label={t('commerceAd.agent.detailPages.delete')}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <label className="block text-xs text-text-muted">
+                          <span>{t('commerceAd.agent.detailPages.pageTitle')}</span>
+                          <UiInput
+                            value={page.title}
+                            className="mt-1"
+                            onChange={(event) => handleUpdateDetailPage(page.id, { title: event.target.value })}
+                            placeholder={t('commerceAd.agent.detailPages.pageTitlePlaceholder')}
+                          />
+                        </label>
+                        <label className="block text-xs text-text-muted">
+                          <span>{t('commerceAd.agent.detailPages.lockedCopy')}</span>
+                          <UiTextAreaField
+                            value={page.lockedCopy}
+                            className="mt-1"
+                            rows={3}
+                            onChange={(event) => handleUpdateDetailPage(page.id, { lockedCopy: event.target.value })}
+                            placeholder={t('commerceAd.agent.detailPages.lockedCopyPlaceholder')}
+                          />
+                        </label>
+                        <label className="block text-xs text-text-muted">
+                          <span>{t('commerceAd.agent.detailPages.optimizedCopy')}</span>
+                          <UiTextAreaField
+                            value={page.optimizedCopy}
+                            className="mt-1"
+                            rows={3}
+                            onChange={(event) => handleUpdateDetailPage(page.id, { optimizedCopy: event.target.value })}
+                            placeholder={t('commerceAd.agent.detailPages.optimizedCopyPlaceholder')}
+                          />
+                        </label>
+                        <label className="block text-xs text-text-muted">
+                          <span>{t('commerceAd.agent.detailPages.layoutNotes')}</span>
+                          <UiTextAreaField
+                            value={page.layoutNotes}
+                            className="mt-1"
+                            rows={2}
+                            onChange={(event) => handleUpdateDetailPage(page.id, { layoutNotes: event.target.value })}
+                            placeholder={t('commerceAd.agent.detailPages.layoutNotesPlaceholder')}
+                          />
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-border-dark/70 bg-bg-dark/45 px-3 py-3 text-xs leading-5 text-text-muted">
+                    {t('commerceAd.agent.detailPages.empty')}
+                  </div>
+                )}
+              </section>
               <button
                 type="button"
                 className="sticky top-[184px] z-30 -mx-4 flex w-[calc(100%+2rem)] items-start gap-2 border-b border-border-dark/60 bg-surface-dark/95 px-4 py-2 text-left backdrop-blur"
@@ -2146,8 +2696,8 @@ function CommerceAdWorkspaceInner() {
                       ? t('commerceAd.agent.batchSettingsSummary', {
                           provider: imageProviderOptions.find((item) => item.id === selectedImageModel.providerId)?.label ?? selectedImageModel.providerId,
                           model: selectedImageModel.displayName,
-                          ratios: currentRatios.join(' / '),
-                          count: currentVariants,
+                          ratio: currentPageRatio,
+                          count: detailPages.length || 1,
                         })
                       : t('commerceAd.agent.batchSettingsHint')}
                   </span>
@@ -2199,12 +2749,12 @@ function CommerceAdWorkspaceInner() {
                   </label>
                   <div className="flex flex-wrap gap-2">
                     {ratioOptions.map((ratio) => {
-                      const active = currentRatios.includes(ratio.value);
+                      const active = currentPageRatio === ratio.value;
                       return (
                         <button
                           key={ratio.value}
                           type="button"
-                          onClick={() => toggleRatio(ratio.value)}
+                          onClick={() => selectPageRatio(ratio.value)}
                           className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors ${
                             active
                               ? 'border-text-dark/30 bg-text-dark/10 text-text-dark'
@@ -2217,19 +2767,12 @@ function CommerceAdWorkspaceInner() {
                       );
                     })}
                   </div>
-                  <label className="block text-xs text-text-muted">
-                    <span>{t('commerceAd.agent.variantsPerRatio')}</span>
-                    <UiInput
-                      type="number"
-                      min={1}
-                      max={8}
-                      value={currentVariants}
-                      className="mt-1"
-                      onChange={(event) => updateBatchConfig({
-                        variantsPerRatio: Math.max(1, Math.min(8, Number(event.target.value) || 1)),
-                      })}
-                    />
-                  </label>
+                  <div className="rounded-lg border border-border-dark/70 bg-bg-dark/45 px-3 py-2 text-xs leading-5 text-text-muted">
+                    {t('commerceAd.agent.detailPages.batchHint', {
+                      count: detailPages.length || 1,
+                      ratio: currentPageRatio,
+                    })}
+                  </div>
                   <UiButton
                     type="button"
                     className="w-full gap-2"
@@ -2312,7 +2855,7 @@ function CommerceAdWorkspaceInner() {
               disabled={!draft.trim() || isThinking}
               aria-label={t('commerceAd.agent.send')}
             >
-              {isThinking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              {isChatRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </UiButton>
           </div>
         </div>

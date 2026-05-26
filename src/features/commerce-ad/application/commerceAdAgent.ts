@@ -5,6 +5,7 @@ import {
   type CommerceAdAgentMessage,
   type CommerceAdBatchGenerateState,
   type CommerceAdBriefState,
+  type CommerceAdDetailPage,
   type CommerceAdDesignDirection,
   type CommerceAdGuidanceQuestion,
   type CommerceAdProductState,
@@ -181,6 +182,36 @@ function readDesignDirections(record: Record<string, unknown>): CommerceAdDesign
     .filter((item): item is CommerceAdDesignDirection => Boolean(item));
 }
 
+function readDetailPages(record: Record<string, unknown>, fallbackLockedCopy: string): CommerceAdDetailPage[] {
+  return readRecordArray(record, 'detailPages')
+    .map((item, index): CommerceAdDetailPage | null => {
+      const title = readString(item, 'title');
+      const lockedCopy = readString(item, 'lockedCopy');
+      const optimizedCopy = readString(item, 'optimizedCopy');
+      const layoutNotes = readString(item, 'layoutNotes');
+      const prompt = readString(item, 'prompt');
+      if (!title && !lockedCopy && !optimizedCopy && !layoutNotes && !prompt) {
+        return null;
+      }
+
+      return {
+        id: normalizeId(readString(item, 'id') || title || `detail-page-${index + 1}`, `detail-page-${index + 1}`),
+        pageNo: Math.max(1, Math.round(Number(item.pageNo) || index + 1)),
+        title,
+        lockedCopy: lockedCopy || (index === 0 ? fallbackLockedCopy : ''),
+        optimizedCopy,
+        layoutNotes,
+        prompt,
+      };
+    })
+    .filter((item): item is CommerceAdDetailPage => Boolean(item))
+    .sort((left, right) => left.pageNo - right.pageNo)
+    .map((item, index) => ({
+      ...item,
+      pageNo: index + 1,
+    }));
+}
+
 function readGuidance(record: Record<string, unknown>): CommerceAdAgentGuidance | undefined {
   const guidanceRecord = readRecord(record, 'guidance');
   if (Object.keys(guidanceRecord).length === 0) {
@@ -299,6 +330,53 @@ function buildFallbackBrief(product: CommerceAdProductState | null, userMessage:
     sellingPoints,
     updatedAt: Date.now(),
   };
+}
+
+function buildDetailFallbackBrief(product: CommerceAdProductState | null, userMessage: string): Partial<CommerceAdBriefState> {
+  const base = buildFallbackBrief(product, userMessage);
+  const lockedDocumentInfo = product?.lockedDocumentInfo?.trim() ?? '';
+  const userIdeaInfo = product?.userIdeaInfo?.trim() || product?.userInfo?.trim() || userMessage.trim();
+  const optimizedUserIdeaInfo = userIdeaInfo ? `围绕详情页目标优化表达：${userIdeaInfo}` : '';
+  const productName = product?.productName || product?.inference?.productType || product?.category || '商品';
+  const normalizedBrief = [
+    base.normalizedBrief,
+    lockedDocumentInfo ? `不可改文档信息：${lockedDocumentInfo}` : '',
+    optimizedUserIdeaInfo,
+  ].filter(Boolean).join('\n');
+
+  return {
+    ...base,
+    normalizedBrief,
+    optimizedUserIdeaInfo,
+    detailPages: [
+      {
+        id: 'detail-page-1',
+        pageNo: 1,
+        title: productName || '产品核心卖点',
+        lockedCopy: lockedDocumentInfo,
+        optimizedCopy: optimizedUserIdeaInfo,
+        layoutNotes: '详情页首屏，突出商品主体、核心卖点和信任信息。',
+        prompt: [
+          `制作电商详情页第 1 页：${productName || '产品核心卖点'}`,
+          lockedDocumentInfo ? `必须原样展示以下文档信息：${lockedDocumentInfo}` : '',
+          optimizedUserIdeaInfo,
+        ].filter(Boolean).join('\n'),
+      },
+    ],
+    updatedAt: Date.now(),
+  };
+}
+
+function buildDetailFallbackCorePrompt(
+  product: CommerceAdProductState | null,
+  brief: Partial<CommerceAdBriefState>
+): string {
+  return [
+    buildFallbackCorePrompt(product, brief),
+    '目标是制作电商详情页分页图片，而不是单张通用广告图；每页一张图，信息主题清晰。',
+    product?.lockedDocumentInfo ? `不可改文档信息必须原样进入相关页面：${product.lockedDocumentInfo}` : '',
+    brief.optimizedUserIdeaInfo ? `用户想法优化表达：${brief.optimizedUserIdeaInfo}` : '',
+  ].filter(Boolean).join(' ');
 }
 
 function buildFallbackCorePrompt(product: CommerceAdProductState | null, brief: Partial<CommerceAdBriefState>): string {
@@ -463,7 +541,13 @@ export async function runCommerceAdAgentTurn(
   const actions: CommerceAdAgentAction[] = [];
   const message = input.userMessage.trim();
 
-  if (input.referenceImages.length > 0 && !input.canUseVisionModel && !input.product?.userInfo.trim()) {
+  if (
+    input.referenceImages.length > 0
+    && !input.canUseVisionModel
+    && !input.product?.userInfo.trim()
+    && !input.product?.lockedDocumentInfo.trim()
+    && !input.product?.userIdeaInfo.trim()
+  ) {
     const assistantMessage = createMessage(
       'assistant',
       '我已经收到商品图，但当前文本模型看起来不支持视觉理解。你可以切换到多模态 LLM 后再反推，或先手动补充商品名称、卖点、目标人群，我会继续帮你完善出图 Brief。',
@@ -515,6 +599,9 @@ export async function runCommerceAdAgentTurn(
         brand: '',
         productName: '',
         category: '',
+        detailInputMode: 'auto',
+        lockedDocumentInfo: '',
+        userIdeaInfo: '',
         userInfo: '',
         inference: {
           summary: '',
@@ -537,6 +624,18 @@ export async function runCommerceAdAgentTurn(
         mustInclude: '',
         constraints: '',
         normalizedBrief: '',
+        optimizedUserIdeaInfo: '',
+        detailPages: [
+          {
+            id: '',
+            pageNo: 1,
+            title: '',
+            lockedCopy: '',
+            optimizedCopy: '',
+            layoutNotes: '',
+            prompt: '',
+          },
+        ],
       },
       visualPreference: {
         designStyle: '智能匹配',
@@ -548,12 +647,15 @@ export async function runCommerceAdAgentTurn(
         promptFragment: '',
       },
       batch: {
-        aspectRatios: ['1:1', '4:5', '9:16'],
-        variantsPerRatio: 4,
+        generationMode: 'detailPages',
+        aspectRatios: ['4:5'],
+        variantsPerRatio: 1,
         corePrompt: '',
         ratioPrompts: {
-          '1:1': '',
+          '4:5': '',
         },
+        detailPageIds: [''],
+        detailPageCount: 1,
       },
     }),
     '',
@@ -562,6 +664,13 @@ export async function runCommerceAdAgentTurn(
     '- 如果用户明确用其他语言要求输出，再跟随用户语言；但用户没有输入或只是上传图片时，必须输出简体中文。',
     '- 品牌名、型号名、平台名、必要的英文广告文案可以保留原文，其余说明尽量中文。',
     '- batch.corePrompt 和 batch.ratioPrompts 也要尽量写中文，保持可读、可直接用于出图。',
+    '- This agent now targets ecommerce detail-page images: output brief.detailPages and plan one generated image per page.',
+    '- product.lockedDocumentInfo is source copy that MUST NOT be rewritten. Copy it verbatim into product.lockedDocumentInfo and into relevant detailPages[].lockedCopy.',
+    '- Never paraphrase lockedDocumentInfo inside optimizedCopy. If a page needs that copy, place the exact original text in lockedCopy and make the page prompt explicitly require it verbatim.',
+    '- product.userIdeaInfo can be optimized for clarity and conversion, but do not change facts. Put the polished version in brief.optimizedUserIdeaInfo and related detailPages[].optimizedCopy.',
+    '- brief.detailPages must contain id, pageNo, title, lockedCopy, optimizedCopy, layoutNotes, prompt. Each prompt should be production-ready for one detail-page image.',
+    '- If product.detailInputMode is manualPages and existing detailPages are provided, preserve page count, page order, pageNo, title, and lockedCopy. Only optimize/fill optimizedCopy, layoutNotes, and prompt.',
+    '- batch.generationMode must be detailPages, variantsPerRatio must be 1, and detailPageCount must match brief.detailPages.length.',
     '- Product inference may use the reference image when provided.',
     '- Act like a Chinese visual design consultant, not a command executor.',
     '- Every assistant reply must explain in Chinese what is understood, what is uncertain, and what the user can choose next.',
@@ -626,12 +735,23 @@ export async function runCommerceAdAgentTurn(
             .filter(([, value]) => value.length > 0)
         )
       : {};
+    const lockedDocumentInfo = readString(productRecord, 'lockedDocumentInfo') || input.product?.lockedDocumentInfo || '';
+    const userIdeaInfo = readString(productRecord, 'userIdeaInfo') || input.product?.userIdeaInfo || input.product?.userInfo || message;
+    const parsedDetailPages = readDetailPages(briefRecord, lockedDocumentInfo);
 
     const productData: Partial<CommerceAdProductState> = {
       brand: readString(productRecord, 'brand') || input.product?.brand || '',
       productName: readString(productRecord, 'productName') || input.product?.productName || '',
       category: readString(productRecord, 'category') || input.product?.category || '',
-      userInfo: readString(productRecord, 'userInfo') || input.product?.userInfo || message,
+      detailInputMode: productRecord.detailInputMode === 'manualPages'
+        ? 'manualPages'
+        : input.product?.detailInputMode ?? 'auto',
+      lockedDocumentInfo,
+      userIdeaInfo,
+      userInfo: readString(productRecord, 'userInfo') || input.product?.userInfo || [
+        lockedDocumentInfo,
+        userIdeaInfo,
+      ].filter(Boolean).join('\n\n'),
       inference: {
         summary: inferenceSummary,
         productType: readString(inferenceRecord, 'productType'),
@@ -655,9 +775,30 @@ export async function runCommerceAdAgentTurn(
       mustInclude: readString(briefRecord, 'mustInclude'),
       constraints: readString(briefRecord, 'constraints'),
       normalizedBrief: briefNormalizedBrief,
+      optimizedUserIdeaInfo: readString(briefRecord, 'optimizedUserIdeaInfo') || userIdeaInfo,
+      detailPages: parsedDetailPages,
       updatedAt: Date.now(),
     };
-    const fallbackBrief = buildFallbackBrief(input.product, message);
+    const fallbackProductForBrief: CommerceAdProductState = {
+      ...(input.product ?? {
+        images: [],
+        brand: '',
+        productName: '',
+        category: '',
+        detailInputMode: 'auto',
+        lockedDocumentInfo: '',
+        userIdeaInfo: '',
+        userInfo: '',
+        inference: null,
+        lastAnalyzedAt: null,
+        lastError: null,
+      }),
+      lockedDocumentInfo,
+      userIdeaInfo,
+      detailInputMode: productData.detailInputMode ?? input.product?.detailInputMode ?? 'auto',
+      userInfo: productData.userInfo ?? '',
+    };
+    const fallbackBrief = buildDetailFallbackBrief(fallbackProductForBrief, message);
     const mergedBrief = {
       ...fallbackBrief,
       ...Object.fromEntries(Object.entries(briefData).filter(([, value]) => (
@@ -682,7 +823,7 @@ export async function runCommerceAdAgentTurn(
       updatedAt: Date.now(),
     };
     const corePrompt = appendVisualPreferenceToPrompt(
-      readString(batchRecord, 'corePrompt') || buildFallbackCorePrompt(input.product, mergedBrief),
+      readString(batchRecord, 'corePrompt') || buildDetailFallbackCorePrompt(fallbackProductForBrief, mergedBrief),
       visualPreferenceData
     );
     const guidanceProduct: CommerceAdProductState = {
@@ -690,6 +831,9 @@ export async function runCommerceAdAgentTurn(
       brand: productData.brand ?? input.product?.brand ?? '',
       productName: productData.productName ?? input.product?.productName ?? '',
       category: productData.category ?? input.product?.category ?? '',
+      detailInputMode: productData.detailInputMode ?? input.product?.detailInputMode ?? 'auto',
+      lockedDocumentInfo: productData.lockedDocumentInfo ?? input.product?.lockedDocumentInfo ?? '',
+      userIdeaInfo: productData.userIdeaInfo ?? input.product?.userIdeaInfo ?? input.product?.userInfo ?? '',
       userInfo: productData.userInfo ?? input.product?.userInfo ?? '',
       inference: productData.inference ?? input.product?.inference ?? null,
       lastAnalyzedAt: productData.lastAnalyzedAt ?? input.product?.lastAnalyzedAt ?? null,
@@ -710,10 +854,11 @@ export async function runCommerceAdAgentTurn(
     actions.push({
       type: 'upsertBatchGenerate',
       data: {
+        generationMode: 'detailPages',
         aspectRatios: readStringArray(batchRecord, 'aspectRatios').length > 0
           ? readStringArray(batchRecord, 'aspectRatios')
-          : input.batch?.aspectRatios ?? ['1:1', '4:5', '9:16'],
-        variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(batchRecord.variantsPerRatio) || input.batch?.variantsPerRatio || 4))),
+          : input.batch?.aspectRatios ?? ['4:5'],
+        variantsPerRatio: 1,
         corePrompt,
         ratioPrompts: Object.fromEntries(
           Object.entries(ratioPrompts).map(([ratio, prompt]) => [
@@ -721,6 +866,10 @@ export async function runCommerceAdAgentTurn(
             appendVisualPreferenceToPrompt(prompt, visualPreferenceData),
           ])
         ),
+        detailPages: mergedBrief.detailPages ?? [],
+        detailPageIds: (mergedBrief.detailPages ?? []).map((page) => page.id),
+        detailPageCount: mergedBrief.detailPages?.length ?? 0,
+        stylePromptFragment: visualPreferenceData.promptFragment,
         status: corePrompt ? 'ready' : 'idle',
       },
     });
@@ -734,7 +883,7 @@ export async function runCommerceAdAgentTurn(
       actions,
     };
   } catch (error) {
-    const fallbackBrief = buildFallbackBrief(input.product, message);
+    const fallbackBrief = buildDetailFallbackBrief(input.product, message);
     const fallbackVisualPreference = buildFallbackVisualPreference(
       input.product,
       fallbackBrief,
@@ -746,10 +895,16 @@ export async function runCommerceAdAgentTurn(
     actions.push({
       type: 'upsertBatchGenerate',
       data: {
+        generationMode: 'detailPages',
         corePrompt: appendVisualPreferenceToPrompt(
-          buildFallbackCorePrompt(input.product, fallbackBrief),
+          buildDetailFallbackCorePrompt(input.product, fallbackBrief),
           fallbackVisualPreference
         ),
+        variantsPerRatio: 1,
+        detailPages: fallbackBrief.detailPages ?? [],
+        detailPageIds: fallbackBrief.detailPages?.map((page) => page.id) ?? [],
+        detailPageCount: fallbackBrief.detailPages?.length ?? 0,
+        stylePromptFragment: fallbackVisualPreference.promptFragment,
         status: 'ready',
       },
     });

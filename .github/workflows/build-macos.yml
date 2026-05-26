@@ -1,0 +1,84 @@
+name: Build macOS Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional app version override (example: 3.1.10)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos-package:
+    name: Build macOS Package
+    runs-on: macos-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Setup Rust (macOS universal target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            node scripts/sync-version.mjs "${{ inputs.version }}"
+            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build macOS DMG
+        shell: bash
+        env:
+          CI: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          unset APPLE_CERTIFICATE
+          unset APPLE_CERTIFICATE_PASSWORD
+          unset APPLE_SIGNING_IDENTITY
+          unset APPLE_ID
+          unset APPLE_PASSWORD
+          unset APPLE_TEAM_ID
+          npx tauri build --target universal-apple-darwin --bundles dmg
+
+      - name: Collect macOS artifact
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          find src-tauri/target/universal-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -exec cp {} artifacts/ \;
+          test "$(find artifacts -maxdepth 1 -name '*.dmg' | wc -l)" -gt 0
+
+      - name: Upload macOS DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: storyboard-copilot-macos-${{ steps.version.outputs.value }}
+          path: artifacts/*.dmg
+          if-no-files-found: error
