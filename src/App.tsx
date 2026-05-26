@@ -16,6 +16,7 @@ import { CloseWithActiveGenerationDialog } from "./components/CloseWithActiveGen
 import { TitleBar } from "./components/TitleBar";
 import { GlobalErrorDialog } from "./components/GlobalErrorDialog";
 import { PsImageToast } from "./components/PsImageToast";
+import { UiLoadingAnimation, UiModal } from "./components/ui";
 import { useThemeStore } from "./stores/themeStore";
 import { useProjectStore } from "./stores/projectStore";
 import { useSettingsStore } from "./stores/settingsStore";
@@ -45,7 +46,14 @@ import {
   type DreaminaSetupDialogDetail,
 } from "./features/jimeng/dreaminaSetupDialogEvents";
 import { initializePsIntegration } from "./stores/psIntegrationStore";
-import { ensureDailyDatabaseBackup } from "./commands/storage";
+import {
+  checkDatabaseHealth,
+  createRotatingDatabaseSnapshot,
+  ensureDailyDatabaseBackup,
+  restoreRotatingDatabaseSnapshot,
+  type DatabaseHealthStatus,
+  type RotatingDatabaseSnapshotRecord,
+} from "./commands/storage";
 import { minimizeMainWindowToTray } from "./commands/system";
 import { useJimengVideoQueueStore } from "./stores/jimengVideoQueueStore";
 import { isJimengVideoQueueTerminalStatus } from "./features/jimeng/domain/jimengVideoQueue";
@@ -89,6 +97,15 @@ import { isTauriRuntime } from "./lib/tauriRuntime";
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
 const MAIN_WINDOW_CLOSE_REQUEST_EVENT = "app:request-main-close";
+
+function sortValidRotatingSnapshots(
+  snapshots: RotatingDatabaseSnapshotRecord[],
+): RotatingDatabaseSnapshotRecord[] {
+  return snapshots
+    .filter((snapshot) => snapshot.valid && snapshot.createdAt != null)
+    .slice()
+    .sort((left, right) => (right.createdAt ?? 0) - (left.createdAt ?? 0));
+}
 
 function hasActiveGenerationFlag(data: unknown): boolean {
   return Boolean((data as { isGenerating?: boolean } | null)?.isGenerating);
@@ -354,6 +371,11 @@ function MainApp() {
     useState<UpdateDownloadProgress | null>(null);
   const [globalError, setGlobalError] =
     useState<GlobalErrorDialogDetail | null>(null);
+  const [databaseRecoveryStatus, setDatabaseRecoveryStatus] =
+    useState<DatabaseHealthStatus | null>(null);
+  const [isRestoringDatabaseSnapshot, setIsRestoringDatabaseSnapshot] =
+    useState(false);
+  const rotatingSnapshotInFlightRef = useRef(false);
   const [dreaminaSetupDetail, setDreaminaSetupDetail] =
     useState<DreaminaSetupDialogDetail | null>(null);
   const [showAppCloseDialog, setShowAppCloseDialog] = useState(false);
@@ -731,6 +753,31 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let cancelled = false;
+    void checkDatabaseHealth()
+      .then((status) => {
+        if (cancelled || status.ok) {
+          return;
+        }
+        if (sortValidRotatingSnapshots(status.snapshots).length === 0) {
+          return;
+        }
+        setDatabaseRecoveryStatus(status);
+      })
+      .catch((error) => {
+        console.warn("failed to check database health", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (showSettings) {
       setSettingsDialogLoaded(true);
     }
@@ -925,9 +972,24 @@ function MainApp() {
       if (isWindowCloseInProgressRef.current) {
         return;
       }
-      void saveCurrentProjectFully({ reason: "interval" }).catch((error) => {
-        console.error("timed full project autosave failed", error);
-      });
+      void (async () => {
+        try {
+          await saveCurrentProjectFully({ reason: "interval" });
+          if (rotatingSnapshotInFlightRef.current) {
+            console.warn("skip rotating database snapshot because previous snapshot is still running");
+            return;
+          }
+
+          rotatingSnapshotInFlightRef.current = true;
+          try {
+            await createRotatingDatabaseSnapshot("interval");
+          } finally {
+            rotatingSnapshotInFlightRef.current = false;
+          }
+        } catch (error) {
+          console.error("timed full project autosave failed", error);
+        }
+      })();
     }, projectFullAutosaveIntervalMinutes * 60 * 1000);
 
     return () => {
@@ -975,6 +1037,36 @@ function MainApp() {
     t,
     waitForCurrentProjectPersistenceIdle,
   ]);
+
+  const validRecoverySnapshots = useMemo(
+    () =>
+      databaseRecoveryStatus
+        ? sortValidRotatingSnapshots(databaseRecoveryStatus.snapshots)
+        : [],
+    [databaseRecoveryStatus],
+  );
+  const preferredRecoverySnapshot = validRecoverySnapshots[0] ?? null;
+
+  const handleRestorePreferredDatabaseSnapshot = useCallback(async () => {
+    if (!preferredRecoverySnapshot || isRestoringDatabaseSnapshot) {
+      return;
+    }
+
+    setIsRestoringDatabaseSnapshot(true);
+    try {
+      await restoreRotatingDatabaseSnapshot(preferredRecoverySnapshot.slot);
+      window.location.reload();
+    } catch (error) {
+      setGlobalError({
+        title: t("settings.databaseRecoveryFailedTitle"),
+        message:
+          error instanceof Error
+            ? error.message
+            : String(error),
+      });
+      setIsRestoringDatabaseSnapshot(false);
+    }
+  }, [isRestoringDatabaseSnapshot, preferredRecoverySnapshot, t]);
 
   const requestWindowClose = useCallback(async () => {
     if (isWindowCloseInProgressRef.current) {
@@ -1357,6 +1449,74 @@ function MainApp() {
         copyText={globalError?.copyText}
         onClose={() => setGlobalError(null)}
       />
+      <UiModal
+        isOpen={Boolean(databaseRecoveryStatus && preferredRecoverySnapshot)}
+        title={t("settings.databaseRecoveryTitle")}
+        onClose={() => {
+          if (!isRestoringDatabaseSnapshot) {
+            setDatabaseRecoveryStatus(null);
+          }
+        }}
+        widthClassName="w-[520px]"
+        footer={
+          <>
+            <button
+              type="button"
+              disabled={isRestoringDatabaseSnapshot}
+              onClick={() => setDatabaseRecoveryStatus(null)}
+              className="inline-flex h-10 items-center justify-center rounded border border-border-dark bg-surface-dark px-3.5 text-sm font-medium text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+            >
+              {t("settings.databaseRecoverySkip")}
+            </button>
+            <button
+              type="button"
+              disabled={isRestoringDatabaseSnapshot || !preferredRecoverySnapshot}
+              onClick={() => void handleRestorePreferredDatabaseSnapshot()}
+              className="inline-flex h-10 items-center justify-center rounded bg-accent px-3.5 text-sm font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
+            >
+              {isRestoringDatabaseSnapshot ? (
+                <>
+                  <UiLoadingAnimation size="sm" className="mr-1.5" />
+                  {t("settings.databaseRecoveryRestoring")}
+                </>
+              ) : (
+                t("settings.databaseRecoveryRestore")
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-text-muted">
+          <p>
+            {t("settings.databaseRecoveryDesc")}
+          </p>
+          <div className="rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-xs">
+            <div className="text-text-dark">
+              {t("settings.databaseRecoveryMainDb")}：{databaseRecoveryStatus?.dbPath ?? ""}
+            </div>
+            <div className="mt-1 break-words">
+              {t("settings.databaseRecoveryReason")}：{databaseRecoveryStatus?.error ?? t("settings.databaseRecoveryUnknown")}
+            </div>
+          </div>
+          {preferredRecoverySnapshot ? (
+            <div className="rounded-lg border border-accent/25 bg-accent/[0.08] px-3 py-2 text-xs">
+              <div className="font-medium text-text-dark">
+                {t("settings.databaseRecoveryRecommendedSnapshot", {
+                  slot: preferredRecoverySnapshot.slot.toUpperCase(),
+                })}
+              </div>
+              <div className="mt-1">
+                {t("settings.databaseRecoveryTime")}：{preferredRecoverySnapshot.createdAt
+                  ? new Date(preferredRecoverySnapshot.createdAt).toLocaleString()
+                  : t("settings.databaseRecoveryUnknown")}
+              </div>
+              <div className="mt-1">
+                {t("settings.databaseRecoverySize")}：{preferredRecoverySnapshot.size} bytes
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </UiModal>
       <CloseWithActiveGenerationDialog
         isOpen={showAppCloseDialog}
         hasActiveGeneration={hasMainWindowActiveGeneration}

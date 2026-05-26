@@ -474,6 +474,8 @@ impl NewApiProvider {
         let lower = trimmed.to_ascii_lowercase();
         let looks_like_google_image_model = lower.contains("imagen")
             || lower.contains("monkey-image")
+            || lower == "monkey-pro"
+            || lower == "monkey-2"
             || (lower.contains("gemini") && (lower.contains("image") || lower.contains("preview")));
         if !looks_like_google_image_model {
             return trimmed.to_string();
@@ -498,6 +500,8 @@ impl NewApiProvider {
         let lower_model = request_model.trim().to_ascii_lowercase();
         let supports_image_size = lower_model.contains("nano-banana-pro")
             || lower_model.contains("monkey-image")
+            || lower_model == "monkey-pro"
+            || lower_model == "monkey-2"
             || lower_model.contains("3.")
             || lower_model.contains("preview");
         if !supports_image_size {
@@ -1157,6 +1161,8 @@ impl NewApiProvider {
         let lower = normalized.to_ascii_lowercase();
         lower.contains("imagen")
             || lower.contains("monkey-image")
+            || lower == "monkey-pro"
+            || lower == "monkey-2"
             || (lower.contains("gemini") && (lower.contains("image") || lower.contains("preview")))
     }
 
@@ -2848,6 +2854,12 @@ mod tests {
         assert!(NewApiProvider::is_flow2api_image_request_model(
             "monkey-image-flash 2"
         ));
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "monkey-pro"
+        ));
+        assert!(NewApiProvider::is_flow2api_image_request_model(
+            "monkey-2"
+        ));
     }
 
     #[test]
@@ -2912,6 +2924,36 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn build_flow2api_openai_extra_body_supports_monkey_alias_models() {
+        for (request_model, size) in [("monkey-2", "2K"), ("monkey-pro", "4K")] {
+            let request = crate::ai::GenerateRequest {
+                prompt: "make it night".to_string(),
+                model: format!("oopii/{}", request_model),
+                size: size.to_string(),
+                aspect_ratio: "16:9".to_string(),
+                reference_images: None,
+                extra_params: None,
+            };
+
+            let extra_body =
+                NewApiProvider::build_flow2api_openai_extra_body(&request, request_model)
+                    .expect("expected extra_body for monkey alias model");
+
+            assert_eq!(
+                extra_body,
+                json!({
+                    "google": {
+                        "image_config": {
+                            "aspect_ratio": "16:9",
+                            "image_size": size,
+                        }
+                    }
+                })
+            );
+        }
     }
 
     #[test]

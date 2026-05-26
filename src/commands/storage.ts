@@ -27,6 +27,25 @@ export interface RestoreDatabaseBackupResult {
   safetyBackup: DatabaseBackupRecord | null;
 }
 
+export type RotatingDatabaseSnapshotSlot = 'a' | 'b';
+export type RotatingDatabaseSnapshotReason = 'interval' | 'manual';
+
+export interface RotatingDatabaseSnapshotRecord {
+  slot: RotatingDatabaseSnapshotSlot;
+  path: string;
+  createdAt: number | null;
+  size: number;
+  valid: boolean;
+  error: string | null;
+}
+
+export interface DatabaseHealthStatus {
+  ok: boolean;
+  dbPath: string;
+  error: string | null;
+  snapshots: RotatingDatabaseSnapshotRecord[];
+}
+
 export interface StorageAdoptionResult {
   previousPath: string;
   adoptedPath: string;
@@ -85,6 +104,26 @@ export async function restoreDatabaseBackup(
   backupId: string
 ): Promise<RestoreDatabaseBackupResult> {
   return invoke<RestoreDatabaseBackupResult>('restore_database_backup', { backupId });
+}
+
+export async function listRotatingDatabaseSnapshots(): Promise<RotatingDatabaseSnapshotRecord[]> {
+  return invoke<RotatingDatabaseSnapshotRecord[]>('list_rotating_database_snapshots');
+}
+
+export async function createRotatingDatabaseSnapshot(
+  reason: RotatingDatabaseSnapshotReason
+): Promise<RotatingDatabaseSnapshotRecord> {
+  return invoke<RotatingDatabaseSnapshotRecord>('create_rotating_database_snapshot', { reason });
+}
+
+export async function restoreRotatingDatabaseSnapshot(
+  slot: RotatingDatabaseSnapshotSlot
+): Promise<RestoreDatabaseBackupResult> {
+  return invoke<RestoreDatabaseBackupResult>('restore_rotating_database_snapshot', { slot });
+}
+
+export async function checkDatabaseHealth(): Promise<DatabaseHealthStatus> {
+  return invoke<DatabaseHealthStatus>('check_database_health');
 }
 
 export async function migrateStorage(

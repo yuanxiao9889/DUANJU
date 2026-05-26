@@ -2,6 +2,7 @@ export type SettingsCategory =
   | 'providers'
   | 'appearance'
   | 'canvasPerformance'
+  | 'dataStorage'
   | 'general'
   | 'releaseNotes'
   | 'experimental'

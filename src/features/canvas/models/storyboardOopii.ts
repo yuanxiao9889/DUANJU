@@ -121,6 +121,8 @@ function inferStoryboardOopiiApiFormat(
     normalizedRequestModel.includes('gemini')
     || normalizedRequestModel.includes('imagen')
     || normalizedRequestModel.includes('monkey-image')
+    || normalizedRequestModel === 'monkey-pro'
+    || normalizedRequestModel === 'monkey-2'
   ) {
     return 'gemini';
   }

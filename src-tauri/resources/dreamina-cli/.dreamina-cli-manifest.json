@@ -1,6 +1,14 @@
 {
   "installerUrl": "https://jimeng.jianying.com/cli",
   "downloadBase": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta",
+  "artifacts": [
+    {
+      "platform": "windows_amd64",
+      "binaryName": "dreamina_cli_windows_amd64.exe",
+      "binaryUrl": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta/dreamina_cli_windows_amd64.exe",
+      "relativeOutputPath": "bin/dreamina.exe"
+    }
+  ],
   "binaryName": "dreamina_cli_windows_amd64.exe",
   "binaryUrl": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta/dreamina_cli_windows_amd64.exe",
   "skillUrl": "https://lf3-static.bytednsdoc.com/obj/eden-cn/psj_hupthlyk/ljhwZthlaukjlkulzlp/dreamina_cli_beta/SKILL.md",
@@ -8,5 +16,5 @@
   "version": "1.4.3",
   "releaseDate": "2026-05-07",
   "releaseNotes": "支持seedance 2.0 vip模型下生成1080p素材",
-  "preparedAt": "2026-05-08T14:11:39.386Z"
+  "preparedAt": "2026-05-26T01:29:46.401Z"
 }

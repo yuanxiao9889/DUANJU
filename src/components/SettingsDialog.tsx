@@ -35,14 +35,18 @@ import { testProviderConnection } from '@/commands/textGen';
 import { 
   getStorageInfo, 
   listDatabaseBackups,
+  listRotatingDatabaseSnapshots,
   createDatabaseBackup,
+  createRotatingDatabaseSnapshot,
   restoreDatabaseBackup,
+  restoreRotatingDatabaseSnapshot,
   migrateStorage, 
   adoptExistingStoragePath,
   openStorageFolder, 
   selectStorageFolder, 
   formatBytes,
   type DatabaseBackupRecord,
+  type RotatingDatabaseSnapshotRecord,
   type StorageInfo 
 } from '@/commands/storage';
 import { UiCheckbox, UiLoadingAnimation, UiModal, UiSelect } from '@/components/ui';
@@ -794,6 +798,13 @@ export function SettingsDialog({
   const [isRestoringDatabaseBackup, setIsRestoringDatabaseBackup] = useState(false);
   const [databaseBackupError, setDatabaseBackupError] = useState<string | null>(null);
   const [restoreBackupTarget, setRestoreBackupTarget] = useState<DatabaseBackupRecord | null>(null);
+  const [rotatingSnapshots, setRotatingSnapshots] = useState<RotatingDatabaseSnapshotRecord[]>([]);
+  const [isLoadingRotatingSnapshots, setIsLoadingRotatingSnapshots] = useState(false);
+  const [isCreatingRotatingSnapshot, setIsCreatingRotatingSnapshot] = useState(false);
+  const [isRestoringRotatingSnapshot, setIsRestoringRotatingSnapshot] = useState(false);
+  const [rotatingSnapshotError, setRotatingSnapshotError] = useState<string | null>(null);
+  const [restoreRotatingSnapshotTarget, setRestoreRotatingSnapshotTarget] =
+    useState<RotatingDatabaseSnapshotRecord | null>(null);
   const [isMigrating, setIsMigrating] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
   const [isThumbnailRefreshConfirmOpen, setIsThumbnailRefreshConfirmOpen] = useState(false);
@@ -1311,6 +1322,35 @@ export function SettingsDialog({
     }
   }, []);
 
+  const loadRotatingSnapshots = useCallback(async () => {
+    setIsLoadingRotatingSnapshots(true);
+    try {
+      const snapshots = await listRotatingDatabaseSnapshots();
+      setRotatingSnapshots(snapshots);
+    } catch (error) {
+      console.error('Failed to load rotating database snapshots:', error);
+      setRotatingSnapshots([]);
+    } finally {
+      setIsLoadingRotatingSnapshots(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen || activeCategory !== 'dataStorage') {
+      return;
+    }
+
+    void loadStorageInfo();
+    void loadDatabaseBackups();
+    void loadRotatingSnapshots();
+  }, [
+    activeCategory,
+    isOpen,
+    loadDatabaseBackups,
+    loadRotatingSnapshots,
+    loadStorageInfo,
+  ]);
+
   useEffect(() => {
     if (!isOpen || activeCategory !== 'general') {
       return;
@@ -1320,13 +1360,9 @@ export function SettingsDialog({
       refreshDreaminaStatus({ silent: true }),
       refreshDreaminaUpdateInfo({ silent: true }),
     ]);
-    void loadStorageInfo();
-    void loadDatabaseBackups();
   }, [
     activeCategory,
     isOpen,
-    loadDatabaseBackups,
-    loadStorageInfo,
     refreshDreaminaStatus,
     refreshDreaminaUpdateInfo,
   ]);
@@ -1402,6 +1438,54 @@ export function SettingsDialog({
     isRestoringDatabaseBackup,
     loadDatabaseBackups,
     loadStorageInfo,
+  ]);
+
+  const handleRefreshRotatingSnapshots = useCallback(async () => {
+    setRotatingSnapshotError(null);
+    await loadRotatingSnapshots();
+  }, [loadRotatingSnapshots]);
+
+  const handleCreateRotatingSnapshot = useCallback(async () => {
+    if (isCreatingRotatingSnapshot || isRestoringRotatingSnapshot) {
+      return;
+    }
+
+    try {
+      setRotatingSnapshotError(null);
+      setIsCreatingRotatingSnapshot(true);
+      await createRotatingDatabaseSnapshot('manual');
+      await Promise.all([loadStorageInfo(), loadRotatingSnapshots()]);
+    } catch (error) {
+      setRotatingSnapshotError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingRotatingSnapshot(false);
+    }
+  }, [
+    isCreatingRotatingSnapshot,
+    isRestoringRotatingSnapshot,
+    loadRotatingSnapshots,
+    loadStorageInfo,
+  ]);
+
+  const handleConfirmRestoreRotatingSnapshot = useCallback(async () => {
+    if (!restoreRotatingSnapshotTarget || isRestoringRotatingSnapshot || isMigrating) {
+      return;
+    }
+
+    try {
+      setRotatingSnapshotError(null);
+      setIsRestoringRotatingSnapshot(true);
+      await restoreRotatingDatabaseSnapshot(restoreRotatingSnapshotTarget.slot);
+      window.location.reload();
+    } catch (error) {
+      setRotatingSnapshotError(error instanceof Error ? error.message : String(error));
+      setIsRestoringRotatingSnapshot(false);
+      setRestoreRotatingSnapshotTarget(null);
+    }
+  }, [
+    isMigrating,
+    isRestoringRotatingSnapshot,
+    restoreRotatingSnapshotTarget,
   ]);
 
   const handleConfirmRestoreDatabaseBackup = useCallback(async () => {
@@ -2130,6 +2214,20 @@ export function SettingsDialog({
               `}
               >
                 <span className="text-sm">{t('settings.canvasPerformance')}</span>
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('dataStorage')}
+                className={`
+                w-full flex items-center gap-3 px-4 py-2.5 text-left
+                transition-colors
+                ${activeCategory === 'dataStorage'
+                    ? 'bg-accent/10 text-text-dark border-l-2 border-accent'
+                    : 'text-text-muted hover:bg-bg-dark hover:text-text-dark'
+                  }
+              `}
+              >
+                <span className="text-sm">{t('settings.dataStorage')}</span>
               </button>
 
               <button
@@ -3459,32 +3557,6 @@ export function SettingsDialog({
                           ))}
                         </UiSelect>
                       </label>
-
-                      <label className="block">
-                        <span className="text-xs font-medium text-text-dark">
-                          {t('settings.projectFullAutosaveInterval')}
-                        </span>
-                        <span className="mt-1 block text-[11px] leading-5 text-text-muted">
-                          {t('settings.projectFullAutosaveIntervalDesc')}
-                        </span>
-                        <UiSelect
-                          value={String(localProjectFullAutosaveIntervalMinutes)}
-                          onChange={(event) =>
-                            setLocalProjectFullAutosaveIntervalMinutes(
-                              Number(event.target.value) as ProjectFullAutosaveIntervalMinutes
-                            )
-                          }
-                          className="mt-2 h-9 text-sm"
-                        >
-                          {PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES_OPTIONS.map((minutes) => (
-                            <option key={minutes} value={minutes}>
-                              {t('settings.projectFullAutosaveIntervalOption', {
-                                count: minutes,
-                              })}
-                            </option>
-                          ))}
-                        </UiSelect>
-                      </label>
                     </div>
                   </div>
                 </div>
@@ -3853,6 +3925,178 @@ export function SettingsDialog({
                     </div>
                   </div>
 
+                </div>
+
+                <div className="flex justify-end border-t border-border-dark px-6 py-4">
+                  <button
+                    onClick={handleSave}
+                    className="rounded bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/80"
+                  >
+                    {t('common.save')}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {activeCategory === 'dataStorage' && (
+              <>
+                <div className="px-6 py-5 border-b border-border-dark">
+                  <h2 className="text-lg font-semibold text-text-dark">
+                    {t('settings.dataStorage')}
+                  </h2>
+                  <p className="text-sm text-text-muted mt-1">
+                    {t('settings.dataStorageDesc')}
+                  </p>
+                </div>
+
+                <div className="ui-scrollbar flex-1 space-y-4 overflow-y-auto p-6">
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="mb-3">
+                      <h3 className="text-sm font-medium text-text-dark">
+                        {t('settings.projectAutosaveTitle')}
+                      </h3>
+                      <p className="mt-1 text-xs text-text-muted">
+                        {t('settings.projectAutosaveDesc')}
+                      </p>
+                    </div>
+
+                    <label className="block max-w-sm">
+                      <span className="text-xs font-medium text-text-dark">
+                        {t('settings.projectFullAutosaveInterval')}
+                      </span>
+                      <span className="mt-1 block text-[11px] leading-5 text-text-muted">
+                        {t('settings.projectFullAutosaveIntervalDesc')}
+                      </span>
+                      <UiSelect
+                        value={String(localProjectFullAutosaveIntervalMinutes)}
+                        onChange={(event) =>
+                          setLocalProjectFullAutosaveIntervalMinutes(
+                            Number(event.target.value) as ProjectFullAutosaveIntervalMinutes
+                          )
+                        }
+                        className="mt-2 h-9 text-sm"
+                      >
+                        {PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES_OPTIONS.map((minutes) => (
+                          <option key={minutes} value={minutes}>
+                            {t('settings.projectFullAutosaveIntervalOption', {
+                              count: minutes,
+                            })}
+                          </option>
+                        ))}
+                      </UiSelect>
+                    </label>
+                  </div>
+
+                  <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
+                    <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-medium text-text-dark">
+                          {t('settings.rotatingSnapshotsTitle')}
+                        </h3>
+                        <p className="mt-1 text-xs text-text-muted">
+                          {t('settings.rotatingSnapshotsDesc')}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={isLoadingRotatingSnapshots}
+                          onClick={() => void handleRefreshRotatingSnapshots()}
+                          className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+                        >
+                          {isLoadingRotatingSnapshots ? (
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
+                          ) : (
+                            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                          )}
+                          {t('settings.refreshRotatingSnapshots')}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isCreatingRotatingSnapshot || isRestoringRotatingSnapshot}
+                          onClick={() => void handleCreateRotatingSnapshot()}
+                          className="inline-flex h-9 items-center justify-center rounded border border-border-dark bg-surface-dark px-3 text-xs text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+                        >
+                          {isCreatingRotatingSnapshot ? (
+                            <UiLoadingAnimation size="xs" className="mr-1.5" />
+                          ) : (
+                            <Plus className="mr-1.5 h-3.5 w-3.5" />
+                          )}
+                          {t('settings.createRotatingSnapshotNow')}
+                        </button>
+                      </div>
+                    </div>
+
+                    {rotatingSnapshotError && (
+                      <div className="mb-3 rounded border border-red-500/30 bg-red-500/10 p-2 text-xs text-red-400">
+                        {rotatingSnapshotError}
+                      </div>
+                    )}
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {(['a', 'b'] as const).map((slot) => {
+                        const snapshot = rotatingSnapshots.find((item) => item.slot === slot);
+                        const isValid = Boolean(snapshot?.valid);
+                        return (
+                          <div
+                            key={slot}
+                            className="rounded border border-border-dark bg-surface-dark p-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <h4 className="text-xs font-medium text-text-dark">
+                                {t('settings.rotatingSnapshotSlot', {
+                                  slot: slot.toUpperCase(),
+                                })}
+                              </h4>
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                                  isValid
+                                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                    : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                                }`}
+                              >
+                                {isValid
+                                  ? t('settings.rotatingSnapshotValid')
+                                  : t('settings.rotatingSnapshotInvalid')}
+                              </span>
+                            </div>
+                            <div className="mt-2 space-y-1 text-xs text-text-muted">
+                              <div>
+                                {t('settings.rotatingSnapshotTime')}:{' '}
+                                {snapshot?.createdAt
+                                  ? new Date(snapshot.createdAt).toLocaleString()
+                                  : t('settings.rotatingSnapshotEmpty')}
+                              </div>
+                              <div>
+                                {t('settings.rotatingSnapshotSize')}:{' '}
+                                {formatBytes(snapshot?.size ?? 0)}
+                              </div>
+                              {snapshot?.error && (
+                                <div className="break-words text-amber-300">
+                                  {snapshot.error}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              disabled={!isValid || isRestoringRotatingSnapshot || isMigrating}
+                              onClick={() => {
+                                if (snapshot) {
+                                  setRotatingSnapshotError(null);
+                                  setRestoreRotatingSnapshotTarget(snapshot);
+                                }
+                              }}
+                              className="mt-3 inline-flex h-8 items-center justify-center rounded border border-border-dark bg-bg-dark px-2.5 text-[11px] text-text-dark transition-colors hover:bg-surface-dark disabled:opacity-50"
+                            >
+                              <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                              {t('settings.restoreRotatingSnapshot')}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
                   <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
                     <div className="mb-3">
                       <h3 className="text-sm font-medium text-text-dark flex items-center gap-2">
@@ -3944,7 +4188,7 @@ export function SettingsDialog({
                           </div>
                         )}
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <button
                             type="button"
                             disabled={isMigrating}
@@ -4514,6 +4758,57 @@ export function SettingsDialog({
           </div>
         </div>
       </div>
+      <UiModal
+        isOpen={Boolean(restoreRotatingSnapshotTarget)}
+        title={t('settings.restoreRotatingSnapshotConfirmTitle')}
+        onClose={() => {
+          if (!isRestoringRotatingSnapshot) {
+            setRestoreRotatingSnapshotTarget(null);
+          }
+        }}
+        footer={
+          <>
+            <button
+              type="button"
+              disabled={isRestoringRotatingSnapshot}
+              onClick={() => setRestoreRotatingSnapshotTarget(null)}
+              className="inline-flex h-10 items-center justify-center rounded border border-border-dark bg-surface-dark px-3.5 text-sm font-medium text-text-dark transition-colors hover:bg-bg-dark disabled:opacity-50"
+            >
+              {t('common.cancel')}
+            </button>
+            <button
+              type="button"
+              disabled={isRestoringRotatingSnapshot}
+              onClick={() => void handleConfirmRestoreRotatingSnapshot()}
+              className="inline-flex h-10 items-center justify-center rounded bg-accent px-3.5 text-sm font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-50"
+            >
+              {isRestoringRotatingSnapshot ? (
+                <>
+                  <UiLoadingAnimation size="sm" className="mr-1.5" />
+                  {t('settings.restoringBackup')}
+                </>
+              ) : (
+                t('settings.restoreBackupConfirmAction')
+              )}
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-text-muted">
+            {t('settings.restoreRotatingSnapshotConfirmDesc', {
+              slot: restoreRotatingSnapshotTarget?.slot.toUpperCase() ?? '',
+              time: restoreRotatingSnapshotTarget?.createdAt
+                ? new Date(restoreRotatingSnapshotTarget.createdAt).toLocaleString()
+                : '',
+            })}
+          </p>
+          <div className="rounded-lg border border-border-dark bg-bg-dark px-3 py-2 text-xs text-text-muted">
+            <div className="break-all text-text-dark">{restoreRotatingSnapshotTarget?.path ?? ''}</div>
+            <div className="mt-1">{t('settings.restoreBackupSafetyNote')}</div>
+          </div>
+        </div>
+      </UiModal>
       <UiModal
         isOpen={Boolean(restoreBackupTarget)}
         title={t('settings.restoreBackupConfirmTitle')}

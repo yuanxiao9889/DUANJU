@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, DatabaseName};
+use rusqlite::{Connection, DatabaseName, OpenFlags};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -43,6 +43,10 @@ const AUTO_DATABASE_BACKUP_KIND: &str = "auto";
 const MANUAL_DATABASE_BACKUP_KIND: &str = "manual";
 const PRE_RESTORE_DATABASE_BACKUP_KIND: &str = "pre_restore";
 pub(crate) const PRE_PERSIST_DATABASE_BACKUP_KIND: &str = "pre_persist";
+const ROTATING_DATABASE_SNAPSHOT_SLOT_A: &str = "a";
+const ROTATING_DATABASE_SNAPSHOT_SLOT_B: &str = "b";
+const ROTATING_DATABASE_SNAPSHOT_FILE_A: &str = "slot-a.db";
+const ROTATING_DATABASE_SNAPSHOT_FILE_B: &str = "slot-b.db";
 const AUTO_DATABASE_BACKUP_INTERVAL_MS: i64 = 24 * 60 * 60 * 1000;
 const AUTO_DATABASE_BACKUP_RETENTION_COUNT: usize = 7;
 const PRE_RESTORE_DATABASE_BACKUP_RETENTION_COUNT: usize = 2;
@@ -1651,6 +1655,29 @@ fn open_sqlite_connection(path: &Path) -> Result<Connection, String> {
     Ok(conn)
 }
 
+fn validate_sqlite_database(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!("Database file does not exist: {}", path.display()));
+    }
+
+    let metadata = fs::metadata(path)
+        .map_err(|e| format!("Failed to read database metadata: {}", e))?;
+    if metadata.len() == 0 {
+        return Err(format!("Database file is empty: {}", path.display()));
+    }
+
+    let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Failed to open SQLite DB for validation: {}", e))?;
+    let result: String = conn
+        .query_row("PRAGMA quick_check", [], |row| row.get(0))
+        .map_err(|e| format!("Failed to run database quick_check: {}", e))?;
+    if result.eq_ignore_ascii_case("ok") {
+        Ok(())
+    } else {
+        Err(format!("Database quick_check failed: {}", result))
+    }
+}
+
 fn is_protected_storage_child_dir(path: &Path) -> bool {
     if !path.is_dir() {
         return false;
@@ -2108,6 +2135,26 @@ pub struct RestoreDatabaseBackupResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RotatingDatabaseSnapshotRecord {
+    pub slot: String,
+    pub path: String,
+    pub created_at: Option<i64>,
+    pub size: u64,
+    pub valid: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseHealthStatus {
+    pub ok: bool,
+    pub db_path: String,
+    pub error: Option<String>,
+    pub snapshots: Vec<RotatingDatabaseSnapshotRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StorageMigrationValidation {
     pub source_project_count: i64,
     pub target_project_count: i64,
@@ -2304,6 +2351,110 @@ fn resolve_database_backup_file(app: &AppHandle, backup_id: &str) -> Result<Path
     Ok(backup_path)
 }
 
+fn resolve_rotating_database_snapshots_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let backups_dir = resolve_db_backups_dir(app)?;
+    let rotating_dir = backups_dir.join("rotating");
+    fs::create_dir_all(&rotating_dir)
+        .map_err(|e| format!("Failed to create rotating database snapshots dir: {}", e))?;
+    Ok(rotating_dir)
+}
+
+fn normalize_rotating_database_snapshot_slot(slot: &str) -> Result<&'static str, String> {
+    match slot.trim().to_ascii_lowercase().as_str() {
+        ROTATING_DATABASE_SNAPSHOT_SLOT_A => Ok(ROTATING_DATABASE_SNAPSHOT_SLOT_A),
+        ROTATING_DATABASE_SNAPSHOT_SLOT_B => Ok(ROTATING_DATABASE_SNAPSHOT_SLOT_B),
+        _ => Err("Invalid rotating snapshot slot".to_string()),
+    }
+}
+
+fn rotating_database_snapshot_file_name(slot: &str) -> Result<&'static str, String> {
+    match normalize_rotating_database_snapshot_slot(slot)? {
+        ROTATING_DATABASE_SNAPSHOT_SLOT_A => Ok(ROTATING_DATABASE_SNAPSHOT_FILE_A),
+        ROTATING_DATABASE_SNAPSHOT_SLOT_B => Ok(ROTATING_DATABASE_SNAPSHOT_FILE_B),
+        _ => Err("Invalid rotating snapshot slot".to_string()),
+    }
+}
+
+fn rotating_database_snapshot_path(app: &AppHandle, slot: &str) -> Result<PathBuf, String> {
+    let rotating_dir = resolve_rotating_database_snapshots_dir(app)?;
+    Ok(rotating_dir.join(rotating_database_snapshot_file_name(slot)?))
+}
+
+fn read_rotating_database_snapshot_record(
+    app: &AppHandle,
+    slot: &str,
+) -> Result<RotatingDatabaseSnapshotRecord, String> {
+    let slot = normalize_rotating_database_snapshot_slot(slot)?;
+    let path = rotating_database_snapshot_path(app, slot)?;
+    if !path.exists() {
+        return Ok(RotatingDatabaseSnapshotRecord {
+            slot: slot.to_string(),
+            path: path.to_string_lossy().to_string(),
+            created_at: None,
+            size: 0,
+            valid: false,
+            error: Some("Snapshot has not been created yet".to_string()),
+        });
+    }
+
+    let metadata = fs::metadata(&path)
+        .map_err(|e| format!("Failed to read rotating snapshot metadata: {}", e))?;
+    let created_at = metadata
+        .modified()
+        .map(system_time_to_timestamp_ms)
+        .ok();
+    match validate_sqlite_database(&path) {
+        Ok(()) => Ok(RotatingDatabaseSnapshotRecord {
+            slot: slot.to_string(),
+            path: path.to_string_lossy().to_string(),
+            created_at,
+            size: metadata.len(),
+            valid: true,
+            error: None,
+        }),
+        Err(error) => Ok(RotatingDatabaseSnapshotRecord {
+            slot: slot.to_string(),
+            path: path.to_string_lossy().to_string(),
+            created_at,
+            size: metadata.len(),
+            valid: false,
+            error: Some(error),
+        }),
+    }
+}
+
+fn list_rotating_database_snapshot_records(
+    app: &AppHandle,
+) -> Result<Vec<RotatingDatabaseSnapshotRecord>, String> {
+    Ok(vec![
+        read_rotating_database_snapshot_record(app, ROTATING_DATABASE_SNAPSHOT_SLOT_A)?,
+        read_rotating_database_snapshot_record(app, ROTATING_DATABASE_SNAPSHOT_SLOT_B)?,
+    ])
+}
+
+fn resolve_next_rotating_database_snapshot_slot(
+    records: &[RotatingDatabaseSnapshotRecord],
+) -> &'static str {
+    let slot_a = records
+        .iter()
+        .find(|record| record.slot == ROTATING_DATABASE_SNAPSHOT_SLOT_A);
+    let slot_b = records
+        .iter()
+        .find(|record| record.slot == ROTATING_DATABASE_SNAPSHOT_SLOT_B);
+
+    match (
+        slot_a.and_then(|record| record.created_at),
+        slot_b.and_then(|record| record.created_at),
+    ) {
+        (None, _) => ROTATING_DATABASE_SNAPSHOT_SLOT_A,
+        (_, None) => ROTATING_DATABASE_SNAPSHOT_SLOT_B,
+        (Some(a_created_at), Some(b_created_at)) if a_created_at <= b_created_at => {
+            ROTATING_DATABASE_SNAPSHOT_SLOT_A
+        }
+        _ => ROTATING_DATABASE_SNAPSHOT_SLOT_B,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StorageInfo {
@@ -2447,6 +2598,122 @@ pub fn restore_database_backup(
         restored_backup_id: backup_id,
         safety_backup,
     })
+}
+
+#[tauri::command]
+pub fn list_rotating_database_snapshots(
+    app: AppHandle,
+) -> Result<Vec<RotatingDatabaseSnapshotRecord>, String> {
+    ensure_storage_session_write_allowed(&app)?;
+    list_rotating_database_snapshot_records(&app)
+}
+
+#[tauri::command]
+pub fn create_rotating_database_snapshot(
+    app: AppHandle,
+    reason: String,
+) -> Result<RotatingDatabaseSnapshotRecord, String> {
+    ensure_storage_session_write_allowed(&app)?;
+    let source_db_path = resolve_db_path(&app)?;
+    if !source_db_path.exists() {
+        return Err("Database file does not exist yet".to_string());
+    }
+
+    validate_sqlite_database(&source_db_path)?;
+    let records = list_rotating_database_snapshot_records(&app)?;
+    let slot = resolve_next_rotating_database_snapshot_slot(&records);
+    let target_path = rotating_database_snapshot_path(&app, slot)?;
+
+    copy_database_safely(&source_db_path, &target_path)?;
+    validate_sqlite_database(&target_path)?;
+
+    info!(
+        "created rotating database snapshot slot {} for reason {}",
+        slot, reason
+    );
+
+    read_rotating_database_snapshot_record(&app, slot)
+}
+
+#[tauri::command]
+pub fn restore_rotating_database_snapshot(
+    app: AppHandle,
+    slot: String,
+) -> Result<RestoreDatabaseBackupResult, String> {
+    ensure_storage_session_write_allowed(&app)?;
+    let normalized_slot = normalize_rotating_database_snapshot_slot(&slot)?;
+    let snapshot_path = rotating_database_snapshot_path(&app, normalized_slot)?;
+    validate_sqlite_database(&snapshot_path)?;
+
+    let target_db_path = resolve_db_path(&app)?;
+    let safety_backup = if target_db_path.exists() {
+        let size = fs::metadata(&target_db_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
+        if size > 0 {
+            Some(create_database_backup_internal(
+                &app,
+                PRE_RESTORE_DATABASE_BACKUP_KIND,
+            )?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    restore_database_from_backup(&snapshot_path, &target_db_path)?;
+    prune_database_backups(&app)?;
+
+    Ok(RestoreDatabaseBackupResult {
+        restored_backup_id: format!("rotating-slot-{}", normalized_slot),
+        safety_backup,
+    })
+}
+
+#[tauri::command]
+pub fn check_database_health(app: AppHandle) -> Result<DatabaseHealthStatus, String> {
+    ensure_storage_session_write_allowed(&app)?;
+    let db_path = resolve_db_path(&app)?;
+    if !db_path.exists() {
+        return Ok(DatabaseHealthStatus {
+            ok: true,
+            db_path: db_path.to_string_lossy().to_string(),
+            error: None,
+            snapshots: list_rotating_database_snapshot_records(&app)?,
+        });
+    }
+
+    let health_result = validate_sqlite_database(&db_path).and_then(|_| {
+        let conn = open_sqlite_connection(&db_path)?;
+        let project_tables: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'projects'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to inspect projects table: {}", e))?;
+        if project_tables > 0 {
+            Ok(())
+        } else {
+            Err("Database is readable but the projects table is missing".to_string())
+        }
+    });
+
+    match health_result {
+        Ok(()) => Ok(DatabaseHealthStatus {
+            ok: true,
+            db_path: db_path.to_string_lossy().to_string(),
+            error: None,
+            snapshots: list_rotating_database_snapshot_records(&app)?,
+        }),
+        Err(error) => Ok(DatabaseHealthStatus {
+            ok: false,
+            db_path: db_path.to_string_lossy().to_string(),
+            error: Some(error),
+            snapshots: list_rotating_database_snapshot_records(&app)?,
+        }),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2802,10 +3069,13 @@ pub fn open_storage_folder(app: AppHandle, storage_path: Option<String>) -> Resu
 mod tests {
     use super::{
         count_projects_in_db, decode_storage_media_ref_in_base, encode_storage_media_ref_in_base,
+        copy_database_safely,
         persist_media_bytes_in_base, read_storage_session_record_at_path,
         rebase_storage_path_string, relocate_storage_path_to_known_images_dirs,
-        resolve_media_dir_in_base, validate_storage_migration, write_text_file_atomically,
-        MediaPersistContext, STORAGE_SESSION_FILE,
+        resolve_media_dir_in_base, resolve_next_rotating_database_snapshot_slot,
+        validate_sqlite_database, validate_storage_migration, write_text_file_atomically,
+        MediaPersistContext, RotatingDatabaseSnapshotRecord, ROTATING_DATABASE_SNAPSHOT_SLOT_A,
+        ROTATING_DATABASE_SNAPSHOT_SLOT_B, STORAGE_SESSION_FILE,
     };
     use rusqlite::Connection;
     use std::fs;
@@ -3077,6 +3347,128 @@ mod tests {
 
         let count = count_projects_in_db(&db_path).expect("count should succeed");
         assert_eq!(count, 0);
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn resolve_next_rotating_database_snapshot_slot_alternates_slots() {
+        let empty_records = vec![
+            RotatingDatabaseSnapshotRecord {
+                slot: ROTATING_DATABASE_SNAPSHOT_SLOT_A.to_string(),
+                path: String::new(),
+                created_at: None,
+                size: 0,
+                valid: false,
+                error: None,
+            },
+            RotatingDatabaseSnapshotRecord {
+                slot: ROTATING_DATABASE_SNAPSHOT_SLOT_B.to_string(),
+                path: String::new(),
+                created_at: None,
+                size: 0,
+                valid: false,
+                error: None,
+            },
+        ];
+        assert_eq!(
+            resolve_next_rotating_database_snapshot_slot(&empty_records),
+            ROTATING_DATABASE_SNAPSHOT_SLOT_A
+        );
+
+        let only_a_records = vec![
+            RotatingDatabaseSnapshotRecord {
+                slot: ROTATING_DATABASE_SNAPSHOT_SLOT_A.to_string(),
+                path: String::new(),
+                created_at: Some(10),
+                size: 1,
+                valid: true,
+                error: None,
+            },
+            RotatingDatabaseSnapshotRecord {
+                slot: ROTATING_DATABASE_SNAPSHOT_SLOT_B.to_string(),
+                path: String::new(),
+                created_at: None,
+                size: 0,
+                valid: false,
+                error: None,
+            },
+        ];
+        assert_eq!(
+            resolve_next_rotating_database_snapshot_slot(&only_a_records),
+            ROTATING_DATABASE_SNAPSHOT_SLOT_B
+        );
+
+        let both_records = vec![
+            RotatingDatabaseSnapshotRecord {
+                slot: ROTATING_DATABASE_SNAPSHOT_SLOT_A.to_string(),
+                path: String::new(),
+                created_at: Some(10),
+                size: 1,
+                valid: true,
+                error: None,
+            },
+            RotatingDatabaseSnapshotRecord {
+                slot: ROTATING_DATABASE_SNAPSHOT_SLOT_B.to_string(),
+                path: String::new(),
+                created_at: Some(20),
+                size: 1,
+                valid: true,
+                error: None,
+            },
+        ];
+        assert_eq!(
+            resolve_next_rotating_database_snapshot_slot(&both_records),
+            ROTATING_DATABASE_SNAPSHOT_SLOT_A
+        );
+    }
+
+    #[test]
+    fn validate_sqlite_database_rejects_corrupt_file() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-corrupt-db-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("failed to create temp root");
+        let corrupt_db = temp_root.join("slot-a.db");
+        fs::write(&corrupt_db, b"not a sqlite database").expect("failed to seed corrupt db");
+
+        let result = validate_sqlite_database(&corrupt_db);
+        assert!(result.is_err(), "corrupt database should be rejected");
+
+        let _ = fs::remove_dir_all(temp_root);
+    }
+
+    #[test]
+    fn copy_database_safely_creates_valid_snapshot() {
+        let temp_root = std::env::temp_dir().join(format!(
+            "storyboard-storage-copy-db-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_root);
+        fs::create_dir_all(&temp_root).expect("failed to create temp root");
+        let source_db = temp_root.join("source.db");
+        let target_db = temp_root.join("slot-a.db");
+        let source_conn = Connection::open(&source_db).expect("failed to open source db");
+        source_conn
+            .execute_batch(
+                r#"
+                CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+                INSERT INTO projects (id, name) VALUES ('p1', 'One');
+                "#,
+            )
+            .expect("failed to seed source db");
+        drop(source_conn);
+
+        copy_database_safely(&source_db, &target_db).expect("copy should succeed");
+        validate_sqlite_database(&target_db).expect("copied database should be valid");
+
+        let target_conn = Connection::open(&target_db).expect("failed to open target db");
+        let count: i64 = target_conn
+            .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))
+            .expect("failed to count copied projects");
+        assert_eq!(count, 1);
 
         let _ = fs::remove_dir_all(temp_root);
     }

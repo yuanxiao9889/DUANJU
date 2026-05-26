@@ -334,6 +334,9 @@ impl CompatibleProvider {
     fn resolve_gemini_image_size(request_model: &str, size: &str) -> Option<&'static str> {
         let lower_model = request_model.trim().to_ascii_lowercase();
         let supports_image_size = lower_model.contains("nano-banana-pro")
+            || lower_model.contains("monkey-image")
+            || lower_model == "monkey-pro"
+            || lower_model == "monkey-2"
             || lower_model.contains("3.")
             || lower_model.contains("preview");
         if !supports_image_size {
@@ -1391,6 +1394,26 @@ mod tests {
         assert!(CompatibleProvider::should_request_image_output(
             &make_request("", "16:9")
         ));
+    }
+
+    #[test]
+    fn resolve_gemini_image_size_supports_monkey_alias_models() {
+        assert_eq!(
+            CompatibleProvider::resolve_gemini_image_size("monkey-pro", "2K"),
+            Some("2K")
+        );
+        assert_eq!(
+            CompatibleProvider::resolve_gemini_image_size("monkey-pro", "4K"),
+            Some("4K")
+        );
+        assert_eq!(
+            CompatibleProvider::resolve_gemini_image_size("monkey-2", "2K"),
+            Some("2K")
+        );
+        assert_eq!(
+            CompatibleProvider::resolve_gemini_image_size("monkey-2", "4K"),
+            Some("4K")
+        );
     }
 
     #[test]
