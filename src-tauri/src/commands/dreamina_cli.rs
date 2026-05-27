@@ -984,29 +984,29 @@ fn system_git_runtime() -> Option<GitBashRuntime> {
 
     #[cfg(target_os = "windows")]
     {
-    let mut candidates = Vec::new();
-    if let Ok(program_files) = env::var("ProgramFiles") {
-        candidates.push(PathBuf::from(&program_files).join("Git/bin/bash.exe"));
-        candidates.push(PathBuf::from(&program_files).join("Git/usr/bin/bash.exe"));
-    }
-    if let Ok(program_files_x86) = env::var("ProgramFiles(x86)") {
-        candidates.push(PathBuf::from(&program_files_x86).join("Git/bin/bash.exe"));
-        candidates.push(PathBuf::from(&program_files_x86).join("Git/usr/bin/bash.exe"));
-    }
-    candidates.push(PathBuf::from(r"C:\Program Files\Git\bin\bash.exe"));
-
-    for bash_path in candidates {
-        if bash_path.is_file() {
-            return Some(GitBashRuntime {
-                source: DreaminaGitSource::System,
-                root: git_root_from_bash_path(&bash_path),
-                bash_path,
-                dreamina_bin_dir: None,
-            });
+        let mut candidates = Vec::new();
+        if let Ok(program_files) = env::var("ProgramFiles") {
+            candidates.push(PathBuf::from(&program_files).join("Git/bin/bash.exe"));
+            candidates.push(PathBuf::from(&program_files).join("Git/usr/bin/bash.exe"));
         }
-    }
+        if let Ok(program_files_x86) = env::var("ProgramFiles(x86)") {
+            candidates.push(PathBuf::from(&program_files_x86).join("Git/bin/bash.exe"));
+            candidates.push(PathBuf::from(&program_files_x86).join("Git/usr/bin/bash.exe"));
+        }
+        candidates.push(PathBuf::from(r"C:\Program Files\Git\bin\bash.exe"));
 
-    None
+        for bash_path in candidates {
+            if bash_path.is_file() {
+                return Some(GitBashRuntime {
+                    source: DreaminaGitSource::System,
+                    root: git_root_from_bash_path(&bash_path),
+                    bash_path,
+                    dreamina_bin_dir: None,
+                });
+            }
+        }
+
+        None
     }
 }
 
@@ -1198,21 +1198,21 @@ fn dreamina_path_prefix(runtime: &GitBashRuntime, command_env: &DreaminaProcessE
     }
     #[cfg(target_os = "windows")]
     {
-    if let Ok(windir) = env::var("WINDIR") {
-        push_path_prefix(&mut parts, &PathBuf::from(&windir).join("System32"));
-        push_path_prefix(
-            &mut parts,
-            &PathBuf::from(&windir)
-                .join("System32")
-                .join("WindowsPowerShell")
-                .join("v1.0"),
-        );
-        parts.push(bash_style_path(Path::new(&windir)));
-    } else {
-        parts.push("/c/Windows/System32".to_string());
-        parts.push("/c/Windows/System32/WindowsPowerShell/v1.0".to_string());
-        parts.push("/c/Windows".to_string());
-    }
+        if let Ok(windir) = env::var("WINDIR") {
+            push_path_prefix(&mut parts, &PathBuf::from(&windir).join("System32"));
+            push_path_prefix(
+                &mut parts,
+                &PathBuf::from(&windir)
+                    .join("System32")
+                    .join("WindowsPowerShell")
+                    .join("v1.0"),
+            );
+            parts.push(bash_style_path(Path::new(&windir)));
+        } else {
+            parts.push("/c/Windows/System32".to_string());
+            parts.push("/c/Windows/System32/WindowsPowerShell/v1.0".to_string());
+            parts.push("/c/Windows".to_string());
+        }
     }
     parts.join(":")
 }

@@ -1660,8 +1660,8 @@ fn validate_sqlite_database(path: &Path) -> Result<(), String> {
         return Err(format!("Database file does not exist: {}", path.display()));
     }
 
-    let metadata = fs::metadata(path)
-        .map_err(|e| format!("Failed to read database metadata: {}", e))?;
+    let metadata =
+        fs::metadata(path).map_err(|e| format!("Failed to read database metadata: {}", e))?;
     if metadata.len() == 0 {
         return Err(format!("Database file is empty: {}", path.display()));
     }
@@ -2399,10 +2399,7 @@ fn read_rotating_database_snapshot_record(
 
     let metadata = fs::metadata(&path)
         .map_err(|e| format!("Failed to read rotating snapshot metadata: {}", e))?;
-    let created_at = metadata
-        .modified()
-        .map(system_time_to_timestamp_ms)
-        .ok();
+    let created_at = metadata.modified().map(system_time_to_timestamp_ms).ok();
     match validate_sqlite_database(&path) {
         Ok(()) => Ok(RotatingDatabaseSnapshotRecord {
             slot: slot.to_string(),
@@ -3068,13 +3065,13 @@ pub fn open_storage_folder(app: AppHandle, storage_path: Option<String>) -> Resu
 #[cfg(test)]
 mod tests {
     use super::{
-        count_projects_in_db, decode_storage_media_ref_in_base, encode_storage_media_ref_in_base,
-        copy_database_safely,
-        persist_media_bytes_in_base, read_storage_session_record_at_path,
-        rebase_storage_path_string, relocate_storage_path_to_known_images_dirs,
-        resolve_media_dir_in_base, resolve_next_rotating_database_snapshot_slot,
-        validate_sqlite_database, validate_storage_migration, write_text_file_atomically,
-        MediaPersistContext, RotatingDatabaseSnapshotRecord, ROTATING_DATABASE_SNAPSHOT_SLOT_A,
+        copy_database_safely, count_projects_in_db, decode_storage_media_ref_in_base,
+        encode_storage_media_ref_in_base, persist_media_bytes_in_base,
+        read_storage_session_record_at_path, rebase_storage_path_string,
+        relocate_storage_path_to_known_images_dirs, resolve_media_dir_in_base,
+        resolve_next_rotating_database_snapshot_slot, validate_sqlite_database,
+        validate_storage_migration, write_text_file_atomically, MediaPersistContext,
+        RotatingDatabaseSnapshotRecord, ROTATING_DATABASE_SNAPSHOT_SLOT_A,
         ROTATING_DATABASE_SNAPSHOT_SLOT_B, STORAGE_SESSION_FILE,
     };
     use rusqlite::Connection;
@@ -3442,10 +3439,8 @@ mod tests {
 
     #[test]
     fn copy_database_safely_creates_valid_snapshot() {
-        let temp_root = std::env::temp_dir().join(format!(
-            "storyboard-storage-copy-db-{}",
-            std::process::id()
-        ));
+        let temp_root =
+            std::env::temp_dir().join(format!("storyboard-storage-copy-db-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_root);
         fs::create_dir_all(&temp_root).expect("failed to create temp root");
         let source_db = temp_root.join("source.db");

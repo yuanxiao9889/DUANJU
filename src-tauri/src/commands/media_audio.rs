@@ -537,7 +537,12 @@ fn run_ffmpeg_trim(
             .arg("-movflags")
             .arg("+faststart");
     } else {
-        command.arg("-vn").arg("-c:a").arg("libmp3lame").arg("-q:a").arg("2");
+        command
+            .arg("-vn")
+            .arg("-c:a")
+            .arg("libmp3lame")
+            .arg("-q:a")
+            .arg("2");
     }
 
     let output = command
@@ -570,7 +575,10 @@ pub async fn trim_media_source(
 
     let media_type = payload.media_type.trim().to_ascii_lowercase();
     if media_type != "video" && media_type != "audio" {
-        return Err(format!("Unsupported trim media type: {}", payload.media_type));
+        return Err(format!(
+            "Unsupported trim media type: {}",
+            payload.media_type
+        ));
     }
 
     if !payload.start_time.is_finite()

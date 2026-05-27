@@ -92,7 +92,9 @@ fn run_ffmpeg_transcode(
     let mut command = Command::new(ffmpeg_path);
     command.arg("-y").arg("-i").arg(source_path);
     if let Some(duration_ms) = target_duration_ms.filter(|value| *value > 0) {
-        command.arg("-t").arg(format!("{:.3}", duration_ms as f64 / 1000.0));
+        command
+            .arg("-t")
+            .arg(format!("{:.3}", duration_ms as f64 / 1000.0));
     }
     let output = command
         .arg("-an")
@@ -176,16 +178,13 @@ pub async fn transcode_director_stage_recording_to_mp4(
         .map_err(|error| format!("Failed to read transcoded MP4: {error}"))?;
     let _ = fs::remove_file(&temp_mp4_path);
 
-    let video_url = storage::persist_media_bytes(
-        &app,
-        &mp4_bytes,
-        "mp4",
-        media_context.as_ref(),
-        "original",
-    )?;
+    let video_url =
+        storage::persist_media_bytes(&app, &mp4_bytes, "mp4", media_context.as_ref(), "original")?;
     let fallback_output_path = PathBuf::from("director-stage-recording.mp4");
     let output_file_name = resolve_output_file_name(
-        output_path.as_deref().unwrap_or(fallback_output_path.as_path()),
+        output_path
+            .as_deref()
+            .unwrap_or(fallback_output_path.as_path()),
         payload.output_file_name.as_deref(),
     );
 

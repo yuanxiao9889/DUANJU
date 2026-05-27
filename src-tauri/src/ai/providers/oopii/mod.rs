@@ -130,6 +130,7 @@ impl OopiiProvider {
     fn is_storyboard_gpt_image_2_request_model(request_model: &str) -> bool {
         let normalized = Self::strip_provider_prefix(request_model).to_ascii_lowercase();
         normalized.starts_with(OOPII_STORYBOARD_GPT_IMAGE_2_REQUEST_MODEL)
+            || normalized.starts_with("gpt-image-2")
     }
 
     fn resolve_storyboard_request_model(request_model: &str) -> String {
@@ -148,7 +149,12 @@ impl OopiiProvider {
     fn resolve_storyboard_display_name(payload_display_name: &str, request_model: &str) -> String {
         let trimmed = payload_display_name.trim();
         if !trimmed.is_empty() {
-            return Self::normalize_oopii_model_alias(trimmed);
+            let normalized = Self::normalize_oopii_model_alias(trimmed);
+            return match normalized.trim() {
+                OOPII_STORYBOARD_MONKEY_PRO_REQUEST_MODEL => "monkey-pro".to_string(),
+                OOPII_STORYBOARD_MONKEY_FLASH_2_REQUEST_MODEL => "monkey-2".to_string(),
+                _ => normalized,
+            };
         }
 
         if Self::is_storyboard_gpt_image_2_request_model(request_model) {
@@ -191,6 +197,7 @@ impl OopiiProvider {
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": resolved_request_model,
                 "display_name": display_name,
+                "async_image_task": true,
             }),
         );
 
@@ -354,6 +361,7 @@ mod tests {
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "monkey-image-pro",
                 "display_name": "monkey-pro",
+                "async_image_task": true,
             })
         );
     }
@@ -384,6 +392,7 @@ mod tests {
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "all-image-2",
                 "display_name": "all-image-2",
+                "async_image_task": true,
             })
         );
     }
@@ -422,6 +431,7 @@ mod tests {
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "all-image-2",
                 "display_name": "all-image-2",
+                "async_image_task": true,
             })
         );
     }
@@ -452,6 +462,7 @@ mod tests {
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "monkey-image-pro",
                 "display_name": "monkey-pro",
+                "async_image_task": true,
             })
         );
     }
@@ -494,6 +505,7 @@ mod tests {
                     "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                     "request_model": request_model,
                     "display_name": display_name,
+                    "async_image_task": true,
                 })
             );
         }
@@ -531,12 +543,13 @@ mod tests {
                 "endpoint_url": OOPII_STORYBOARD_BASE_URL,
                 "request_model": "all-image-2",
                 "display_name": "all-image-2",
+                "async_image_task": true,
             })
         );
     }
 
     #[test]
-    fn storyboard_all_image_2_uses_sync_newapi_image_requests() {
+    fn storyboard_all_image_2_uses_resumable_newapi_image_tasks() {
         let provider = OopiiProvider::new();
         let request = GenerateRequest {
             prompt: "test".to_string(),
@@ -547,6 +560,6 @@ mod tests {
             extra_params: None,
         };
 
-        assert!(!provider.should_use_task_resume(&request));
+        assert!(provider.should_use_task_resume(&request));
     }
 }

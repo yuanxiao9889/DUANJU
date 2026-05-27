@@ -50,6 +50,8 @@ struct NewApiConfigPayload {
     request_model: String,
     #[serde(default)]
     display_name: String,
+    #[serde(default)]
+    async_image_task: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,6 +67,21 @@ struct NewApiConfig {
     endpoint_url: String,
     request_model: String,
     display_name: String,
+    async_image_task: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct AsyncImageTaskPayload {
+    #[serde(default)]
+    status: String,
+    #[serde(default)]
+    status_url: String,
+    #[serde(default)]
+    content_url: String,
+    #[serde(default)]
+    expires_at: i64,
+    #[serde(default)]
+    error: Option<Value>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -181,6 +198,7 @@ impl NewApiProvider {
             endpoint_url,
             request_model,
             display_name: payload.display_name.trim().to_string(),
+            async_image_task: payload.async_image_task,
         })
     }
 
@@ -346,6 +364,59 @@ impl NewApiProvider {
             "{}/v1beta/models/{}:generateContent",
             trimmed, encoded_model
         )
+    }
+
+    fn with_async_query(endpoint: String, enabled: bool) -> String {
+        if !enabled {
+            return endpoint;
+        }
+
+        let separator = if endpoint.contains('?') { '&' } else { '?' };
+        format!("{}{}async=true", endpoint, separator)
+    }
+
+    fn resolve_async_image_status_endpoint(endpoint_url: &str, task_id: &str) -> String {
+        let trimmed = endpoint_url.trim().trim_end_matches('/');
+        let trimmed = trimmed
+            .strip_suffix("/chat/completions")
+            .or_else(|| trimmed.strip_suffix("/images/generations"))
+            .or_else(|| trimmed.strip_suffix("/images/edits"))
+            .unwrap_or(trimmed)
+            .trim_end_matches('/');
+        let base = trimmed
+            .strip_suffix("/v1")
+            .unwrap_or(trimmed)
+            .trim_end_matches('/');
+        format!("{}/v1/images/tasks/{}", base, urlencoding::encode(task_id))
+    }
+
+    fn resolve_async_image_content_endpoint(endpoint_url: &str, task_id: &str) -> String {
+        format!(
+            "{}/content",
+            Self::resolve_async_image_status_endpoint(endpoint_url, task_id)
+        )
+    }
+
+    fn resolve_task_url(raw_url: &str, endpoint_url: &str, fallback_url: String) -> String {
+        let trimmed = raw_url.trim();
+        if trimmed.is_empty() {
+            return fallback_url;
+        }
+        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            return trimmed.to_string();
+        }
+
+        if trimmed.starts_with('/') {
+            if let Ok(mut origin) = reqwest::Url::parse(endpoint_url.trim()) {
+                origin.set_path(trimmed);
+                origin.set_query(None);
+                origin.set_fragment(None);
+                return origin.to_string();
+            }
+        }
+
+        let base = endpoint_url.trim().trim_end_matches('/');
+        format!("{}/{}", base, trimmed.trim_start_matches('/'))
     }
 
     fn resolve_openai_endpoint(endpoint_url: &str) -> String {
@@ -1070,6 +1141,75 @@ impl NewApiProvider {
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string)
         })
+    }
+
+    fn stringify_async_task_error(value: &Value) -> Option<String> {
+        if let Some(message) = Self::extract_error_message(value) {
+            return Some(message);
+        }
+
+        match value {
+            Value::String(message) => {
+                let trimmed = message.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }
+            Value::Null => None,
+            other => Some(other.to_string()),
+        }
+    }
+
+    fn extract_async_task_error(payload: &AsyncImageTaskPayload) -> Option<String> {
+        payload
+            .error
+            .as_ref()
+            .and_then(Self::stringify_async_task_error)
+    }
+
+    fn async_image_payload_to_submission(
+        payload: &Value,
+        config: &NewApiConfig,
+    ) -> Result<Option<ProviderTaskSubmission>, AIError> {
+        let Some(task_id) = payload
+            .get("task_id")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(None);
+        };
+
+        let task_payload: AsyncImageTaskPayload = serde_json::from_value(payload.clone())?;
+        let status = task_payload.status.trim().to_ascii_lowercase();
+        if status == "failed" || status == "expired" {
+            let message = Self::extract_async_task_error(&task_payload)
+                .unwrap_or_else(|| format!("NewAPI async image task {} {}", task_id, status));
+            return Ok(Some(ProviderTaskSubmission::Queued(ProviderTaskHandle {
+                task_id: task_id.to_string(),
+                metadata: Some(json!({
+                    "endpoint_url": config.endpoint_url,
+                    "status_url": task_payload.status_url,
+                    "content_url": task_payload.content_url,
+                    "expires_at": task_payload.expires_at,
+                    "initial_status": status,
+                    "initial_error": message,
+                })),
+            })));
+        }
+
+        Ok(Some(ProviderTaskSubmission::Queued(ProviderTaskHandle {
+            task_id: task_id.to_string(),
+            metadata: Some(json!({
+                "endpoint_url": config.endpoint_url,
+                "status_url": task_payload.status_url,
+                "content_url": task_payload.content_url,
+                "expires_at": task_payload.expires_at,
+                "initial_status": status,
+            })),
+        })))
     }
 
     fn is_json_parse_error(message: &str) -> bool {
@@ -2232,7 +2372,10 @@ impl NewApiProvider {
         api_key: &str,
     ) -> Result<Value, AIError> {
         let request_model = Self::normalize_flow2api_image_request_model(&config.request_model);
-        let endpoint = Self::resolve_endpoint(&config.endpoint_url, &request_model);
+        let endpoint = Self::with_async_query(
+            Self::resolve_endpoint(&config.endpoint_url, &request_model),
+            config.async_image_task,
+        );
         let mut attempts = vec![
             GenerateContentAttempt {
                 request_kind: "generateContent-banana",
@@ -2476,7 +2619,10 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let endpoint = Self::resolve_openai_generations_endpoint(&config.endpoint_url);
+        let endpoint = Self::with_async_query(
+            Self::resolve_openai_generations_endpoint(&config.endpoint_url),
+            config.async_image_task,
+        );
         let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
         let body = Self::build_openai_generations_body(request, &fields);
 
@@ -2496,7 +2642,10 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
-        let endpoint = Self::resolve_openai_edits_endpoint(&config.endpoint_url);
+        let endpoint = Self::with_async_query(
+            Self::resolve_openai_edits_endpoint(&config.endpoint_url),
+            config.async_image_task,
+        );
         let fields = Self::resolve_openai_request_fields(request, &config.request_model)?;
         let sources = request
             .reference_images
@@ -2539,6 +2688,12 @@ impl NewApiProvider {
         payload: Value,
         config: &NewApiConfig,
     ) -> Result<ProviderTaskSubmission, AIError> {
+        if config.async_image_task {
+            if let Some(submission) = Self::async_image_payload_to_submission(&payload, config)? {
+                return Ok(submission);
+            }
+        }
+
         if let Some(error_message) = Self::extract_error_message(&payload) {
             return Err(AIError::Provider(error_message));
         }
@@ -2585,6 +2740,10 @@ impl NewApiProvider {
         config: &NewApiConfig,
         api_key: &str,
     ) -> Result<Value, AIError> {
+        if config.async_image_task {
+            return self.run_openai_images(request, config, api_key).await;
+        }
+
         let allow_chat_fallback = !Self::is_gpt2api_image_request_model(&config.request_model);
         match self.run_openai_images(request, config, api_key).await {
             Ok(payload) => {
@@ -2673,6 +2832,138 @@ impl NewApiProvider {
             Err(error) => Err(error),
         }
     }
+
+    async fn poll_async_image_task(
+        &self,
+        handle: ProviderTaskHandle,
+        api_key: &str,
+    ) -> Result<ProviderTaskPollResult, AIError> {
+        let metadata = handle.metadata.unwrap_or(Value::Null);
+        if let Some(initial_error) = metadata
+            .get("initial_error")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Ok(ProviderTaskPollResult::Failed(initial_error.to_string()));
+        }
+
+        let endpoint_url = metadata
+            .get("endpoint_url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("");
+        if endpoint_url.is_empty() {
+            return Err(AIError::Provider(
+                "NewAPI async image task metadata missing endpoint_url".to_string(),
+            ));
+        }
+
+        let fallback_status_url =
+            Self::resolve_async_image_status_endpoint(endpoint_url, &handle.task_id);
+        let status_url = Self::resolve_task_url(
+            metadata
+                .get("status_url")
+                .and_then(Value::as_str)
+                .unwrap_or(""),
+            endpoint_url,
+            fallback_status_url,
+        );
+
+        let response = self
+            .client
+            .get(&status_url)
+            .version(reqwest::Version::HTTP_11)
+            .header("Accept", "application/json")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let response_text = response.text().await?;
+        info!(
+            "[NewAPI] async image task poll {} -> {}: {}",
+            status_url, status, response_text
+        );
+        if !status.is_success() {
+            return Err(AIError::Provider(format!(
+                "NewAPI async image task status request failed {}: {}",
+                status, response_text
+            )));
+        }
+
+        let payload: Value = serde_json::from_str(&response_text).map_err(|error| {
+            AIError::Provider(format!(
+                "Failed to parse NewAPI async image task response: {}. Response was: {}",
+                error, response_text
+            ))
+        })?;
+        Self::async_image_task_payload_to_poll_result(
+            payload,
+            &metadata,
+            endpoint_url,
+            handle.task_id.as_str(),
+        )
+    }
+
+    fn async_image_task_payload_to_poll_result(
+        payload: Value,
+        metadata: &Value,
+        endpoint_url: &str,
+        task_id: &str,
+    ) -> Result<ProviderTaskPollResult, AIError> {
+        let task_payload: AsyncImageTaskPayload = serde_json::from_value(payload.clone())?;
+        let status = task_payload.status.trim().to_ascii_lowercase();
+        match status.as_str() {
+            "submitted" | "queued" | "processing" | "running" | "in_progress" => {
+                Ok(ProviderTaskPollResult::Running)
+            }
+            "succeeded" | "success" | "completed" => {
+                let fallback_content_url =
+                    Self::resolve_async_image_content_endpoint(endpoint_url, task_id);
+                let content_url = Self::resolve_task_url(
+                    if task_payload.content_url.trim().is_empty() {
+                        metadata
+                            .get("content_url")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                    } else {
+                        task_payload.content_url.as_str()
+                    },
+                    endpoint_url,
+                    fallback_content_url,
+                );
+                Ok(ProviderTaskPollResult::Succeeded(content_url))
+            }
+            "failed" | "failure" | "error" | "expired" => {
+                let message = Self::extract_async_task_error(&task_payload)
+                    .or_else(|| Self::extract_error_message(&payload))
+                    .unwrap_or_else(|| {
+                        format!(
+                            "NewAPI async image task {} {}",
+                            task_id,
+                            if status.is_empty() {
+                                "failed"
+                            } else {
+                                status.as_str()
+                            }
+                        )
+                    });
+                Ok(ProviderTaskPollResult::Failed(message))
+            }
+            "" => Err(AIError::Provider(format!(
+                "NewAPI async image task result missing status: {}",
+                payload
+            ))),
+            other => Err(AIError::Provider(format!(
+                "NewAPI async image task returned unexpected task status: {}",
+                other
+            ))),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2680,6 +2971,7 @@ mod tests {
     use super::{GenerateContentAttempt, NewApiProvider};
     use crate::ai::AIError;
     use crate::ai::AIProvider;
+    use crate::ai::{ProviderTaskPollResult, ProviderTaskSubmission};
     use base64::{engine::general_purpose::STANDARD, Engine};
     use serde_json::{json, Value};
     use std::collections::HashMap;
@@ -2858,9 +3150,7 @@ mod tests {
         assert!(NewApiProvider::is_flow2api_image_request_model(
             "monkey-pro"
         ));
-        assert!(NewApiProvider::is_flow2api_image_request_model(
-            "monkey-2"
-        ));
+        assert!(NewApiProvider::is_flow2api_image_request_model("monkey-2"));
     }
 
     #[test]
@@ -2969,10 +3259,14 @@ mod tests {
             ))
             .write_to(&mut buffer, image::ImageFormat::Png)
             .expect("expected test png encoding");
-            format!("data:image/png;base64,{}", STANDARD.encode(buffer.into_inner()))
+            format!(
+                "data:image/png;base64,{}",
+                STANDARD.encode(buffer.into_inner())
+            )
         };
 
-        for (request_model, size) in [("monkey-pro", "4K"), ("monkey-2", "4K"), ("monkey-2", "2K")] {
+        for (request_model, size) in [("monkey-pro", "4K"), ("monkey-2", "4K"), ("monkey-2", "2K")]
+        {
             let request = crate::ai::GenerateRequest {
                 prompt: "make it night".to_string(),
                 model: format!("oopii/{}", request_model),
@@ -3649,6 +3943,157 @@ mod tests {
     }
 
     #[test]
+    fn should_use_task_resume_for_async_image_task_config() {
+        let mut extra_params = HashMap::new();
+        extra_params.insert(
+            "newapi_config".to_string(),
+            json!({
+                "api_format": "openai-images",
+                "endpoint_url": "https://www.oopii.cc/",
+                "request_model": "all-image-2",
+                "display_name": "all-image-2",
+                "async_image_task": true,
+            }),
+        );
+        let request = crate::ai::GenerateRequest {
+            prompt: "test".to_string(),
+            model: "oopii/all-image-2".to_string(),
+            size: "1K".to_string(),
+            aspect_ratio: "1:1".to_string(),
+            reference_images: None,
+            extra_params: Some(extra_params),
+        };
+
+        let provider = NewApiProvider::new();
+        assert!(provider.should_use_task_resume(&request));
+    }
+
+    #[test]
+    fn async_image_submit_payload_parses_as_queued_submission() {
+        let config = super::NewApiConfig {
+            api_format: super::NewApiFormat::OpenAiImages,
+            endpoint_url: "https://www.oopii.cc/".to_string(),
+            request_model: "all-image-2".to_string(),
+            display_name: "all-image-2".to_string(),
+            async_image_task: true,
+        };
+        let payload = json!({
+            "task_id": "task-123",
+            "status": "submitted",
+            "status_url": "https://www.oopii.cc/v1/images/tasks/task-123",
+            "content_url": "https://www.oopii.cc/v1/images/tasks/task-123/content",
+            "expires_at": 123456,
+        });
+
+        let submission =
+            NewApiProvider::sync_payload_to_submission(&NewApiProvider::new(), payload, &config)
+                .expect("expected async task submission");
+
+        match submission {
+            ProviderTaskSubmission::Queued(handle) => {
+                assert_eq!(handle.task_id, "task-123");
+                let metadata = handle.metadata.expect("expected task metadata");
+                assert_eq!(
+                    metadata.pointer("/status_url").and_then(Value::as_str),
+                    Some("https://www.oopii.cc/v1/images/tasks/task-123")
+                );
+                assert_eq!(
+                    metadata.pointer("/content_url").and_then(Value::as_str),
+                    Some("https://www.oopii.cc/v1/images/tasks/task-123/content")
+                );
+            }
+            ProviderTaskSubmission::Succeeded(_) => {
+                panic!("expected queued async task submission")
+            }
+        }
+    }
+
+    #[test]
+    fn async_image_config_keeps_legacy_sync_payload_compatible() {
+        let config = super::NewApiConfig {
+            api_format: super::NewApiFormat::OpenAiImages,
+            endpoint_url: "https://www.oopii.cc/".to_string(),
+            request_model: "all-image-2".to_string(),
+            display_name: "all-image-2".to_string(),
+            async_image_task: true,
+        };
+        let payload = json!({
+            "data": [{
+                "url": "https://cdn.example.com/result.png"
+            }]
+        });
+
+        let submission =
+            NewApiProvider::sync_payload_to_submission(&NewApiProvider::new(), payload, &config)
+                .expect("expected sync image submission");
+
+        match submission {
+            ProviderTaskSubmission::Succeeded(url) => {
+                assert_eq!(url, "https://cdn.example.com/result.png");
+            }
+            ProviderTaskSubmission::Queued(_) => {
+                panic!("expected legacy sync image submission")
+            }
+        }
+    }
+
+    #[test]
+    fn async_image_task_statuses_map_to_poll_results() {
+        let metadata = json!({
+            "content_url": "https://www.oopii.cc/v1/images/tasks/task-123/content"
+        });
+        for status in ["submitted", "queued", "processing"] {
+            let result = NewApiProvider::async_image_task_payload_to_poll_result(
+                json!({
+                    "task_id": "task-123",
+                    "status": status,
+                }),
+                &metadata,
+                "https://www.oopii.cc/",
+                "task-123",
+            )
+            .expect("expected running status");
+            assert!(matches!(result, ProviderTaskPollResult::Running));
+        }
+
+        let succeeded = NewApiProvider::async_image_task_payload_to_poll_result(
+            json!({
+                "task_id": "task-123",
+                "status": "succeeded",
+                "content_url": "https://www.oopii.cc/v1/images/tasks/task-123/content",
+            }),
+            &metadata,
+            "https://www.oopii.cc/",
+            "task-123",
+        )
+        .expect("expected succeeded status");
+        assert!(matches!(
+            succeeded,
+            ProviderTaskPollResult::Succeeded(url)
+                if url == "https://www.oopii.cc/v1/images/tasks/task-123/content"
+        ));
+
+        for status in ["failed", "expired"] {
+            let result = NewApiProvider::async_image_task_payload_to_poll_result(
+                json!({
+                    "task_id": "task-123",
+                    "status": status,
+                    "error": "task failed upstream",
+                }),
+                &metadata,
+                "https://www.oopii.cc/",
+                "task-123",
+            )
+            .expect("expected failed status");
+            assert!(matches!(
+                result,
+                ProviderTaskPollResult::Failed(message)
+                    if message == "task failed upstream"
+            ));
+        }
+    }
+
+    #[test]
     fn should_not_use_task_resume_for_openai_images_requests() {
         let mut extra_params = HashMap::new();
         extra_params.insert(
@@ -3761,8 +4206,9 @@ impl AIProvider for NewApiProvider {
     }
 
     fn should_use_task_resume(&self, request: &GenerateRequest) -> bool {
-        let _ = request;
-        false
+        Self::extract_config(request)
+            .map(|config| config.async_image_task)
+            .unwrap_or(false)
     }
 
     async fn set_api_key(&self, api_key: String) -> Result<(), AIError> {
@@ -3791,30 +4237,21 @@ impl AIProvider for NewApiProvider {
                     .await?
             }
         };
-        let image_source = match self.sync_payload_to_submission(payload, &config)? {
-            ProviderTaskSubmission::Succeeded(image_source) => image_source,
-            ProviderTaskSubmission::Queued(_) => {
-                return Err(AIError::Provider(
-                    "NewAPI image response unexpectedly returned async task data".to_string(),
-                ));
-            }
-        };
-        Ok(ProviderTaskSubmission::Succeeded(image_source))
+        self.sync_payload_to_submission(payload, &config)
     }
 
     async fn poll_task(
         &self,
-        _handle: ProviderTaskHandle,
+        handle: ProviderTaskHandle,
     ) -> Result<ProviderTaskPollResult, AIError> {
-        Err(AIError::Provider(
-            "NewAPI image task polling is not supported by standard NewAPI image endpoints"
-                .to_string(),
-        ))
+        let api_key = self.get_api_key().await?;
+        self.poll_async_image_task(handle, &api_key).await
     }
 
     async fn generate(&self, request: GenerateRequest) -> Result<String, AIError> {
         let api_key = self.get_api_key().await?;
-        let config = Self::extract_config(&request)?;
+        let mut config = Self::extract_config(&request)?;
+        config.async_image_task = false;
         info!(
             "[NewAPI Request] display_name: {}, format: {:?}, endpoint: {}, request_model: {}, refs: {}",
             config.display_name,

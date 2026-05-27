@@ -2782,7 +2782,11 @@ mod tests {
         for y in 0..4 {
             for x in 0..4 {
                 let color_index = if y < 2 {
-                    if x < 2 { 0 } else { 1 }
+                    if x < 2 {
+                        0
+                    } else {
+                        1
+                    }
                 } else if x < 2 {
                     2
                 } else {

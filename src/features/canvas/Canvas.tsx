@@ -650,6 +650,11 @@ function buildScriptWelcomePresenceSignature(nodes: CanvasNode[]): string {
   return `${hasChapters ? "1" : "0"}:${hasRoot ? "1" : "0"}`;
 }
 
+function hasScriptWelcomeStructure(signature: string): boolean {
+  const [hasChaptersMarker, hasRootMarker] = signature.split(":");
+  return hasChaptersMarker === "1" || hasRootMarker === "1";
+}
+
 function normalizeCanvasMediaSource(value: unknown): string | null {
   const normalized = typeof value === "string" ? value.trim() : "";
   return normalized.length > 0 && normalized !== "white-placeholder"
@@ -1700,25 +1705,27 @@ function CanvasSaveBubble({
 
   const isSaving = saveStatus === "saving" || saveStatus === "retrying";
   const isError = saveStatus === "error";
+  const lastSavedTime = lastSuccessfulSaveAt
+    ? new Date(lastSuccessfulSaveAt).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+  const lastSavedLabel = lastSavedTime
+    ? t("canvas.saveBubble.lastSavedAt", { time: lastSavedTime })
+    : null;
   const title = isError
     ? lastSaveError
       ? t("canvas.saveBubble.failedWithReason", { reason: lastSaveError })
       : t("canvas.saveBubble.failed")
     : lastSuccessfulSaveAt
-      ? t("canvas.saveBubble.lastSavedAt", {
-          time: new Date(lastSuccessfulSaveAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        })
+      ? lastSavedLabel
       : t("canvas.saveBubble.manualSave");
   const label = isSaving
     ? t("canvas.saveBubble.saving")
     : isError
       ? t("canvas.saveBubble.retry")
-      : showSavedState
-        ? t("canvas.saveBubble.saved")
-        : t("canvas.saveBubble.manualSave");
+      : t("canvas.saveBubble.manualSave");
   const Icon = isSaving
     ? Loader2
     : isError
@@ -1732,8 +1739,8 @@ function CanvasSaveBubble({
       type="button"
       onClick={onSave}
       disabled={isSaving}
-      title={title}
-      className={`pointer-events-auto inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border px-3 text-xs font-medium shadow-[0_14px_36px_rgba(15,23,42,0.18)] backdrop-blur transition-colors disabled:cursor-wait ${
+      title={title ?? undefined}
+      className={`pointer-events-auto inline-flex h-9 max-w-[320px] items-center gap-2 rounded-full border px-3 text-xs font-medium shadow-[0_14px_36px_rgba(15,23,42,0.18)] backdrop-blur transition-colors disabled:cursor-wait ${
         isError
           ? "border-red-400/50 bg-red-500/18 text-red-50 hover:bg-red-500/26"
           : showSavedState
@@ -1743,6 +1750,12 @@ function CanvasSaveBubble({
     >
       <Icon className={`h-3.5 w-3.5 shrink-0 ${isSaving ? "animate-spin" : ""}`} />
       <span className="truncate">{label}</span>
+      {!isSaving && !isError && lastSavedLabel ? (
+        <>
+          <span className="h-3.5 w-px shrink-0 bg-current/28" aria-hidden="true" />
+          <span className="truncate text-text-muted">{lastSavedLabel}</span>
+        </>
+      ) : null}
     </button>
   );
 }
@@ -3665,25 +3678,27 @@ export function Canvas() {
     scriptWelcomePresenceSignatureRef.current = signature;
     return signature;
   }, [dragHistorySnapshot, nodes]);
+  const projectScriptWelcomePresenceSignature = useMemo(() => {
+    if (project?.projectType !== "script") {
+      return "0:0";
+    }
+
+    return buildScriptWelcomePresenceSignature(project.nodes);
+  }, [project?.nodes, project?.projectType]);
+  const shouldShowScriptWelcomeDialog =
+    isScriptProject &&
+    !isOpeningProject &&
+    !project?.scriptWelcomeSkipped &&
+    !hasScriptWelcomeStructure(projectScriptWelcomePresenceSignature) &&
+    !hasScriptWelcomeStructure(scriptWelcomePresenceSignature);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      const currentProject = getCurrentProject();
-      if (
-        !isRestoringCanvasRef.current &&
-        currentProject?.projectType === "script"
-      ) {
-        const [hasChaptersMarker, hasRootMarker] =
-          scriptWelcomePresenceSignature.split(":");
-        const hasChapters = hasChaptersMarker === "1";
-        const hasRoot = hasRootMarker === "1";
-        if (!hasChapters && !hasRoot && !currentProject.scriptWelcomeSkipped) {
-          setShowWelcomeDialog(true);
-        }
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [getCurrentProject, scriptWelcomePresenceSignature]);
+    if (!shouldShowScriptWelcomeDialog) {
+      return;
+    }
+
+    setShowWelcomeDialog(true);
+  }, [shouldShowScriptWelcomeDialog]);
 
   useEffect(() => {
     if (restoredHistoryRevision <= 0) {
@@ -8079,10 +8094,10 @@ export function Canvas() {
               <ScriptBiblePanel />
             </Suspense>
           )}
-          {isScriptProject && showWelcomeDialog && (
+          {isScriptProject && (showWelcomeDialog || shouldShowScriptWelcomeDialog) && (
             <Suspense fallback={null}>
               <ScriptWelcomeDialog
-                isOpen={showWelcomeDialog}
+                isOpen={showWelcomeDialog || shouldShowScriptWelcomeDialog}
                 onClose={() => setShowWelcomeDialog(false)}
                 onSkipToEmptyCanvas={() => {
                   setCurrentProjectScriptWelcomeSkipped(true);
@@ -8162,7 +8177,7 @@ export function Canvas() {
                 onSelectGroup={handleLocateGroup}
               />
             )}
-            {!isImageViewerOpen && !shouldHideCanvasChrome && currentProjectId && (
+            {!isImageViewerOpen && currentProjectId && (
               <div className="absolute right-4 top-4 z-[92] flex justify-end">
                 <CanvasSaveBubble
                   saveStatus={saveStatus}

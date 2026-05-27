@@ -1368,6 +1368,26 @@ function updateProjectSaveState(
   useProjectStore.setState(patch);
 }
 
+function updateProjectSuccessfulSaveState(
+  projectId: string,
+  reason: ProjectSaveReason,
+): void {
+  const store = useProjectStore.getState();
+  if (store.currentProjectId !== projectId) {
+    return;
+  }
+
+  const lastSuccessfulSaveAt = Date.now();
+  const isManualSaveInFlight =
+    store.saveStatus === "saving" && store.lastSaveReason === "manual";
+  useProjectStore.setState({
+    saveStatus: isManualSaveInFlight ? store.saveStatus : "saved",
+    lastSuccessfulSaveAt,
+    lastSaveError: null,
+    lastSaveReason: reason,
+  });
+}
+
 function clearQueuedProjectUpsert(projectId: string): void {
   const timer = projectUpsertTimers.get(projectId);
   if (timer) {
@@ -1580,6 +1600,10 @@ function flushProjectUpsert(
       .then(() => {
         projectPersistRetryAttempts.delete(projectId);
         scheduleGraphBackupCompact(projectId);
+        updateProjectSuccessfulSaveState(
+          projectId,
+          options?.isRetry ? "critical" : "auto",
+        );
       })
       .catch((error) => {
         console.error("Failed to persist project record", error);
@@ -1761,6 +1785,9 @@ function flushViewportUpsert(projectId: string): void {
   let shouldRetryViewportLater = false;
 
   void updateProjectViewportRecord(projectId, viewportJson)
+    .then(() => {
+      updateProjectSuccessfulSaveState(projectId, "auto");
+    })
     .catch((error) => {
       console.error("Failed to persist project viewport", error);
       queuedViewportUpserts.set(projectId, viewportJson);
@@ -2213,6 +2240,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   createProject: (name, projectType) => {
     const id = uuidv4();
     const now = Date.now();
+    useCanvasStore.getState().resetCanvasSession();
     const project: Project = {
       id,
       name,
@@ -3218,6 +3246,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       await persistProjectImmediatelyWithPrevious(nextProject, currentProject);
       await waitForProjectPersistenceIdle(currentProjectId);
+      updateProjectSuccessfulSaveState(currentProjectId, "auto");
       return;
     }
 
@@ -3237,6 +3266,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     await persistProjectImmediatelyWithPrevious(nextProject, currentProject);
     await waitForProjectPersistenceIdle(currentProjectId);
+    updateProjectSuccessfulSaveState(currentProjectId, "auto");
   },
 
   saveCurrentProjectFully: async (options) => {
@@ -3296,12 +3326,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await waitForProjectPersistenceIdle(currentProjectId);
       await compactProjectGraphBackupNow(currentProjectId);
       await waitForProjectPersistenceIdle(currentProjectId);
-      updateProjectSaveState(currentProjectId, {
-        saveStatus: "saved",
-        lastSuccessfulSaveAt: Date.now(),
-        lastSaveError: null,
-        lastSaveReason: reason,
-      });
+      updateProjectSuccessfulSaveState(currentProjectId, reason);
     } catch (error) {
       updateProjectSaveState(currentProjectId, {
         saveStatus: "error",
