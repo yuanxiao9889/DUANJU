@@ -12,7 +12,10 @@ import {
 import {
   createStoryboardNewApiImageModel,
   isStoryboardNewApiModelId,
+  isStoryboardNewApiProviderId,
   STORYBOARD_NEWAPI_MODEL_ID,
+  STORYBOARD_NEWAPI_PROVIDER_ID,
+  STORYBOARD_NEWAPI_PROVIDER_IDS,
   type StoryboardNewApiModelConfig,
 } from './storyboardNewApi';
 import {
@@ -26,9 +29,49 @@ import {
 } from './storyboardOopii';
 import {
   createCustomStoryboardImageModels,
+  getStoryboardNewApiModelConfigForProvider,
   isStoryboardCompatibleModelId,
   type CustomStoryboardModelEntry,
+  type StoryboardNewApiModelConfigMap,
 } from './storyboardProviders';
+
+export interface StoryboardModelConfigInputs {
+  compatibleConfig?: StoryboardCompatibleModelConfig | null;
+  newApiConfig?: StoryboardNewApiModelConfig | null;
+  api2OkConfig?: StoryboardApi2OkModelConfig | null;
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null;
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null;
+}
+
+function normalizeStoryboardModelConfigArgs(
+  compatibleConfigOrInputs?: StoryboardCompatibleModelConfig | StoryboardModelConfigInputs | null,
+  newApiConfig?: StoryboardNewApiModelConfig | null,
+  api2OkConfig?: StoryboardApi2OkModelConfig | null,
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
+): StoryboardModelConfigInputs {
+  if (
+    compatibleConfigOrInputs
+    && typeof compatibleConfigOrInputs === 'object'
+    && (
+      'compatibleConfig' in compatibleConfigOrInputs
+      || 'newApiConfig' in compatibleConfigOrInputs
+      || 'api2OkConfig' in compatibleConfigOrInputs
+      || 'customStoryboardModels' in compatibleConfigOrInputs
+      || 'newApiConfigs' in compatibleConfigOrInputs
+    )
+  ) {
+    return compatibleConfigOrInputs as StoryboardModelConfigInputs;
+  }
+
+  return {
+    compatibleConfig: compatibleConfigOrInputs as StoryboardCompatibleModelConfig | null | undefined,
+    newApiConfig,
+    api2OkConfig,
+    customStoryboardModels,
+    newApiConfigs,
+  };
+}
 
 const providerModules = import.meta.glob<{ provider: ModelProviderDefinition }>(
   './providers/*.ts',
@@ -75,63 +118,87 @@ function resolveCompatibleModelList(
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
   api2OkConfig?: StoryboardApi2OkModelConfig | null,
-  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): ImageModelDefinition[] {
   const customModels = createCustomStoryboardImageModels(
     customStoryboardModels,
     compatibleConfig,
     newApiConfig,
-    api2OkConfig
+    api2OkConfig,
+    newApiConfigs
   );
   const hasCompatibleCustomModels = customModels.some(
     (model) => model.providerId === 'compatible'
   );
-  const hasNewApiCustomModels = customModels.some(
-    (model) => model.providerId === 'newapi'
-  );
+  const newApiModels = STORYBOARD_NEWAPI_PROVIDER_IDS
+    .filter((providerId) =>
+      !customModels.some((model) => model.providerId === providerId)
+    )
+    .map((providerId) =>
+      createStoryboardNewApiImageModel(
+        getStoryboardNewApiModelConfigForProvider(providerId, newApiConfigs, newApiConfig),
+        providerId
+      )
+    )
+    .filter((model): model is ImageModelDefinition => Boolean(model));
   const compatibleModel =
     hasCompatibleCustomModels
       ? null
       : createStoryboardCompatibleImageModel(compatibleConfig);
-  const newApiModel =
-    hasNewApiCustomModels
-      ? null
-      : createStoryboardNewApiImageModel(newApiConfig);
   const oopiiModels = createStoryboardOopiiImageModels();
   return [
     ...imageModels,
     ...customModels,
     ...(compatibleModel ? [compatibleModel] : []),
-    ...(newApiModel ? [newApiModel] : []),
+    ...newApiModels,
     ...oopiiModels,
   ];
 }
 
 export function listImageModels(
-  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  compatibleConfig?: StoryboardCompatibleModelConfig | StoryboardModelConfigInputs | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
   api2OkConfig?: StoryboardApi2OkModelConfig | null,
-  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): ImageModelDefinition[] {
-  return resolveCompatibleModelList(
+  const inputs = normalizeStoryboardModelConfigArgs(
     compatibleConfig,
     newApiConfig,
     api2OkConfig,
-    customStoryboardModels
+    customStoryboardModels,
+    newApiConfigs
+  );
+  return resolveCompatibleModelList(
+    inputs.compatibleConfig,
+    inputs.newApiConfig,
+    inputs.api2OkConfig,
+    inputs.customStoryboardModels,
+    inputs.newApiConfigs
   );
 }
 
 export function listStoryboardImageModels(
-  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  compatibleConfig?: StoryboardCompatibleModelConfig | StoryboardModelConfigInputs | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
   api2OkConfig?: StoryboardApi2OkModelConfig | null,
-  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): ImageModelDefinition[] {
-  return resolveCompatibleModelList(
+  const inputs = normalizeStoryboardModelConfigArgs(
     compatibleConfig,
     newApiConfig,
     api2OkConfig,
-    customStoryboardModels
+    customStoryboardModels,
+    newApiConfigs
+  );
+  return resolveCompatibleModelList(
+    inputs.compatibleConfig,
+    inputs.newApiConfig,
+    inputs.api2OkConfig,
+    inputs.customStoryboardModels,
+    inputs.newApiConfigs
   );
 }
 
@@ -144,7 +211,8 @@ function resolveImageModel(
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
   api2OkConfig?: StoryboardApi2OkModelConfig | null,
-  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): ImageModelDefinition {
   const resolvedModelId = imageModelAliasMap.get(modelId) ?? modelId;
   if (resolvedModelId === STORYBOARD_COMPATIBLE_MODEL_ID) {
@@ -155,7 +223,7 @@ function resolveImageModel(
   }
   if (resolvedModelId === STORYBOARD_NEWAPI_MODEL_ID) {
     return (
-      createStoryboardNewApiImageModel(newApiConfig)
+      createStoryboardNewApiImageModel(newApiConfig, STORYBOARD_NEWAPI_PROVIDER_ID)
       ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
     );
   }
@@ -163,7 +231,8 @@ function resolveImageModel(
     compatibleConfig,
     newApiConfig,
     api2OkConfig,
-    customStoryboardModels
+    customStoryboardModels,
+    newApiConfigs
   ).find((model) => model.id === resolvedModelId);
   if (dynamicModel) {
     return dynamicModel;
@@ -176,8 +245,16 @@ function resolveImageModel(
     );
   }
   if (isStoryboardNewApiModelId(resolvedModelId)) {
+    const providerId = resolvedModelId.split('/', 1)[0];
     return (
-      createStoryboardNewApiImageModel(newApiConfig)
+      createStoryboardNewApiImageModel(
+        getStoryboardNewApiModelConfigForProvider(
+          isStoryboardNewApiProviderId(providerId) ? providerId : STORYBOARD_NEWAPI_PROVIDER_ID,
+          newApiConfigs,
+          newApiConfig
+        ),
+        isStoryboardNewApiProviderId(providerId) ? providerId : STORYBOARD_NEWAPI_PROVIDER_ID
+      )
       ?? imageModelMap.get(DEFAULT_IMAGE_MODEL_ID)!
     );
   }
@@ -198,33 +275,51 @@ function resolveImageModel(
 
 export function getImageModel(
   modelId: string,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  compatibleConfig?: StoryboardCompatibleModelConfig | StoryboardModelConfigInputs | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
   api2OkConfig?: StoryboardApi2OkModelConfig | null,
-  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): ImageModelDefinition {
-  return resolveImageModel(
-    modelId,
+  const inputs = normalizeStoryboardModelConfigArgs(
     compatibleConfig,
     newApiConfig,
     api2OkConfig,
-    customStoryboardModels
+    customStoryboardModels,
+    newApiConfigs
+  );
+  return resolveImageModel(
+    modelId,
+    inputs.compatibleConfig,
+    inputs.newApiConfig,
+    inputs.api2OkConfig,
+    inputs.customStoryboardModels,
+    inputs.newApiConfigs
   );
 }
 
 export function getStoryboardImageModel(
   modelId: string,
-  compatibleConfig?: StoryboardCompatibleModelConfig | null,
+  compatibleConfig?: StoryboardCompatibleModelConfig | StoryboardModelConfigInputs | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
   api2OkConfig?: StoryboardApi2OkModelConfig | null,
-  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): ImageModelDefinition {
-  return resolveImageModel(
-    modelId,
+  const inputs = normalizeStoryboardModelConfigArgs(
     compatibleConfig,
     newApiConfig,
     api2OkConfig,
-    customStoryboardModels
+    customStoryboardModels,
+    newApiConfigs
+  );
+  return resolveImageModel(
+    modelId,
+    inputs.compatibleConfig,
+    inputs.newApiConfig,
+    inputs.api2OkConfig,
+    inputs.customStoryboardModels,
+    inputs.newApiConfigs
   );
 }
 

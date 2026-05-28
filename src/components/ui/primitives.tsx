@@ -680,7 +680,7 @@ export function UiModal({
       />
       <div ref={panelRef} className={panelPositionClassName} style={panelStyle}>
         <UiPanel
-          className={`relative max-h-[calc(100vh-40px)] overflow-hidden transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} ${widthClassName}`}
+          className={`relative flex max-h-[calc(100vh-40px)] flex-col overflow-hidden transition-opacity duration-200 ${isVisible ? 'opacity-100' : 'opacity-0'} ${widthClassName}`}
         >
           <div
             className={`flex items-center justify-between border-b border-[rgba(255,255,255,0.1)] px-4 py-3 ${dragHandleClassName} ${headerClassName}`}
@@ -692,10 +692,10 @@ export function UiModal({
             </UiIconButton>
           </div>
 
-          <div className={`px-4 py-4 ${bodyClassName}`}>{children}</div>
+          <div className={`min-h-0 px-4 py-4 ${bodyClassName}`}>{children}</div>
 
           {footer && (
-            <div className="flex justify-end gap-2 border-t border-[rgba(255,255,255,0.1)] px-4 py-3">
+            <div className="shrink-0 flex justify-end gap-2 border-t border-[rgba(255,255,255,0.1)] px-4 py-3">
               {footer}
             </div>
           )}

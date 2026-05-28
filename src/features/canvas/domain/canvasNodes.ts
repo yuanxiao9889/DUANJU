@@ -12,14 +12,17 @@ import {
 import {
   createDefaultCommerceAdBatchGenerateState,
   createDefaultCommerceAdBriefState,
+  createDefaultCommerceAgentPlanState,
   createDefaultCommerceAdProductState,
   createDefaultCommerceAdResultGroupState,
   createDefaultCommerceAdVisualPreferenceState,
   normalizeCommerceAdBatchGenerateState,
   normalizeCommerceAdBriefState,
+  normalizeCommerceAgentPlanState,
   normalizeCommerceAdProductState,
   normalizeCommerceAdResultGroupState,
   normalizeCommerceAdVisualPreferenceState,
+  type CommerceAgentPlanState,
   type CommerceAdBatchGenerateState,
   type CommerceAdBriefState,
   type CommerceAdProductState,
@@ -79,6 +82,7 @@ export const CANVAS_NODE_TYPES = {
   commerceBrief: 'commerceBriefNode',
   commerceVisualPreference: 'commerceVisualPreferenceNode',
   commerceBatchGenerate: 'commerceBatchGenerateNode',
+  commerceAgentPlan: 'commerceAgentPlanNode',
   commerceResultGroup: 'commerceResultGroupNode',
   scriptRoot: 'scriptRootNode',
   scriptChapter: 'scriptChapterNode',
@@ -3121,6 +3125,8 @@ export interface CommerceVisualPreferenceNodeData extends NodeDisplayData, Comme
 
 export interface CommerceBatchGenerateNodeData extends NodeDisplayData, CommerceAdBatchGenerateState {}
 
+export interface CommerceAgentPlanNodeData extends NodeDisplayData, CommerceAgentPlanState {}
+
 export interface CommerceResultGroupNodeData extends NodeDisplayData, CommerceAdResultGroupState {}
 
 export type CanvasNodeData =
@@ -3168,6 +3174,7 @@ export type CanvasNodeData =
   | CommerceBriefNodeData
   | CommerceVisualPreferenceNodeData
   | CommerceBatchGenerateNodeData
+  | CommerceAgentPlanNodeData
   | CommerceResultGroupNodeData
   | ScriptRootNodeData
   | ScriptChapterNodeData
@@ -5060,6 +5067,18 @@ export function normalizeCommerceBatchGenerateNodeData(
   return {
     ...createDefaultCommerceAdBatchGenerateState(),
     ...normalizeCommerceAdBatchGenerateState(data),
+    displayName: normalizeString(data?.displayName).trim() || undefined,
+    nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
+    semanticColor: data?.semanticColor ?? null,
+  };
+}
+
+export function normalizeCommerceAgentPlanNodeData(
+  data: Partial<CommerceAgentPlanNodeData> | null | undefined
+): CommerceAgentPlanNodeData {
+  return {
+    ...createDefaultCommerceAgentPlanState(),
+    ...normalizeCommerceAgentPlanState(data),
     displayName: normalizeString(data?.displayName).trim() || undefined,
     nodeDescription: normalizeString(data?.nodeDescription).trim() || null,
     semanticColor: data?.semanticColor ?? null,

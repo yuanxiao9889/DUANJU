@@ -8,18 +8,21 @@ export interface CanvasPerformanceState {
   edgeRenderMode: CanvasEdgeRenderMode;
   suspendMedia: boolean;
   preferThumbnailMedia: boolean;
+  enableResultOriginalOnHover: boolean;
 }
 
 export interface CanvasMediaPerformanceState {
   renderMode: CanvasRenderMode;
   suspendMedia: boolean;
   preferThumbnailMedia: boolean;
+  enableResultOriginalOnHover: boolean;
 }
 
 const DEFAULT_CANVAS_MEDIA_PERFORMANCE_STATE: CanvasMediaPerformanceState = {
   renderMode: 'full',
   suspendMedia: false,
   preferThumbnailMedia: false,
+  enableResultOriginalOnHover: false,
 };
 
 export const CanvasMediaPerformanceContext = createContext<CanvasMediaPerformanceState>(
@@ -49,6 +52,11 @@ export function useShouldSuspendCanvasMedia(): boolean {
 
 export function useShouldPreferCanvasThumbnailMedia(): boolean {
   return useContext(CanvasMediaPerformanceContext).preferThumbnailMedia;
+}
+
+export function useShouldShowCanvasResultOriginalOnHover(): boolean {
+  const mediaState = useContext(CanvasMediaPerformanceContext);
+  return mediaState.renderMode === 'full' && mediaState.enableResultOriginalOnHover;
 }
 
 export function useCanvasEdgeRenderMode(): CanvasEdgeRenderMode {

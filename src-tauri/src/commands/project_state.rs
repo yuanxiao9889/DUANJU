@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 
+use super::project_window_sessions;
 use super::storage;
 
 const STYLE_TEMPLATE_SETTINGS_REFS_PROJECT_ID: &str = "__settings_style_template_refs__";
@@ -4521,8 +4522,14 @@ pub fn get_project_graph_history(
 pub fn upsert_project_graph_snapshot(
     app: AppHandle,
     mut record: ProjectRecord,
+    window_label: Option<String>,
 ) -> Result<ProjectGraphPatchResult, String> {
     storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &record.id,
+        window_label.as_deref(),
+    )?;
     if let Some((next_nodes_json, next_history_json)) =
         rewrite_project_payload_media_paths_to_known_storage(
             &app,
@@ -4647,8 +4654,14 @@ fn max_project_graph_sort_index(
 pub fn apply_project_graph_patch(
     app: AppHandle,
     patch: ProjectGraphPatch,
+    window_label: Option<String>,
 ) -> Result<ProjectGraphPatchResult, String> {
     storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &patch.project_id,
+        window_label.as_deref(),
+    )?;
     let mut conn = open_db(&app)?;
     if !ensure_project_graph_migrated(&app, &mut conn, &patch.project_id)? {
         return Err(format!("Project {} was not found", patch.project_id));
@@ -4915,8 +4928,17 @@ pub fn apply_project_graph_patch(
 }
 
 #[tauri::command]
-pub fn compact_project_graph_backup(app: AppHandle, project_id: String) -> Result<bool, String> {
+pub fn compact_project_graph_backup(
+    app: AppHandle,
+    project_id: String,
+    window_label: Option<String>,
+) -> Result<bool, String> {
     storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &project_id,
+        window_label.as_deref(),
+    )?;
     let mut conn = open_db(&app)?;
     if !ensure_project_graph_migrated(&app, &mut conn, &project_id)? {
         return Ok(false);
@@ -5047,8 +5069,17 @@ pub fn validate_project_graph_storage(
 }
 
 #[tauri::command]
-pub fn upsert_project_record(app: AppHandle, mut record: ProjectRecord) -> Result<(), String> {
+pub fn upsert_project_record(
+    app: AppHandle,
+    mut record: ProjectRecord,
+    window_label: Option<String>,
+) -> Result<(), String> {
     storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &record.id,
+        window_label.as_deref(),
+    )?;
     if let Some((next_nodes_json, next_history_json)) =
         rewrite_project_payload_media_paths_to_known_storage(
             &app,
@@ -5087,8 +5118,14 @@ pub fn update_project_viewport_record(
     app: AppHandle,
     project_id: String,
     viewport_json: String,
+    window_label: Option<String>,
 ) -> Result<(), String> {
     storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &project_id,
+        window_label.as_deref(),
+    )?;
     let conn = open_db(&app)?;
     let updated_at = now_timestamp_ms();
     conn.execute(
@@ -5123,8 +5160,14 @@ pub fn rename_project_record(
     project_id: String,
     name: String,
     updated_at: i64,
+    window_label: Option<String>,
 ) -> Result<(), String> {
     storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &project_id,
+        window_label.as_deref(),
+    )?;
     let conn = open_db(&app)?;
     conn.execute(
         "UPDATE projects SET name = ?1, updated_at = ?2 WHERE id = ?3",
@@ -5135,8 +5178,17 @@ pub fn rename_project_record(
 }
 
 #[tauri::command]
-pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), String> {
+pub fn delete_project_record(
+    app: AppHandle,
+    project_id: String,
+    window_label: Option<String>,
+) -> Result<(), String> {
     storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &project_id,
+        window_label.as_deref(),
+    )?;
     let mut conn = open_db(&app)?;
     let project_media_root = storage::resolve_project_media_root(&app, &project_id)?;
     let tx = conn
@@ -5209,12 +5261,18 @@ pub fn delete_project_record(app: AppHandle, project_id: String) -> Result<(), S
 pub fn organize_project_media(
     app: AppHandle,
     project_id: String,
+    window_label: Option<String>,
 ) -> Result<OrganizeProjectMediaResult, String> {
     storage::ensure_storage_session_write_allowed(&app)?;
     let normalized_project_id = project_id.trim().to_string();
     if normalized_project_id.is_empty() {
         return Err("Project id is required".to_string());
     }
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &normalized_project_id,
+        window_label.as_deref(),
+    )?;
 
     let mut conn = open_db(&app)?;
     let (project_name, nodes_json, history_json): (Option<String>, String, String) = conn

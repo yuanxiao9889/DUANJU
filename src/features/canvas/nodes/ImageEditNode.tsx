@@ -542,6 +542,9 @@ export const ImageEditNode = memo(
     const storyboardNewApiModelConfig = useSettingsStore(
       (state) => state.storyboardNewApiModelConfig,
     );
+    const storyboardNewApiModelConfigs = useSettingsStore(
+      (state) => state.storyboardNewApiModelConfigs,
+    );
     const storyboardProviderCustomModels = useSettingsStore(
       (state) => state.storyboardProviderCustomModels,
     );
@@ -787,12 +790,14 @@ export const ImageEditNode = memo(
           storyboardNewApiModelConfig,
           storyboardApi2OkModelConfig,
           storyboardProviderCustomModels,
+          storyboardNewApiModelConfigs,
         ),
       [
         storyboardCompatibleModelConfig,
         storyboardNewApiModelConfig,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
 
@@ -804,6 +809,7 @@ export const ImageEditNode = memo(
         storyboardNewApiModelConfig,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       );
     }, [
       effectiveModelId,
@@ -811,6 +817,7 @@ export const ImageEditNode = memo(
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs,
     ]);
     const resolvedCompatibleModelConfig = useMemo(
       () =>
@@ -825,6 +832,7 @@ export const ImageEditNode = memo(
         selectedModel.id,
         storyboardCompatibleModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const resolvedApi2OkModelConfig = useMemo(
@@ -840,6 +848,7 @@ export const ImageEditNode = memo(
         selectedModel.id,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const resolvedModelExtraParams = useMemo(
@@ -868,6 +877,7 @@ export const ImageEditNode = memo(
               selectedModel.id,
               storyboardNewApiModelConfig,
               storyboardProviderCustomModels,
+              storyboardNewApiModelConfigs,
               {
                 resolution: requestedNewApiResolution,
                 extraParams: resolvedModelExtraParams,
@@ -879,7 +889,9 @@ export const ImageEditNode = memo(
         resolvedModelExtraParams,
         selectedModel.id,
         storyboardNewApiModelConfig,
+        storyboardNewApiModelConfigs,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const requestedOopiiResolution = useMemo(
@@ -911,6 +923,7 @@ export const ImageEditNode = memo(
         resolvedModelExtraParams,
         selectedModel.id,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const incomingImageItems = useMemo<IncomingReferenceImageItem[]>(
@@ -2116,6 +2129,7 @@ export const ImageEditNode = memo(
           storyboardNewApiModelConfig,
           storyboardApi2OkModelConfig,
           storyboardProviderCustomModels,
+          storyboardNewApiModelConfigs,
         );
         const nextExtraParams = {
           ...(data.extraParams ?? {}),

@@ -5,6 +5,7 @@ import { UiInput, UiSelect } from '@/components/ui';
 import {
   STORYBOARD_COMPATIBLE_API_FORMATS,
   STORYBOARD_NEWAPI_CUSTOM_MODEL_TYPES,
+  isStoryboardNewApiProviderId,
   type CustomScriptModelEntry,
   type CustomStoryboardModelEntry,
   type ModelProviderDefinition,
@@ -100,6 +101,10 @@ function resolveStoryboardCustomModelIdPlaceholder(providerId: string, fallback:
     return 'gpt-image-2 / gemini-3.1-flash-image / gemini-3.0-pro-image';
   }
 
+  if (providerId === 'newapi2') {
+    return 'gpt-image-2 / gemini-3.1-flash-image / gemini-3.0-pro-image';
+  }
+
   if (providerId === 'api2ok') {
     return 'gemini-3-pro-image-preview / gemini-3.1-flash-image';
   }
@@ -149,7 +154,7 @@ export function ProviderModelSettingsSection({
   const { t } = useTranslation();
   const customScriptModelMap = new Map(customScriptModels.map((model) => [model.id, model]));
   const customStoryboardModelMap = new Map(customStoryboardModels.map((model) => [model.id, model]));
-  const isNewApiStoryboardProvider = provider.id === 'newapi';
+  const isNewApiStoryboardProvider = isStoryboardNewApiProviderId(provider.id);
   const canAddCustomStoryboardModel =
     !isNewApiStoryboardProvider || Boolean(customStoryboardModelTypeInput);
   const scriptModelSelectionDescKey =
@@ -482,7 +487,7 @@ export function ProviderModelSettingsSection({
         </div>
       )}
 
-      {!isScriptTab && provider.id === 'newapi' && (
+      {!isScriptTab && isNewApiStoryboardProvider && (
         <div className="rounded-lg border border-border-dark bg-bg-dark p-4">
           <div className="mb-1 text-xs font-medium text-text-dark">
             {t('settings.storyboardNewApiTitle')}

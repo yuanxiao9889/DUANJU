@@ -160,6 +160,7 @@ function SplitResultFrameCard({
             src={displaySource}
             overviewSrc={frame.thumbnailUrl ?? null}
             alt={label}
+            hoverSourceUrl={frame.imageUrl ?? null}
             viewerSourceUrl={viewerSource}
             viewerImageList={viewerImageList}
             className="h-full w-full object-cover"

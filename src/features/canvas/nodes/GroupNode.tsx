@@ -51,6 +51,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
   const childNodes = useCanvasChildNodes(id);
   const storyboardCompatibleModelConfig = useSettingsStore((state) => state.storyboardCompatibleModelConfig);
   const storyboardNewApiModelConfig = useSettingsStore((state) => state.storyboardNewApiModelConfig);
+  const storyboardNewApiModelConfigs = useSettingsStore((state) => state.storyboardNewApiModelConfigs);
   const storyboardApi2OkModelConfig = useSettingsStore((state) => state.storyboardApi2OkModelConfig);
   const storyboardProviderCustomModels = useSettingsStore((state) => state.storyboardProviderCustomModels);
   const [isRunningBatch, setIsRunningBatch] = useState(false);
@@ -86,6 +87,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
         storyboardNewApiModelConfig,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ))
         : []
     ),
@@ -95,6 +97,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs,
     ]
   );
   const selectedModel = useMemo(
@@ -106,6 +109,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
             storyboardNewApiModelConfig,
             storyboardApi2OkModelConfig,
             storyboardProviderCustomModels,
+            storyboardNewApiModelConfigs,
           )
         : null
     ),
@@ -114,6 +118,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
       isAssetBatchGroup,
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
+      storyboardNewApiModelConfigs,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
     ]
@@ -569,6 +574,7 @@ export const GroupNode = memo(({ id, data, selected }: GroupNodeProps) => {
                     storyboardNewApiModelConfig,
                     storyboardApi2OkModelConfig,
                     storyboardProviderCustomModels,
+                    storyboardNewApiModelConfigs,
                   );
                   const nextResolution = resolveImageModelResolution(nextModel, selectedResolution.value as ImageSize, {});
                   const nextAspectRatio =

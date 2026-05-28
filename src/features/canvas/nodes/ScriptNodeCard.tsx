@@ -18,6 +18,7 @@ interface ScriptNodeCardProps {
   height?: number;
   minHeight?: number;
   isEditing: boolean;
+  showEditButton?: boolean;
   headerActions?: ReactNode;
   contentClassName?: string;
   overlayContent?: ReactNode;
@@ -109,6 +110,7 @@ export function ScriptNodeCard({
   height,
   minHeight = 120,
   isEditing,
+  showEditButton = true,
   headerActions,
   contentClassName = '',
   overlayContent,
@@ -138,17 +140,19 @@ export function ScriptNodeCard({
           <div className="truncate text-sm font-medium text-text-dark">{title}</div>
         </div>
         {headerActions}
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleEdit();
-          }}
-          className={SCRIPT_NODE_ICON_BUTTON_CLASS}
-          title={isEditing ? t('common.cancel') : t('common.edit')}
-        >
-          <Edit2 className="h-4 w-4" />
-        </button>
+        {showEditButton ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleEdit();
+            }}
+            className={SCRIPT_NODE_ICON_BUTTON_CLASS}
+            title={isEditing ? t('common.cancel') : t('common.edit')}
+          >
+            <Edit2 className="h-4 w-4" />
+          </button>
+        ) : null}
         {onDelete ? (
           <button
             type="button"

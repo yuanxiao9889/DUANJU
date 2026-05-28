@@ -728,6 +728,7 @@ export const ImageNode = memo(
               }
               fallbackSrc={fallbackImageSource}
               overviewSrc={thumbnailUrl}
+              hoverSourceUrl={originalImageUrl}
               viewerSourceUrl={originalImageUrl ?? previewImageUrl}
               viewerMetadata={viewerMetadata}
               className="h-full w-full object-contain"

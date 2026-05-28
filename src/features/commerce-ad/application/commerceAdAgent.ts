@@ -186,11 +186,13 @@ function readDetailPages(record: Record<string, unknown>): CommerceAdDetailPage[
   return readRecordArray(record, 'detailPages')
     .map((item, index): CommerceAdDetailPage | null => {
       const title = readString(item, 'title');
+      const pageGoal = readString(item, 'pageGoal');
       const lockedCopy = readString(item, 'lockedCopy');
       const optimizedCopy = readString(item, 'optimizedCopy');
       const layoutNotes = readString(item, 'layoutNotes');
+      const blueprint = readString(item, 'blueprint');
       const prompt = readString(item, 'prompt');
-      if (!title && !lockedCopy && !optimizedCopy && !layoutNotes && !prompt) {
+      if (!title && !pageGoal && !lockedCopy && !optimizedCopy && !layoutNotes && !blueprint && !prompt) {
         return null;
       }
 
@@ -198,9 +200,13 @@ function readDetailPages(record: Record<string, unknown>): CommerceAdDetailPage[
         id: normalizeId(readString(item, 'id') || title || `detail-page-${index + 1}`, `detail-page-${index + 1}`),
         pageNo: Math.max(1, Math.round(Number(item.pageNo) || index + 1)),
         title,
+        pageGoal,
         lockedCopy,
         optimizedCopy,
         layoutNotes,
+        blueprint,
+        referenceImageIds: readStringArray(item, 'referenceImageIds'),
+        qualityNotes: readStringArray(item, 'qualityNotes'),
         prompt,
       };
     })
@@ -231,9 +237,13 @@ function buildSingleLockedCopyPage(
       id: sourcePage?.id || 'detail-page-1',
       pageNo: 1,
       title: sourcePage?.title || '产品信息总览',
+      pageGoal: sourcePage?.pageGoal || '首屏信任与信息总览',
       lockedCopy,
       optimizedCopy: sourcePage?.optimizedCopy || (userIdeaInfo ? `围绕详情页目标优化表达：${userIdeaInfo}` : ''),
       layoutNotes: sourcePage?.layoutNotes || '根据文档信息组织一页清晰的详情页信息结构。',
+      blueprint: sourcePage?.blueprint || '主视觉展示商品主体，按可信信息、核心卖点、补充说明建立清晰层级。',
+      referenceImageIds: sourcePage?.referenceImageIds || [],
+      qualityNotes: sourcePage?.qualityNotes || [],
       prompt: sourcePage?.prompt || [
         '制作电商详情页第 1 页：产品信息总览',
         `必须原样展示以下文档信息：${lockedCopy}`,
@@ -312,6 +322,7 @@ function preserveManualDetailPages(
       id: existingPage.id,
       pageNo: index + 1,
       title: parsedPage?.title || existingPage.title,
+      pageGoal: parsedPage?.pageGoal || existingPage.pageGoal,
       lockedCopy: existingPage.lockedCopy,
     };
   });
@@ -458,9 +469,13 @@ function buildDetailFallbackBrief(product: CommerceAdProductState | null, userMe
         id: 'detail-page-1',
         pageNo: 1,
         title: productName || '产品核心卖点',
+        pageGoal: '首屏信任与核心卖点',
         lockedCopy: lockedDocumentInfo,
         optimizedCopy: optimizedUserIdeaInfo,
         layoutNotes: '详情页首屏，突出商品主体、核心卖点和信任信息。',
+        blueprint: '主视觉展示商品主体，首屏建立信任；核心卖点与必须原样展示的信息分区呈现。',
+        referenceImageIds: product?.images?.[0]?.id ? [product.images[0].id] : [],
+        qualityNotes: [],
         prompt: [
           `制作电商详情页第 1 页：${productName || '产品核心卖点'}`,
           lockedDocumentInfo ? `必须原样展示以下文档信息：${lockedDocumentInfo}` : '',
@@ -735,12 +750,18 @@ export async function runCommerceAdAgentTurn(
             id: '',
             pageNo: 1,
             title: '',
+            pageGoal: '',
             lockedCopy: '',
             optimizedCopy: '',
             layoutNotes: '',
+            blueprint: '',
+            referenceImageIds: [''],
+            qualityNotes: [''],
             prompt: '',
           },
         ],
+        qualityCheckSummary: '',
+        qualityIssues: [''],
       },
       visualPreference: {
         designStyle: '智能匹配',
@@ -780,6 +801,10 @@ export async function runCommerceAdAgentTurn(
     '- Never paraphrase lockedDocumentInfo or lockedCopy inside optimizedCopy. If a page needs locked copy, place the exact original text only in lockedCopy and make the page prompt explicitly require it verbatim.',
     '- product.userIdeaInfo can be optimized for clarity and conversion, but do not change facts. Put the polished version in brief.optimizedUserIdeaInfo and related detailPages[].optimizedCopy.',
     '- brief.detailPages must contain id, pageNo, title, lockedCopy, optimizedCopy, layoutNotes, prompt. Each prompt should be production-ready for one detail-page image.',
+    '- Also populate detailPages[].pageGoal, detailPages[].blueprint, detailPages[].referenceImageIds, and detailPages[].qualityNotes when possible. pageGoal should be a concrete ecommerce section intent such as 首屏信任、核心卖点、参数规格、材质工艺、使用场景、售后保障、禁忌提醒.',
+    '- Treat product image descriptions as an evidence board. Assign evidence tags mentally such as 主图、材质细节、规格参数、包装、使用场景、风险限制, then reference the most relevant image ids in each detail page instead of defaulting every page to the main image.',
+    '- Populate brief.qualityCheckSummary and brief.qualityIssues with a concise pre-generation QA pass: source-copy coverage, duplicate allocation, possible invented claims, thin pages, excessive page count, and platform/compliance risks.',
+    '- Internally act as five cooperating agents in one JSON response: 商品资料 Agent extracts evidence, 详情页策划 Agent plans page goals, 文案 Agent only optimizes userIdeaInfo, Prompt Agent writes image prompts, and 质检 Agent checks risk before generation.',
     '- If product.detailInputMode is manualPages and existing detailPages are provided, only optimize/fill optimizedCopy, layoutNotes, and prompt.',
     '- batch.generationMode must be detailPages and detailPageCount must match brief.detailPages.length. Preserve requested aspectRatios, variantsPerRatio, and batchCount from current batch settings when present.',
     '- Product inference may use up to 5 product reference images when provided. Treat the first image as the main product identity and use later images for angle, material, detail, packaging, and usage-scene evidence.',
@@ -905,6 +930,8 @@ export async function runCommerceAdAgentTurn(
       normalizedBrief: briefNormalizedBrief,
       optimizedUserIdeaInfo: readString(briefRecord, 'optimizedUserIdeaInfo') || userIdeaInfo,
       detailPages: parsedDetailPages,
+      qualityCheckSummary: readString(briefRecord, 'qualityCheckSummary'),
+      qualityIssues: readStringArray(briefRecord, 'qualityIssues'),
       updatedAt: Date.now(),
     };
     const fallbackProductForBrief: CommerceAdProductState = {

@@ -22,6 +22,7 @@ import type { ImageViewerMetadata } from '@/features/canvas/domain/canvasNodes';
 import { useStableImageDisplaySource } from '@/features/canvas/hooks/useStableImageDisplaySource';
 import {
   useIsOverviewCanvasRender,
+  useShouldShowCanvasResultOriginalOnHover,
   useShouldPreferCanvasThumbnailMedia,
 } from '@/features/canvas/CanvasPerformanceContext';
 import { useCanvasStore } from '@/stores/canvasStore';
@@ -32,6 +33,7 @@ export interface CanvasNodeImageProps extends ImgHTMLAttributes<HTMLImageElement
   viewerMetadata?: ImageViewerMetadata | null;
   disableViewer?: boolean;
   fallbackSrc?: string | null;
+  hoverSourceUrl?: string | null;
   overviewSrc?: string | null;
   onSourceUnavailable?: (error?: unknown) => void;
 }
@@ -144,11 +146,14 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   viewerMetadata = null,
   disableViewer = false,
   fallbackSrc,
+  hoverSourceUrl,
   overviewSrc,
   onSourceUnavailable,
   onDoubleClick,
   onError,
   onLoad,
+  onMouseEnter,
+  onMouseLeave,
   className,
   fetchPriority,
   src,
@@ -157,18 +162,37 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   const openImageViewer = useCanvasStore((state) => state.openImageViewer);
   const isOverviewRender = useIsOverviewCanvasRender();
   const shouldPreferThumbnailMedia = useShouldPreferCanvasThumbnailMedia();
+  const shouldShowOriginalOnHover = useShouldShowCanvasResultOriginalOnHover();
+  const [isHovered, setIsHovered] = useState(false);
   const primarySrc = useMemo(
     () => normalizeImageSrc(typeof src === 'string' ? src : null),
     [src]
   );
   const normalizedOverviewSrc = useMemo(() => normalizeImageSrc(overviewSrc), [overviewSrc]);
+  const normalizedHoverSource = useMemo(() => normalizeImageSrc(hoverSourceUrl), [hoverSourceUrl]);
+  const shouldUseHoverSource =
+    shouldShowOriginalOnHover
+    && isHovered
+    && normalizedHoverSource !== null
+    && normalizedHoverSource !== primarySrc
+    && !isOverviewRender
+    && !shouldPreferThumbnailMedia;
   const requestedSrc = useMemo(
     () => (
-      isOverviewRender || shouldPreferThumbnailMedia
-        ? (normalizedOverviewSrc ?? primarySrc)
-        : primarySrc
+      shouldUseHoverSource
+        ? normalizedHoverSource
+        : isOverviewRender || shouldPreferThumbnailMedia
+          ? (normalizedOverviewSrc ?? primarySrc)
+          : primarySrc
     ),
-    [isOverviewRender, normalizedOverviewSrc, primarySrc, shouldPreferThumbnailMedia]
+    [
+      isOverviewRender,
+      normalizedHoverSource,
+      normalizedOverviewSrc,
+      primarySrc,
+      shouldPreferThumbnailMedia,
+      shouldUseHoverSource,
+    ]
   );
   const normalizedFallbackSrc = useMemo(() => normalizeImageSrc(fallbackSrc), [fallbackSrc]);
   const normalizedViewerSource = useMemo(
@@ -183,6 +207,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     if (
       !isOverviewRender
       && !shouldPreferThumbnailMedia
+      && !shouldUseHoverSource
       && normalizedViewerSource
       && normalizedViewerSource !== requestedSrc
     ) {
@@ -201,6 +226,7 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     primarySrc,
     requestedSrc,
     shouldPreferThumbnailMedia,
+    shouldUseHoverSource,
   ]);
   const resolvedDisplayState = useMemo(
     () => resolveDisplayState(requestedSrc, resolvedFallbackSrc),
@@ -210,10 +236,11 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     () => normalizeCandidateList([
       requestedSrc,
       resolvedFallbackSrc,
+      primarySrc,
       normalizedViewerSource,
       ...(viewerImageList ?? []),
     ]),
-    [normalizedViewerSource, requestedSrc, resolvedFallbackSrc, viewerImageList]
+    [normalizedViewerSource, primarySrc, requestedSrc, resolvedFallbackSrc, viewerImageList]
   );
   const candidateSourcesKey = useMemo(() => candidateSources.join('\n'), [candidateSources]);
   const [activeSrc, setActiveSrc] = useState<string | null>(() => resolvedDisplayState.activeSrc);
@@ -439,6 +466,18 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
     viewerImageList,
   ]);
 
+  const handleMouseEnter = useCallback((event: MouseEvent<HTMLImageElement>) => {
+    onMouseEnter?.(event);
+    if (!event.defaultPrevented) {
+      setIsHovered(true);
+    }
+  }, [onMouseEnter]);
+
+  const handleMouseLeave = useCallback((event: MouseEvent<HTMLImageElement>) => {
+    onMouseLeave?.(event);
+    setIsHovered(false);
+  }, [onMouseLeave]);
+
   const fetchPriorityAttribute = {
     fetchpriority: fetchPriority ?? 'low',
   } as Record<string, string>;
@@ -460,6 +499,8 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
       onLoad={handleLoad}
       onError={handleLoadError}
       onDoubleClick={handleDoubleClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
     />
   );
 }));

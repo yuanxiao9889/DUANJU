@@ -24,7 +24,6 @@ use crate::ai::{
 };
 use crate::commands::image::resolve_image_source_bytes;
 
-const STORYBOARD_MODEL_ID: &str = "newapi/storyboard-experimental";
 const BANANA_CLIENT_HEADER_VALUE: &str = "comfyui-banana-li";
 const JSON_REQUEST_MAX_ATTEMPTS: usize = 2;
 const JSON_REQUEST_RETRY_DELAY_MS: u64 = 2_000;
@@ -115,10 +114,15 @@ enum OpenAiImageRoute {
 pub struct NewApiProvider {
     client: Client,
     api_key: Arc<RwLock<Option<String>>>,
+    provider_id: &'static str,
 }
 
 impl NewApiProvider {
     pub fn new() -> Self {
+        Self::new_with_provider_id("newapi")
+    }
+
+    pub fn new_with_provider_id(provider_id: &'static str) -> Self {
         let client = Client::builder()
             .http1_only()
             .connect_timeout(Duration::from_secs(10))
@@ -127,6 +131,7 @@ impl NewApiProvider {
         Self {
             client,
             api_key: Arc::new(RwLock::new(None)),
+            provider_id,
         }
     }
 
@@ -4190,15 +4195,15 @@ impl Default for NewApiProvider {
 #[async_trait::async_trait]
 impl AIProvider for NewApiProvider {
     fn name(&self) -> &str {
-        "newapi"
+        self.provider_id
     }
 
     fn supports_model(&self, model: &str) -> bool {
-        model.starts_with("newapi/")
+        model.starts_with(&format!("{}/", self.provider_id))
     }
 
     fn list_models(&self) -> Vec<String> {
-        vec![STORYBOARD_MODEL_ID.to_string()]
+        vec![format!("{}/storyboard-experimental", self.provider_id)]
     }
 
     fn supports_task_resume(&self) -> bool {

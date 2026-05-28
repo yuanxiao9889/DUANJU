@@ -155,6 +155,7 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
   const updateNodeData = useCanvasStore((state) => state.updateNodeData);
   const storyboardCompatibleModelConfig = useSettingsStore((state) => state.storyboardCompatibleModelConfig);
   const storyboardNewApiModelConfig = useSettingsStore((state) => state.storyboardNewApiModelConfig);
+  const storyboardNewApiModelConfigs = useSettingsStore((state) => state.storyboardNewApiModelConfigs);
   const storyboardApi2OkModelConfig = useSettingsStore((state) => state.storyboardApi2OkModelConfig);
   const storyboardProviderCustomModels = useSettingsStore((state) => state.storyboardProviderCustomModels);
   const [editingValue, setEditingValue] = useState('');
@@ -182,12 +183,14 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
         storyboardNewApiModelConfig,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ),
     [
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs,
     ]
   );
   const selectedImageModel = useMemo(
@@ -197,6 +200,7 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs,
     ),
     [
       data.productionImageModelId,
@@ -204,6 +208,7 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs,
     ]
   );
   const productionResolutionOptions = useMemo(
@@ -362,6 +367,7 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs,
     );
     const nextResolution = resolveImageModelResolution(
       nextModel,
@@ -384,6 +390,7 @@ export const SmartDirectorStoryboardTable = memo(function SmartDirectorStoryboar
     storyboardApi2OkModelConfig,
     storyboardCompatibleModelConfig,
     storyboardNewApiModelConfig,
+    storyboardNewApiModelConfigs,
     storyboardProviderCustomModels,
     updateNodeData,
   ]);

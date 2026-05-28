@@ -1,4 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isTauriRuntime } from '@/lib/tauriRuntime';
+
+function getCurrentWindowLabel(): string | null {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+  return getCurrentWindow().label;
+}
 
 export type ProjectType = 'storyboard' | 'script' | 'ad' | 'commerceAd';
 
@@ -143,17 +152,26 @@ export async function getProjectGraphHistory(projectId: string): Promise<Project
 export async function applyProjectGraphPatch(
   patch: ProjectGraphPatch
 ): Promise<ProjectGraphPatchResult> {
-  return await invoke<ProjectGraphPatchResult>('apply_project_graph_patch', { patch });
+  return await invoke<ProjectGraphPatchResult>('apply_project_graph_patch', {
+    patch,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function upsertProjectGraphSnapshot(
   record: ProjectRecord
 ): Promise<ProjectGraphPatchResult> {
-  return await invoke<ProjectGraphPatchResult>('upsert_project_graph_snapshot', { record });
+  return await invoke<ProjectGraphPatchResult>('upsert_project_graph_snapshot', {
+    record,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function compactProjectGraphBackup(projectId: string): Promise<boolean> {
-  return await invoke<boolean>('compact_project_graph_backup', { projectId });
+  return await invoke<boolean>('compact_project_graph_backup', {
+    projectId,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function validateProjectGraphStorage(
@@ -165,14 +183,21 @@ export async function validateProjectGraphStorage(
 }
 
 export async function upsertProjectRecord(record: ProjectRecord): Promise<void> {
-  await invoke('upsert_project_record', { record });
+  await invoke('upsert_project_record', {
+    record,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function updateProjectViewportRecord(
   projectId: string,
   viewportJson: string
 ): Promise<void> {
-  await invoke('update_project_viewport_record', { projectId, viewportJson });
+  await invoke('update_project_viewport_record', {
+    projectId,
+    viewportJson,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function renameProjectRecord(
@@ -180,17 +205,28 @@ export async function renameProjectRecord(
   name: string,
   updatedAt: number
 ): Promise<void> {
-  await invoke('rename_project_record', { projectId, name, updatedAt });
+  await invoke('rename_project_record', {
+    projectId,
+    name,
+    updatedAt,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function deleteProjectRecord(projectId: string): Promise<void> {
-  await invoke('delete_project_record', { projectId });
+  await invoke('delete_project_record', {
+    projectId,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function organizeProjectMedia(
   projectId: string
 ): Promise<OrganizeProjectMediaResult> {
-  return await invoke<OrganizeProjectMediaResult>('organize_project_media', { projectId });
+  return await invoke<OrganizeProjectMediaResult>('organize_project_media', {
+    projectId,
+    windowLabel: getCurrentWindowLabel(),
+  });
 }
 
 export async function syncStyleTemplateImageRefs(paths: string[]): Promise<void> {

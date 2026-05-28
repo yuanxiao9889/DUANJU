@@ -29,11 +29,13 @@ import {
   normalizeStoryboardCompatibleModelConfig,
   normalizeStoryboardApi2OkModelConfig,
   normalizeStoryboardNewApiModelConfig,
+  normalizeStoryboardNewApiModelConfigs,
   normalizeStoryboardProviderCustomModels,
   type ExtraParamValue,
   type ScriptCompatibleProviderConfig,
   type StoryboardApi2OkModelConfig,
   type StoryboardCompatibleModelConfig,
+  type StoryboardNewApiModelConfigMap,
   type StoryboardNewApiModelConfig,
 } from '@/features/canvas/models';
 import {
@@ -141,6 +143,7 @@ export const DEFAULT_CANVAS_OVERVIEW_THUMBNAIL_MAX_DIMENSION: CanvasOverviewThum
 export const DEFAULT_CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD: CanvasThumbnailMediaCountThreshold = 250;
 export const DEFAULT_CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS: CanvasViewportPreloadMarginScreens = 1;
 export const DEFAULT_PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES: ProjectFullAutosaveIntervalMinutes = 10;
+export const DEFAULT_ENABLE_CANVAS_RESULT_ORIGINAL_ON_HOVER = false;
 
 export interface ThirdPartyVideoProviderConfig {
   oopii: {
@@ -172,6 +175,7 @@ interface SettingsState {
   storyboardCompatibleModelConfig: StoryboardCompatibleModelConfig;
   storyboardApi2OkModelConfig: StoryboardApi2OkModelConfig;
   storyboardNewApiModelConfig: StoryboardNewApiModelConfig;
+  storyboardNewApiModelConfigs: StoryboardNewApiModelConfigMap;
   lastImageEditModelId: string;
   lastImageEditSize: ImageSize;
   lastImageEditRequestAspectRatio: string;
@@ -211,6 +215,7 @@ interface SettingsState {
   canvasThumbnailMediaCountThreshold: CanvasThumbnailMediaCountThreshold;
   canvasViewportPreloadMarginScreens: CanvasViewportPreloadMarginScreens;
   projectFullAutosaveIntervalMinutes: ProjectFullAutosaveIntervalMinutes;
+  enableCanvasResultOriginalOnHover: boolean;
   autoCheckAppUpdateOnLaunch: boolean;
   enableUpdateDialog: boolean;
   autoUpdateDreaminaCliOnLaunch: boolean;
@@ -265,6 +270,10 @@ interface SettingsState {
     config: Partial<StoryboardApi2OkModelConfig>
   ) => void;
   setStoryboardNewApiModelConfig: (
+    config: Partial<StoryboardNewApiModelConfig>
+  ) => void;
+  setStoryboardNewApiModelConfigForProvider: (
+    providerId: string,
     config: Partial<StoryboardNewApiModelConfig>
   ) => void;
   setLastImageEditDefaults: (defaults: {
@@ -324,6 +333,7 @@ interface SettingsState {
   setProjectFullAutosaveIntervalMinutes: (
     interval: ProjectFullAutosaveIntervalMinutes | number
   ) => void;
+  setEnableCanvasResultOriginalOnHover: (enabled: boolean) => void;
   setAutoCheckAppUpdateOnLaunch: (enabled: boolean) => void;
   setEnableUpdateDialog: (enabled: boolean) => void;
   setAutoUpdateDreaminaCliOnLaunch: (enabled: boolean) => void;
@@ -566,14 +576,16 @@ function normalizeImageEditModelId(
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
   api2OkConfig?: StoryboardApi2OkModelConfig | null,
-  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null
+  customStoryboardModels?: Record<string, CustomStoryboardModelEntry[]> | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): string {
   return getImageModel(
     (input ?? '').trim(),
     compatibleConfig,
     newApiConfig,
     api2OkConfig,
-    customStoryboardModels
+    customStoryboardModels,
+    newApiConfigs
   ).id;
 }
 
@@ -812,6 +824,7 @@ export const useSettingsStore = create<SettingsState>()(
       storyboardCompatibleModelConfig: normalizeStoryboardCompatibleModelConfig(undefined),
       storyboardApi2OkModelConfig: normalizeStoryboardApi2OkModelConfig(undefined),
       storyboardNewApiModelConfig: normalizeStoryboardNewApiModelConfig(undefined),
+      storyboardNewApiModelConfigs: normalizeStoryboardNewApiModelConfigs(undefined),
       lastImageEditModelId: DEFAULT_IMAGE_MODEL_ID,
       lastImageEditSize: '2K',
       lastImageEditRequestAspectRatio: AUTO_REQUEST_ASPECT_RATIO,
@@ -851,6 +864,7 @@ export const useSettingsStore = create<SettingsState>()(
       canvasThumbnailMediaCountThreshold: DEFAULT_CANVAS_THUMBNAIL_MEDIA_COUNT_THRESHOLD,
       canvasViewportPreloadMarginScreens: DEFAULT_CANVAS_VIEWPORT_PRELOAD_MARGIN_SCREENS,
       projectFullAutosaveIntervalMinutes: DEFAULT_PROJECT_FULL_AUTOSAVE_INTERVAL_MINUTES,
+      enableCanvasResultOriginalOnHover: DEFAULT_ENABLE_CANVAS_RESULT_ORIGINAL_ON_HOVER,
       autoCheckAppUpdateOnLaunch: true,
       enableUpdateDialog: true,
       autoUpdateDreaminaCliOnLaunch: true,
@@ -959,7 +973,8 @@ export const useSettingsStore = create<SettingsState>()(
                 { [providerId]: models },
                 state.storyboardCompatibleModelConfig,
                 state.storyboardNewApiModelConfig,
-                state.storyboardApi2OkModelConfig
+                state.storyboardApi2OkModelConfig,
+                state.storyboardNewApiModelConfigs
               )[providerId] ?? [],
           },
         })),
@@ -986,6 +1001,34 @@ export const useSettingsStore = create<SettingsState>()(
               ...state.storyboardNewApiModelConfig,
               ...config,
             }),
+          storyboardNewApiModelConfigs: normalizeStoryboardNewApiModelConfigs({
+            ...state.storyboardNewApiModelConfigs,
+            newapi: {
+              ...normalizeStoryboardNewApiModelConfig(state.storyboardNewApiModelConfigs.newapi),
+              ...config,
+            },
+          }),
+        })),
+      setStoryboardNewApiModelConfigForProvider: (providerId, config) =>
+        set((state) => ({
+          storyboardNewApiModelConfig:
+            providerId === 'newapi'
+              ? normalizeStoryboardNewApiModelConfig({
+                ...state.storyboardNewApiModelConfig,
+                ...config,
+              })
+              : state.storyboardNewApiModelConfig,
+          storyboardNewApiModelConfigs: normalizeStoryboardNewApiModelConfigs({
+            ...state.storyboardNewApiModelConfigs,
+            [providerId]: {
+              ...normalizeStoryboardNewApiModelConfig(
+                state.storyboardNewApiModelConfigs[
+                  providerId as keyof StoryboardNewApiModelConfigMap
+                ]
+              ),
+              ...config,
+            },
+          }, state.storyboardNewApiModelConfig),
         })),
       setLastImageEditDefaults: ({ modelId, size, requestAspectRatio }) =>
         set((state) => ({
@@ -994,7 +1037,8 @@ export const useSettingsStore = create<SettingsState>()(
             state.storyboardCompatibleModelConfig,
             state.storyboardNewApiModelConfig,
             state.storyboardApi2OkModelConfig,
-            state.storyboardProviderCustomModels
+            state.storyboardProviderCustomModels,
+            state.storyboardNewApiModelConfigs
           ),
           lastImageEditSize: normalizeImageEditSize(size ?? state.lastImageEditSize),
           lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
@@ -1135,6 +1179,8 @@ export const useSettingsStore = create<SettingsState>()(
           projectFullAutosaveIntervalMinutes:
             normalizeProjectFullAutosaveIntervalMinutes(projectFullAutosaveIntervalMinutes),
         }),
+      setEnableCanvasResultOriginalOnHover: (enableCanvasResultOriginalOnHover) =>
+        set({ enableCanvasResultOriginalOnHover }),
       setAutoCheckAppUpdateOnLaunch: (enabled) => set({ autoCheckAppUpdateOnLaunch: enabled }),
       setEnableUpdateDialog: (enabled) => set({ enableUpdateDialog: enabled }),
       setAutoUpdateDreaminaCliOnLaunch: (enabled) =>
@@ -1925,6 +1971,7 @@ export const useSettingsStore = create<SettingsState>()(
             | ProjectFullAutosaveIntervalMinutes
             | number
             | string;
+          enableCanvasResultOriginalOnHover?: boolean;
           autoCheckAppUpdateOnLaunch?: boolean;
           enableUpdateDialog?: boolean;
           autoUpdateDreaminaCliOnLaunch?: boolean;
@@ -1932,6 +1979,7 @@ export const useSettingsStore = create<SettingsState>()(
           storyboardCompatibleModelConfig?: Partial<StoryboardCompatibleModelConfig>;
           storyboardApi2OkModelConfig?: Partial<StoryboardApi2OkModelConfig>;
           storyboardNewApiModelConfig?: Partial<StoryboardNewApiModelConfig>;
+          storyboardNewApiModelConfigs?: StoryboardNewApiModelConfigMap;
           enableStoryboardGenGridPreviewShortcut?: boolean;
           groupNodesShortcut?: string;
           showStoryboardGenAdvancedRatioControls?: boolean;
@@ -2005,18 +2053,25 @@ export const useSettingsStore = create<SettingsState>()(
           normalizeStoryboardApi2OkModelConfig(state.storyboardApi2OkModelConfig);
         const normalizedStoryboardNewApiModelConfig =
           normalizeStoryboardNewApiModelConfig(state.storyboardNewApiModelConfig);
+        const normalizedStoryboardNewApiModelConfigs =
+          normalizeStoryboardNewApiModelConfigs(
+            state.storyboardNewApiModelConfigs,
+            normalizedStoryboardNewApiModelConfig
+          );
         const normalizedStoryboardProviderCustomModels = normalizeStoryboardProviderCustomModels(
           state.storyboardProviderCustomModels,
           normalizedStoryboardCompatibleModelConfig,
           normalizedStoryboardNewApiModelConfig,
-          normalizedStoryboardApi2OkModelConfig
+          normalizedStoryboardApi2OkModelConfig,
+          normalizedStoryboardNewApiModelConfigs
         );
         const normalizedStoryboardModelOverrides = normalizeStoryboardModelOverrides(
           state.storyboardModelOverrides,
           normalizedStoryboardProviderCustomModels,
           normalizedStoryboardCompatibleModelConfig,
           normalizedStoryboardNewApiModelConfig,
-          normalizedStoryboardApi2OkModelConfig
+          normalizedStoryboardApi2OkModelConfig,
+          normalizedStoryboardNewApiModelConfigs
         );
         const normalizedScriptProviderCustomModels = seedDefaultScriptProviderCustomModels(
           normalizeScriptProviderCustomModels(state.scriptProviderCustomModels)
@@ -2085,12 +2140,14 @@ export const useSettingsStore = create<SettingsState>()(
           storyboardCompatibleModelConfig: normalizedStoryboardCompatibleModelConfig,
           storyboardApi2OkModelConfig: normalizedStoryboardApi2OkModelConfig,
           storyboardNewApiModelConfig: normalizedStoryboardNewApiModelConfig,
+          storyboardNewApiModelConfigs: normalizedStoryboardNewApiModelConfigs,
           lastImageEditModelId: normalizeImageEditModelId(
             state.lastImageEditModelId,
             normalizedStoryboardCompatibleModelConfig,
             normalizedStoryboardNewApiModelConfig,
             normalizedStoryboardApi2OkModelConfig,
-            normalizedStoryboardProviderCustomModels
+            normalizedStoryboardProviderCustomModels,
+            normalizedStoryboardNewApiModelConfigs
           ),
           lastImageEditSize: normalizeImageEditSize(state.lastImageEditSize),
           lastImageEditRequestAspectRatio: normalizeImageEditRequestAspectRatio(
@@ -2164,6 +2221,8 @@ export const useSettingsStore = create<SettingsState>()(
           projectFullAutosaveIntervalMinutes: normalizeProjectFullAutosaveIntervalMinutes(
             state.projectFullAutosaveIntervalMinutes
           ),
+          enableCanvasResultOriginalOnHover:
+            state.enableCanvasResultOriginalOnHover ?? DEFAULT_ENABLE_CANVAS_RESULT_ORIGINAL_ON_HOVER,
           autoCheckAppUpdateOnLaunch: state.autoCheckAppUpdateOnLaunch ?? true,
           enableUpdateDialog: state.enableUpdateDialog ?? true,
           autoUpdateDreaminaCliOnLaunch: state.autoUpdateDreaminaCliOnLaunch ?? true,

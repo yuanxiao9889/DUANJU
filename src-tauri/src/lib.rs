@@ -19,6 +19,7 @@ use commands::media_audio;
 use commands::midjourney;
 use commands::project_state;
 use commands::ps_server;
+use commands::project_window_sessions;
 use commands::script_project_package;
 use commands::seedance;
 use commands::style_preset_package;
@@ -257,6 +258,9 @@ pub fn run() {
     setup_logging();
 
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            show_main_window(app);
+        }))
         .on_page_load(|window, _payload| {
             if window.label() != MAIN_WINDOW_LABEL {
                 return;
@@ -434,6 +438,12 @@ pub fn run() {
             project_state::get_style_template_state,
             project_state::save_style_template_state,
             project_state::sync_style_template_image_refs,
+            project_window_sessions::register_project_window,
+            project_window_sessions::unregister_project_window,
+            project_window_sessions::claim_project_edit_session,
+            project_window_sessions::release_project_edit_session,
+            project_window_sessions::list_project_edit_sessions,
+            project_window_sessions::focus_project_window,
             system::get_runtime_system_info,
             system::minimize_main_window_to_tray,
             system::read_system_clipboard_file_paths,

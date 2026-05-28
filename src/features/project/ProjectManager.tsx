@@ -26,8 +26,15 @@ import {
 import { UiLoadingBanner, UiPanel } from '@/components/ui';
 import { UI_CONTENT_OVERLAY_INSET_CLASS } from '@/components/ui/motion';
 import { UiButton, UiSelect } from '@/components/ui/primitives';
+import {
+  focusProjectWindow,
+  listProjectEditSessions,
+  type ProjectEditSession,
+} from '@/commands/projectWindowSessions';
 import { useClipLibraryStore } from '@/stores/clipLibraryStore';
 import { useProjectStore, type ProjectType } from '@/stores/projectStore';
+import { isTauriRuntime } from '@/lib/tauriRuntime';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { DeleteConfirmDialog } from './DeleteConfirmDialog';
 import { ProjectTypeSelector, CreateProjectDialog } from './ProjectTypeSelector';
 import { RenameDialog } from './RenameDialog';
@@ -74,6 +81,8 @@ function ProjectListView({
   scriptProjects,
   adProjects,
   clipLibraryNameById,
+  occupiedProjectWindowById,
+  currentWindowLabel,
 }: {
   sortField: ProjectSortField;
   sortDirection: SortDirection;
@@ -104,6 +113,8 @@ function ProjectListView({
   scriptProjects: ReturnType<typeof useProjectStore.getState>['projects'];
   adProjects: ReturnType<typeof useProjectStore.getState>['projects'];
   clipLibraryNameById: Map<string, string>;
+  occupiedProjectWindowById: Map<string, string>;
+  currentWindowLabel: string | null;
 }) {
   const { t } = useTranslation();
 
@@ -228,6 +239,9 @@ function ProjectListView({
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {sortedProjects.map((project) => {
             const isSelected = selectedProjectIds.has(project.id);
+            const ownerWindowLabel = occupiedProjectWindowById.get(project.id) ?? null;
+            const isOccupiedByOtherWindow =
+              Boolean(ownerWindowLabel) && ownerWindowLabel !== currentWindowLabel;
             const linkedScriptProject = project.linkedScriptProjectId
               ? scriptProjects.find((candidate) => candidate.id === project.linkedScriptProjectId) ?? null
               : null;
@@ -250,11 +264,17 @@ function ProjectListView({
                 key={project.id}
                 onClick={() => handleCardClick(project.id)}
                 className={`
-                  group relative cursor-pointer overflow-hidden rounded-xl border bg-surface-dark/80 p-5 backdrop-blur-sm
-                  transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.15)]
-                  ${isSelected ? 'border-accent ring-2 ring-accent/30' : 'border-border-dark/50 hover:border-accent/40'}
+                  group relative overflow-hidden rounded-xl border bg-surface-dark/80 p-5 backdrop-blur-sm
+                  transition-all duration-300 ease-out
+                  ${isOccupiedByOtherWindow && !isSelectMode ? 'cursor-pointer opacity-55 grayscale-[0.35]' : 'cursor-pointer hover:-translate-y-1 hover:shadow-[0_8px_32px_rgba(0,0,0,0.15)]'}
+                  ${isSelected ? 'border-accent ring-2 ring-accent/30' : isOccupiedByOtherWindow && !isSelectMode ? 'border-border-dark/45' : 'border-border-dark/50 hover:border-accent/40'}
                 `}
               >
+                {isOccupiedByOtherWindow && !isSelectMode ? (
+                  <div className="absolute inset-x-0 top-0 z-10 border-b border-border-dark/60 bg-bg-dark/90 px-4 py-2 text-xs font-medium text-text-muted">
+                    {t('project.openInOtherWindow')}
+                  </div>
+                ) : null}
                 {isSelectMode ? (
                   <div className="absolute right-3 top-3 z-10">
                     <button
@@ -802,6 +822,7 @@ export function ProjectManager() {
   const [linkDialogProjectId, setLinkDialogProjectId] = useState<string | null>(null);
   const [linkDialogLinkedScriptProjectId, setLinkDialogLinkedScriptProjectId] = useState<string | null>(null);
   const [linkDialogLinkedAdProjectId, setLinkDialogLinkedAdProjectId] = useState<string | null>(null);
+  const [projectEditSessions, setProjectEditSessions] = useState<ProjectEditSession[]>([]);
 
   const {
     projects,
@@ -831,6 +852,16 @@ export function ProjectManager() {
 
     return list;
   }, [projects, sortDirection, sortField]);
+  const currentWindowLabel = useMemo(() => {
+    if (!isTauriRuntime()) {
+      return null;
+    }
+    return getCurrentWindow().label;
+  }, []);
+  const occupiedProjectWindowById = useMemo(
+    () => new Map(projectEditSessions.map((session) => [session.projectId, session.windowLabel])),
+    [projectEditSessions]
+  );
 
   const pendingDeleteNames = useMemo(
     () =>
@@ -884,6 +915,33 @@ export function ProjectManager() {
   useEffect(() => {
     void hydrateClipLibraries();
   }, [hydrateClipLibraries]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let cancelled = false;
+    const refreshSessions = async () => {
+      try {
+        const sessions = await listProjectEditSessions();
+        if (!cancelled) {
+          setProjectEditSessions(sessions);
+        }
+      } catch (error) {
+        console.warn('Failed to load project edit sessions', error);
+      }
+    };
+    void refreshSessions();
+    const timer = window.setInterval(() => {
+      void refreshSessions();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'assets') {
@@ -986,6 +1044,14 @@ export function ProjectManager() {
       return;
     }
 
+    const ownerWindowLabel = occupiedProjectWindowById.get(id);
+    if (ownerWindowLabel && ownerWindowLabel !== currentWindowLabel) {
+      void focusProjectWindow(ownerWindowLabel).catch((error) => {
+        console.warn('Failed to focus project window', error);
+      });
+      return;
+    }
+
     openProject(id);
   };
 
@@ -1071,6 +1137,8 @@ export function ProjectManager() {
             scriptProjects={scriptProjects}
             adProjects={adProjects}
             clipLibraryNameById={clipLibraryNameById}
+            occupiedProjectWindowById={occupiedProjectWindowById}
+            currentWindowLabel={currentWindowLabel}
           />
         ) : activeTab === 'assets' ? (
           <Suspense

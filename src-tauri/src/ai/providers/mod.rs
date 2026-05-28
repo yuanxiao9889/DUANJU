@@ -46,6 +46,7 @@ pub fn build_default_providers() -> Vec<Arc<dyn AIProvider>> {
         Arc::new(CodingProvider::new()),
         Arc::new(DeepSeekProvider::new()),
         Arc::new(NewApiProvider::new()),
+        Arc::new(NewApiProvider::new_with_provider_id("newapi2")),
         Arc::new(OopiiProvider::new()),
         Arc::new(ZhenzhenProvider::new()),
         Arc::new(ComflyProvider::new()),

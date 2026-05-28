@@ -581,6 +581,8 @@ export const JimengImageResultNode = memo(
                 item?.sourceUrl ??
                 item?.previewImageUrl ??
                 null;
+              const originalSource =
+                item?.imageUrl?.trim() || item?.sourceUrl?.trim() || null;
               return (
                 <div
                   key={item?.id ?? `jimeng-result-slot-${index + 1}`}
@@ -600,6 +602,7 @@ export const JimengImageResultNode = memo(
                             index: index + 1,
                           })
                         }
+                        hoverSourceUrl={originalSource}
                         viewerSourceUrl={viewerSource}
                         viewerImageList={viewerImageList}
                         viewerMetadata={viewerMetadata}

@@ -64,6 +64,7 @@ import {
   type UploadImageNodeData,
   type AudioNodeData,
   type AdProjectRootNodeData,
+  type CommerceAgentPlanNodeData,
   type CommerceBatchGenerateNodeData,
   type CommerceBriefNodeData,
   type CommerceProductNodeData,
@@ -99,6 +100,7 @@ import { createDefaultAdProjectRootState } from '@/features/ad/types';
 import {
   createDefaultCommerceAdBatchGenerateState,
   createDefaultCommerceAdBriefState,
+  createDefaultCommerceAgentPlanState,
   createDefaultCommerceAdProductState,
   createDefaultCommerceAdResultGroupState,
   createDefaultCommerceAdVisualPreferenceState,
@@ -1753,6 +1755,30 @@ const commerceBatchGenerateNodeDefinition: CanvasNodeDefinition<CommerceBatchGen
   }),
 };
 
+const commerceAgentPlanNodeDefinition: CanvasNodeDefinition<CommerceAgentPlanNodeData> = {
+  type: CANVAS_NODE_TYPES.commerceAgentPlan,
+  menuLabelKey: 'commerceAd.nodes.agentPlan',
+  menuIcon: 'sparkles',
+  visibleInMenu: false,
+  menuProjectTypes: ['commerceAd'],
+  capabilities: {
+    toolbar: true,
+    promptInput: false,
+  },
+  connectivity: {
+    sourceHandle: true,
+    targetHandle: false,
+    connectMenu: {
+      fromSource: false,
+      fromTarget: false,
+    },
+  },
+  createDefaultData: () => ({
+    displayName: DEFAULT_NODE_DISPLAY_NAME[CANVAS_NODE_TYPES.commerceAgentPlan],
+    ...createDefaultCommerceAgentPlanState(),
+  }),
+};
+
 const commerceResultGroupNodeDefinition: CanvasNodeDefinition<CommerceResultGroupNodeData> = {
   type: CANVAS_NODE_TYPES.commerceResultGroup,
   menuLabelKey: 'commerceAd.nodes.results',
@@ -2519,6 +2545,7 @@ export const canvasNodeDefinitions: Record<CanvasNodeType, CanvasNodeDefinition>
   [CANVAS_NODE_TYPES.commerceBrief]: commerceBriefNodeDefinition,
   [CANVAS_NODE_TYPES.commerceVisualPreference]: commerceVisualPreferenceNodeDefinition,
   [CANVAS_NODE_TYPES.commerceBatchGenerate]: commerceBatchGenerateNodeDefinition,
+  [CANVAS_NODE_TYPES.commerceAgentPlan]: commerceAgentPlanNodeDefinition,
   [CANVAS_NODE_TYPES.commerceResultGroup]: commerceResultGroupNodeDefinition,
   [CANVAS_NODE_TYPES.scriptRoot]: scriptRootNodeDefinition,
   [CANVAS_NODE_TYPES.scriptChapter]: scriptChapterNodeDefinition,

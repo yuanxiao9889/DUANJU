@@ -1868,6 +1868,7 @@ function resolveScriptStoryboardTableProductionImageSettings(
   const {
     storyboardCompatibleModelConfig,
     storyboardNewApiModelConfig,
+    storyboardNewApiModelConfigs,
     storyboardApi2OkModelConfig,
     storyboardProviderCustomModels,
   } = useSettingsStore.getState();
@@ -1876,7 +1877,8 @@ function resolveScriptStoryboardTableProductionImageSettings(
     storyboardCompatibleModelConfig,
     storyboardNewApiModelConfig,
     storyboardApi2OkModelConfig,
-    storyboardProviderCustomModels
+    storyboardProviderCustomModels,
+    storyboardNewApiModelConfigs
   );
   const resolvedResolution = resolveImageModelResolution(
     model,

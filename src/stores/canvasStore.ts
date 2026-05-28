@@ -10,7 +10,6 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   AUTO_REQUEST_ASPECT_RATIO,
   CANVAS_NODE_TYPES,
-  COMMERCE_STAGE_NODE_DEFAULT_HEIGHT,
   COMMERCE_STAGE_NODE_DEFAULT_WIDTH,
   DEFAULT_ASPECT_RATIO,
   DIRECTOR_STAGE_NODE_DEFAULT_HEIGHT,
@@ -70,6 +69,7 @@ import {
   type CanvasNode,
   type CanvasNodeData,
   type CanvasNodeType,
+  type CommerceAgentPlanNodeData,
   type CommerceBatchGenerateNodeData,
   type CommerceBriefNodeData,
   type CommerceProductNodeData,
@@ -131,6 +131,7 @@ import {
   normalizeScriptCharacterNodeData,
   normalizeScriptCharacterReferenceNodeData,
   normalizeAdScriptReferenceNodeData,
+  normalizeCommerceAgentPlanNodeData,
   normalizeCommerceBatchGenerateNodeData,
   normalizeCommerceBriefNodeData,
   normalizeCommerceProductNodeData,
@@ -1288,6 +1289,13 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
         Object.assign(
           mergedData,
           normalizeCommerceBatchGenerateNodeData(mergedData as CommerceBatchGenerateNodeData)
+        );
+      }
+
+      if (normalizedNodeType === CANVAS_NODE_TYPES.commerceAgentPlan) {
+        Object.assign(
+          mergedData,
+          normalizeCommerceAgentPlanNodeData(mergedData as CommerceAgentPlanNodeData)
         );
       }
 
@@ -2463,14 +2471,21 @@ function withLlmLogicDefaultSize(node: CanvasNode): CanvasNode {
 }
 
 function withCommerceStageDefaultSize(node: CanvasNode): CanvasNode {
+  const style = { ...(node.style ?? {}) };
+  const resolvedHeight =
+    resolveNumericNodeDimension(node.height)
+    ?? resolveNumericNodeDimension(style.height);
+  if (resolvedHeight === 460) {
+    delete style.height;
+  }
+
   return {
     ...node,
     width: COMMERCE_STAGE_NODE_DEFAULT_WIDTH,
-    height: COMMERCE_STAGE_NODE_DEFAULT_HEIGHT,
+    height: resolvedHeight === 460 ? undefined : node.height,
     style: {
-      ...(node.style ?? {}),
+      ...style,
       width: COMMERCE_STAGE_NODE_DEFAULT_WIDTH,
-      height: COMMERCE_STAGE_NODE_DEFAULT_HEIGHT,
     },
   };
 }
@@ -2486,6 +2501,7 @@ function isCommerceStageNodeType(type: CanvasNodeType): boolean {
     || type === CANVAS_NODE_TYPES.commerceBrief
     || type === CANVAS_NODE_TYPES.commerceVisualPreference
     || type === CANVAS_NODE_TYPES.commerceBatchGenerate
+    || type === CANVAS_NODE_TYPES.commerceAgentPlan
     || type === CANVAS_NODE_TYPES.commerceResultGroup;
 }
 
@@ -2501,7 +2517,7 @@ function applyDefaultNodeSize(node: CanvasNode, data: CanvasNodeData): CanvasNod
     const resolvedHeight =
       resolveNumericNodeDimension(node.height)
       ?? resolveNumericNodeDimension(node.style?.height);
-    if (resolvedWidth === null || resolvedHeight === null) {
+    if (resolvedWidth === null || resolvedHeight === 460) {
       return withCommerceStageDefaultSize(node);
     }
   }
@@ -2987,6 +3003,10 @@ function isImageAutoResizableType(type: CanvasNodeType): boolean {
     || type === CANVAS_NODE_TYPES.exportImage;
 }
 
+function isManualSizeLockableType(type: CanvasNodeType): boolean {
+  return isImageAutoResizableType(type) || isCommerceStageNodeType(type);
+}
+
 function withManualSizeLock(node: CanvasNode): CanvasNode {
   const nodeData = node.data as CanvasNodeData & { isSizeManuallyAdjusted?: boolean };
   if (nodeData.isSizeManuallyAdjusted) {
@@ -3041,8 +3061,9 @@ function resolveNodeCreationDefaults(
       lastImageEditSize,
       lastImageEditRequestAspectRatio,
       storyboardCompatibleModelConfig,
-      storyboardApi2OkModelConfig,
       storyboardNewApiModelConfig,
+      storyboardApi2OkModelConfig,
+      storyboardNewApiModelConfigs,
       storyboardProviderCustomModels,
     } = useSettingsStore.getState();
     const preferredModelId = getImageModel(
@@ -3050,7 +3071,8 @@ function resolveNodeCreationDefaults(
       storyboardCompatibleModelConfig,
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
-      storyboardProviderCustomModels
+      storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs
     ).id;
     const imageEditData = data as Partial<ImageEditNodeData>;
 
@@ -3880,7 +3902,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       let nextNodes = applyNodeChangesLocal(changes, state.nodes);
       if (resizedNodeIds.size > 0) {
         nextNodes = nextNodes.map((node) => {
-          if (!resizedNodeIds.has(node.id) || !isImageAutoResizableType(node.type)) {
+          if (!resizedNodeIds.has(node.id) || !isManualSizeLockableType(node.type)) {
             return node;
           }
           return withManualSizeLock(node);
@@ -5444,6 +5466,12 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
           Object.assign(
             mergedData,
             normalizeCommerceBatchGenerateNodeData(mergedData as CommerceBatchGenerateNodeData)
+          );
+        }
+        if (node.type === CANVAS_NODE_TYPES.commerceAgentPlan) {
+          Object.assign(
+            mergedData,
+            normalizeCommerceAgentPlanNodeData(mergedData as CommerceAgentPlanNodeData)
           );
         }
         if (node.type === CANVAS_NODE_TYPES.commerceResultGroup) {

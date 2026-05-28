@@ -627,6 +627,9 @@ export const StoryboardGenNode = memo(
     const storyboardNewApiModelConfig = useSettingsStore(
       (state) => state.storyboardNewApiModelConfig,
     );
+    const storyboardNewApiModelConfigs = useSettingsStore(
+      (state) => state.storyboardNewApiModelConfigs,
+    );
     const storyboardProviderCustomModels = useSettingsStore(
       (state) => state.storyboardProviderCustomModels,
     );
@@ -780,12 +783,14 @@ export const StoryboardGenNode = memo(
           storyboardNewApiModelConfig,
           storyboardApi2OkModelConfig,
           storyboardProviderCustomModels,
+          storyboardNewApiModelConfigs,
         ),
       [
         storyboardCompatibleModelConfig,
         storyboardNewApiModelConfig,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
 
@@ -797,6 +802,7 @@ export const StoryboardGenNode = memo(
         storyboardNewApiModelConfig,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       );
     }, [
       nodeData.model,
@@ -804,6 +810,7 @@ export const StoryboardGenNode = memo(
       storyboardNewApiModelConfig,
       storyboardApi2OkModelConfig,
       storyboardProviderCustomModels,
+      storyboardNewApiModelConfigs,
     ]);
     const resolvedCompatibleModelConfig = useMemo(
       () =>
@@ -818,6 +825,7 @@ export const StoryboardGenNode = memo(
         selectedModel.id,
         storyboardCompatibleModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const resolvedApi2OkModelConfig = useMemo(
@@ -833,6 +841,7 @@ export const StoryboardGenNode = memo(
         selectedModel.id,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const resolvedModelExtraParams = useMemo(
@@ -861,6 +870,7 @@ export const StoryboardGenNode = memo(
               selectedModel.id,
               storyboardNewApiModelConfig,
               storyboardProviderCustomModels,
+              storyboardNewApiModelConfigs,
               {
                 resolution: requestedNewApiResolution,
                 extraParams: resolvedModelExtraParams,
@@ -872,7 +882,9 @@ export const StoryboardGenNode = memo(
         resolvedModelExtraParams,
         selectedModel.id,
         storyboardNewApiModelConfig,
+        storyboardNewApiModelConfigs,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const requestedOopiiResolution = useMemo(
@@ -904,6 +916,7 @@ export const StoryboardGenNode = memo(
         resolvedModelExtraParams,
         selectedModel.id,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const providerApiKey = storyboardApiKeys[selectedModel.providerId] ?? "";

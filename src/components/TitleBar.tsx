@@ -4,7 +4,7 @@ import { useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
 import { isTauri } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen, Film } from 'lucide-react';
+import { Minus, X, Maximize2, Settings, ArrowLeft, PackageOpen, Film, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Languages } from 'lucide-react';
 import { useThemeStore } from '@/stores/themeStore';
@@ -19,6 +19,7 @@ import titlebarLogo from '@/assets/titlebar-logo.png';
 
 interface TitleBarProps {
   onExtensionsClick: () => void;
+  onNewWindowClick?: () => Promise<void> | void;
   onClipLibraryClick?: () => Promise<void> | void;
   onSettingsClick: () => void;
   onCloseRequest?: () => Promise<void> | void;
@@ -31,6 +32,7 @@ interface TitleBarProps {
 
 export function TitleBar({
   onExtensionsClick,
+  onNewWindowClick,
   onClipLibraryClick,
   onSettingsClick,
   onCloseRequest,
@@ -170,6 +172,18 @@ export function TitleBar({
     toggleTheme();
   }, [toggleTheme]);
 
+  const handleNewWindowClick = useCallback(async () => {
+    if (!onNewWindowClick) {
+      return;
+    }
+    try {
+      await onNewWindowClick();
+    } catch (error) {
+      console.error('Failed to open workspace window from title bar', error);
+      window.alert(t('titleBar.newWindowOpenFailed'));
+    }
+  }, [onNewWindowClick, t]);
+
   const handleClipLibraryMouseDown = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
     if (event.button !== 0) {
       clipLibraryPointerArmedRef.current = false;
@@ -307,6 +321,15 @@ export function TitleBar({
           ) : (
             <Moon className="w-4 h-4 text-text-muted" />
           )}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void handleNewWindowClick()}
+          className="h-full px-3 hover:bg-bg-dark transition-colors"
+          title={t('titleBar.newWindow')}
+        >
+          <Plus className="w-4 h-4 text-text-muted" />
         </button>
 
         <button

@@ -60,6 +60,7 @@ import {
   getCustomStoryboardModels,
   isScriptCompatibleProviderConfigured,
   isStoryboardCustomModelProviderId,
+  isStoryboardNewApiProviderId,
   listScriptProviders,
   resolveConfiguredScriptModel,
   resolveConfiguredStoryboardModel,
@@ -82,10 +83,12 @@ import {
   type ScriptCompatibleProviderConfig,
   listModelProviders,
   normalizeStoryboardApi2OkModelConfig,
+  normalizeStoryboardNewApiModelConfigs,
   normalizeStoryboardNewApiModelConfig,
   normalizeStoryboardNewApiCustomModelType,
   type StoryboardApi2OkModelConfig,
   type StoryboardNewApiCustomModelType,
+  type StoryboardNewApiModelConfigMap,
   type StoryboardNewApiModelConfig,
   upsertCustomStoryboardModelEntry,
 } from '@/features/canvas/models';
@@ -314,6 +317,10 @@ const STORYBOARD_PROVIDER_DISPLAY_NAME_OVERRIDES: Record<
   newapi: {
     zh: '自定义 NewAPI',
     en: 'Custom NewAPI',
+  },
+  newapi2: {
+    zh: '自定义 NewAPI 2',
+    en: 'Custom NewAPI 2',
   },
   volcengine: {
     zh: 'Seedance2.0官方',
@@ -563,6 +570,7 @@ export function SettingsDialog({
     storyboardCompatibleModelConfig,
     storyboardApi2OkModelConfig,
     storyboardNewApiModelConfig,
+    storyboardNewApiModelConfigs,
     downloadPresetPaths,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
@@ -581,6 +589,7 @@ export function SettingsDialog({
     canvasThumbnailMediaCountThreshold,
     canvasViewportPreloadMarginScreens,
     projectFullAutosaveIntervalMinutes,
+    enableCanvasResultOriginalOnHover,
     autoCheckAppUpdateOnLaunch,
     enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
@@ -601,6 +610,7 @@ export function SettingsDialog({
     setStoryboardCompatibleModelConfig,
     setStoryboardApi2OkModelConfig,
     setStoryboardNewApiModelConfig,
+    setStoryboardNewApiModelConfigForProvider,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -619,6 +629,7 @@ export function SettingsDialog({
     setCanvasThumbnailMediaCountThreshold,
     setCanvasViewportPreloadMarginScreens,
     setProjectFullAutosaveIntervalMinutes,
+    setEnableCanvasResultOriginalOnHover,
     setAutoCheckAppUpdateOnLaunch,
     setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
@@ -653,6 +664,7 @@ export function SettingsDialog({
       'coding',
       'compatible',
       'newapi',
+      'newapi2',
     ];
     const providerIndex = new Map(providerOrder.map((id, index) => [id, index]));
     return listModelProviders().slice().sort((left, right) => {
@@ -744,6 +756,13 @@ export function SettingsDialog({
     useState<StoryboardNewApiModelConfig>(normalizeStoryboardNewApiModelConfig(
       storyboardNewApiModelConfig
     ));
+  const [localStoryboardNewApiModelConfigs, setLocalStoryboardNewApiModelConfigs] =
+    useState<StoryboardNewApiModelConfigMap>(
+      normalizeStoryboardNewApiModelConfigs(
+        storyboardNewApiModelConfigs,
+        storyboardNewApiModelConfig
+      )
+    );
   const [localDownloadPathInput, setLocalDownloadPathInput] = useState('');
   const [localDownloadPresetPaths, setLocalDownloadPresetPaths] = useState(downloadPresetPaths);
   const [localUseUploadFilenameAsNodeTitle, setLocalUseUploadFilenameAsNodeTitle] = useState(
@@ -778,6 +797,8 @@ export function SettingsDialog({
     useState<CanvasViewportPreloadMarginScreens>(canvasViewportPreloadMarginScreens);
   const [localProjectFullAutosaveIntervalMinutes, setLocalProjectFullAutosaveIntervalMinutes] =
     useState<ProjectFullAutosaveIntervalMinutes>(projectFullAutosaveIntervalMinutes);
+  const [localEnableCanvasResultOriginalOnHover, setLocalEnableCanvasResultOriginalOnHover] =
+    useState(enableCanvasResultOriginalOnHover);
   const [localAutoCheckAppUpdateOnLaunch, setLocalAutoCheckAppUpdateOnLaunch] = useState(
     autoCheckAppUpdateOnLaunch
   );
@@ -953,6 +974,12 @@ export function SettingsDialog({
     setLocalStoryboardNewApiModelConfig(
       normalizeStoryboardNewApiModelConfig(storyboardNewApiModelConfig)
     );
+    setLocalStoryboardNewApiModelConfigs(
+      normalizeStoryboardNewApiModelConfigs(
+        storyboardNewApiModelConfigs,
+        storyboardNewApiModelConfig
+      )
+    );
     setLocalUseUploadFilenameAsNodeTitle(useUploadFilenameAsNodeTitle);
     setLocalStoryboardGenKeepStyleConsistent(storyboardGenKeepStyleConsistent);
     setLocalStoryboardGenDisableTextInImage(storyboardGenDisableTextInImage);
@@ -970,6 +997,7 @@ export function SettingsDialog({
     setLocalCanvasThumbnailMediaCountThreshold(canvasThumbnailMediaCountThreshold);
     setLocalCanvasViewportPreloadMarginScreens(canvasViewportPreloadMarginScreens);
     setLocalProjectFullAutosaveIntervalMinutes(projectFullAutosaveIntervalMinutes);
+    setLocalEnableCanvasResultOriginalOnHover(enableCanvasResultOriginalOnHover);
     setLocalAutoCheckAppUpdateOnLaunch(autoCheckAppUpdateOnLaunch);
     setLocalEnableUpdateDialog(enableUpdateDialog);
     setLocalAutoUpdateDreaminaCliOnLaunch(autoUpdateDreaminaCliOnLaunch);
@@ -1003,6 +1031,7 @@ export function SettingsDialog({
     storyboardCompatibleModelConfig,
     storyboardApi2OkModelConfig,
     storyboardNewApiModelConfig,
+    storyboardNewApiModelConfigs,
     useUploadFilenameAsNodeTitle,
     storyboardGenKeepStyleConsistent,
     storyboardGenDisableTextInImage,
@@ -1020,6 +1049,7 @@ export function SettingsDialog({
     canvasThumbnailMediaCountThreshold,
     canvasViewportPreloadMarginScreens,
     projectFullAutosaveIntervalMinutes,
+    enableCanvasResultOriginalOnHover,
     autoCheckAppUpdateOnLaunch,
     enableUpdateDialog,
     autoUpdateDreaminaCliOnLaunch,
@@ -1580,20 +1610,27 @@ export function SettingsDialog({
       return;
     }
     const nextNewApiModelType =
-      providerId === 'newapi'
+      isStoryboardNewApiProviderId(providerId)
         ? (localStoryboardModelTypeInputs[providerId] ?? '')
         : undefined;
-    if (providerId === 'newapi' && !nextNewApiModelType) {
+    if (isStoryboardNewApiProviderId(providerId) && !nextNewApiModelType) {
       return;
     }
 
+    const currentNewApiConfig =
+      isStoryboardNewApiProviderId(providerId)
+        ? normalizeStoryboardNewApiModelConfig(
+          localStoryboardNewApiModelConfigs[providerId]
+          ?? (providerId === 'newapi' ? localStoryboardNewApiModelConfig : undefined)
+        )
+        : localStoryboardNewApiModelConfig;
     const nextDisplayName = (localStoryboardModelDisplayNameInputs[providerId] ?? '').trim();
     const nextEntries = upsertCustomStoryboardModelEntry(
       providerId,
       getCustomStoryboardModels(providerId, localStoryboardProviderCustomModels),
       nextModelId,
       nextDisplayName,
-      providerId === 'newapi'
+      isStoryboardNewApiProviderId(providerId)
         ? { newApiModelType: normalizeStoryboardNewApiCustomModelType(nextNewApiModelType) }
         : undefined
     );
@@ -1621,13 +1658,21 @@ export function SettingsDialog({
       );
     }
 
-    if (providerId === 'newapi') {
-      setLocalStoryboardNewApiModelConfig((previous) =>
-        resolveStoryboardNewApiModelConfigForModel(
+    if (isStoryboardNewApiProviderId(providerId)) {
+      const nextConfig = resolveStoryboardNewApiModelConfigForModel(
           nextResolvedModelId,
-          previous,
-          { ...localStoryboardProviderCustomModels, [providerId]: nextEntries }
-        )
+          currentNewApiConfig,
+          { ...localStoryboardProviderCustomModels, [providerId]: nextEntries },
+          localStoryboardNewApiModelConfigs
+        );
+      if (providerId === 'newapi') {
+        setLocalStoryboardNewApiModelConfig(nextConfig);
+      }
+      setLocalStoryboardNewApiModelConfigs((previous) =>
+        normalizeStoryboardNewApiModelConfigs({
+          ...previous,
+          [providerId]: nextConfig,
+        }, localStoryboardNewApiModelConfig)
       );
     }
 
@@ -1644,6 +1689,8 @@ export function SettingsDialog({
     localStoryboardModelDisplayNameInputs,
     localStoryboardModelIdInputs,
     localStoryboardModelTypeInputs,
+    localStoryboardNewApiModelConfig,
+    localStoryboardNewApiModelConfigs,
     localStoryboardProviderCustomModels,
   ]);
 
@@ -1673,6 +1720,7 @@ export function SettingsDialog({
       storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
       storyboardApi2OkModelConfig: localStoryboardApi2OkModelConfig,
       storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
+      storyboardNewApiModelConfigs: localStoryboardNewApiModelConfigs,
     });
 
     setLocalStoryboardProviderCustomModels(nextCustomModels);
@@ -1695,17 +1743,29 @@ export function SettingsDialog({
       );
     }
 
-    if (providerId === 'newapi') {
-      setLocalStoryboardNewApiModelConfig((previous) =>
-        resolveStoryboardNewApiModelConfigForModel(
+    if (isStoryboardNewApiProviderId(providerId)) {
+      const currentNewApiConfig = normalizeStoryboardNewApiModelConfig(
+        localStoryboardNewApiModelConfigs[providerId]
+        ?? (providerId === 'newapi' ? localStoryboardNewApiModelConfig : undefined)
+      );
+      const nextConfig = resolveStoryboardNewApiModelConfigForModel(
           nextResolvedModel,
           {
-            ...previous,
+            ...currentNewApiConfig,
             requestModel: remainingEntries[0]?.modelId ?? '',
             displayName: remainingEntries[0]?.displayName ?? '',
           },
-          nextCustomModels
-        )
+          nextCustomModels,
+          localStoryboardNewApiModelConfigs
+        );
+      if (providerId === 'newapi') {
+        setLocalStoryboardNewApiModelConfig(nextConfig);
+      }
+      setLocalStoryboardNewApiModelConfigs((previous) =>
+        normalizeStoryboardNewApiModelConfigs({
+          ...previous,
+          [providerId]: nextConfig,
+        }, localStoryboardNewApiModelConfig)
       );
     }
 
@@ -1727,6 +1787,7 @@ export function SettingsDialog({
     localStoryboardCompatibleModelConfig,
     localStoryboardModelOverrides,
     localStoryboardNewApiModelConfig,
+    localStoryboardNewApiModelConfigs,
     localStoryboardProviderCustomModels,
   ]);
 
@@ -1790,6 +1851,11 @@ export function SettingsDialog({
     setStoryboardCompatibleModelConfig(localStoryboardCompatibleModelConfig);
     setStoryboardApi2OkModelConfig(localStoryboardApi2OkModelConfig);
     setStoryboardNewApiModelConfig(localStoryboardNewApiModelConfig);
+    Object.entries(localStoryboardNewApiModelConfigs).forEach(([providerId, config]) => {
+      if (isStoryboardNewApiProviderId(providerId)) {
+        setStoryboardNewApiModelConfigForProvider(providerId, normalizeStoryboardNewApiModelConfig(config));
+      }
+    });
     storyboardProviders.forEach((provider) => {
       if (!isStoryboardCustomModelProviderId(provider.id)) {
         return;
@@ -1803,6 +1869,7 @@ export function SettingsDialog({
           storyboardCompatibleModelConfig: localStoryboardCompatibleModelConfig,
           storyboardApi2OkModelConfig: localStoryboardApi2OkModelConfig,
           storyboardNewApiModelConfig: localStoryboardNewApiModelConfig,
+          storyboardNewApiModelConfigs: localStoryboardNewApiModelConfigs,
         })
       );
       setStoryboardProviderCustomModels(
@@ -1828,6 +1895,7 @@ export function SettingsDialog({
     setCanvasThumbnailMediaCountThreshold(localCanvasThumbnailMediaCountThreshold);
     setCanvasViewportPreloadMarginScreens(localCanvasViewportPreloadMarginScreens);
     setProjectFullAutosaveIntervalMinutes(localProjectFullAutosaveIntervalMinutes);
+    setEnableCanvasResultOriginalOnHover(localEnableCanvasResultOriginalOnHover);
     setAutoCheckAppUpdateOnLaunch(localAutoCheckAppUpdateOnLaunch);
     setEnableUpdateDialog(localEnableUpdateDialog || localAutoCheckAppUpdateOnLaunch);
     setAutoUpdateDreaminaCliOnLaunch(localAutoUpdateDreaminaCliOnLaunch);
@@ -1859,6 +1927,7 @@ export function SettingsDialog({
     localCanvasOverviewThumbnailMaxDimension,
     localCanvasThumbnailMediaCountThreshold,
     localCanvasViewportPreloadMarginScreens,
+    localEnableCanvasResultOriginalOnHover,
     localAutoCheckAppUpdateOnLaunch,
     localEnableUpdateDialog,
     localAutoUpdateDreaminaCliOnLaunch,
@@ -1871,6 +1940,7 @@ export function SettingsDialog({
     localStoryboardCompatibleModelConfig,
     localStoryboardApi2OkModelConfig,
     localStoryboardNewApiModelConfig,
+    localStoryboardNewApiModelConfigs,
     localStoryboardModelOverrides,
     localStoryboardProviderCustomModels,
     localMjProviderEnabled,
@@ -1894,6 +1964,7 @@ export function SettingsDialog({
     setStoryboardCompatibleModelConfig,
     setStoryboardApi2OkModelConfig,
     setStoryboardNewApiModelConfig,
+    setStoryboardNewApiModelConfigForProvider,
     setDownloadPresetPaths,
     setUseUploadFilenameAsNodeTitle,
     setStoryboardGenKeepStyleConsistent,
@@ -1912,6 +1983,7 @@ export function SettingsDialog({
     setCanvasThumbnailMediaCountThreshold,
     setCanvasViewportPreloadMarginScreens,
     setProjectFullAutosaveIntervalMinutes,
+    setEnableCanvasResultOriginalOnHover,
     setAutoCheckAppUpdateOnLaunch,
     setEnableUpdateDialog,
     setAutoUpdateDreaminaCliOnLaunch,
@@ -2954,7 +3026,8 @@ export function SettingsDialog({
                             localStoryboardProviderCustomModels,
                             localStoryboardCompatibleModelConfig,
                             localStoryboardNewApiModelConfig,
-                            localStoryboardApi2OkModelConfig
+                            localStoryboardApi2OkModelConfig,
+                            localStoryboardNewApiModelConfigs
                           )
                         : [];
                       const customStoryboardModels = isStoryboardCustomizableProvider
@@ -2972,6 +3045,9 @@ export function SettingsDialog({
                         : isMjTab
                           ? hasKey
                           : false;
+                      const storyboardNewApiProviderId = isStoryboardNewApiProviderId(provider.id)
+                        ? provider.id
+                        : null;
 
                       return (
                         <div className="space-y-4">
@@ -3115,7 +3191,7 @@ export function SettingsDialog({
                                 <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
                                   {t('settings.storyboardOopiiNoConnectionTest')}
                                 </div>
-                              ) : provider.id === 'newapi' ? (
+                              ) : isStoryboardNewApiProviderId(provider.id) ? (
                                 <div className="mt-3 rounded-md border border-border-dark bg-black/10 px-3 py-2 text-xs leading-5 text-text-muted">
                                   {t('settings.storyboardNewApiNoConnectionTest')}
                                 </div>
@@ -3267,12 +3343,41 @@ export function SettingsDialog({
                                   endpointUrl: value,
                                 }))
                               }
-                              storyboardNewApiModelConfig={localStoryboardNewApiModelConfig}
+                              storyboardNewApiModelConfig={
+                                storyboardNewApiProviderId
+                                  ? normalizeStoryboardNewApiModelConfig(
+                                    localStoryboardNewApiModelConfigs[storyboardNewApiProviderId]
+                                    ?? (storyboardNewApiProviderId === 'newapi'
+                                      ? localStoryboardNewApiModelConfig
+                                      : undefined)
+                                  )
+                                  : localStoryboardNewApiModelConfig
+                              }
                               onStoryboardNewApiEndpointUrlChange={(value) =>
-                                setLocalStoryboardNewApiModelConfig((previous) => ({
-                                  ...previous,
-                                  endpointUrl: value,
-                                }))
+                                storyboardNewApiProviderId
+                                  ? setLocalStoryboardNewApiModelConfigs((previous) => {
+                                    const currentConfig = normalizeStoryboardNewApiModelConfig(
+                                      previous[storyboardNewApiProviderId]
+                                      ?? (storyboardNewApiProviderId === 'newapi'
+                                        ? localStoryboardNewApiModelConfig
+                                        : undefined)
+                                    );
+                                    const nextConfig = {
+                                      ...currentConfig,
+                                      endpointUrl: value,
+                                    };
+                                    if (storyboardNewApiProviderId === 'newapi') {
+                                      setLocalStoryboardNewApiModelConfig(nextConfig);
+                                    }
+                                    return normalizeStoryboardNewApiModelConfigs({
+                                      ...previous,
+                                      [storyboardNewApiProviderId]: nextConfig,
+                                    }, localStoryboardNewApiModelConfig);
+                                  })
+                                  : setLocalStoryboardNewApiModelConfig((previous) => ({
+                                    ...previous,
+                                    endpointUrl: value,
+                                  }))
                               }
                               grsaiNanoBananaProModel={localGrsaiNanoBananaProModel}
                               onGrsaiNanoBananaProModelChange={(value) =>
@@ -3556,6 +3661,15 @@ export function SettingsDialog({
                           ))}
                         </UiSelect>
                       </label>
+                    </div>
+
+                    <div className="mt-4">
+                      <SettingsCheckboxCard
+                        checked={localEnableCanvasResultOriginalOnHover}
+                        onCheckedChange={setLocalEnableCanvasResultOriginalOnHover}
+                        title={t('settings.canvasResultOriginalOnHover')}
+                        description={t('settings.canvasResultOriginalOnHoverDesc')}
+                      />
                     </div>
                   </div>
                 </div>

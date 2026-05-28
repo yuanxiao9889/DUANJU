@@ -2305,6 +2305,10 @@ export const MjResultNode = memo(
                             sourceCandidates.find(
                               (candidate) => candidate !== source,
                             ) ?? null;
+                          const originalSource =
+                            item?.imageUrl?.trim() ||
+                            item?.sourceUrl?.trim() ||
+                            null;
                           const viewerSource = source;
                           const fallbackViewerSource = fallbackSource
                             ? fallbackSource
@@ -2385,6 +2389,7 @@ export const MjResultNode = memo(
                                         },
                                       )}
                                       fallbackSrc={fallbackViewerSource}
+                                      hoverSourceUrl={originalSource}
                                       viewerImageList={batchViewerImageList}
                                       className="h-full w-full object-cover"
                                       draggable={false}

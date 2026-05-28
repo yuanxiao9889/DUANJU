@@ -1053,6 +1053,9 @@ export const MultiAngleImageNode = memo(
     const storyboardNewApiModelConfig = useSettingsStore(
       (state) => state.storyboardNewApiModelConfig,
     );
+    const storyboardNewApiModelConfigs = useSettingsStore(
+      (state) => state.storyboardNewApiModelConfigs,
+    );
     const storyboardProviderCustomModels = useSettingsStore(
       (state) => state.storyboardProviderCustomModels,
     );
@@ -1079,12 +1082,14 @@ export const MultiAngleImageNode = memo(
           storyboardNewApiModelConfig,
           storyboardApi2OkModelConfig,
           storyboardProviderCustomModels,
+          storyboardNewApiModelConfigs,
         ),
       [
         storyboardApi2OkModelConfig,
         storyboardCompatibleModelConfig,
         storyboardNewApiModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
 
@@ -1096,6 +1101,7 @@ export const MultiAngleImageNode = memo(
           storyboardNewApiModelConfig,
           storyboardApi2OkModelConfig,
           storyboardProviderCustomModels,
+          storyboardNewApiModelConfigs,
         ),
       [
         data.model,
@@ -1103,6 +1109,7 @@ export const MultiAngleImageNode = memo(
         storyboardCompatibleModelConfig,
         storyboardNewApiModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
 
@@ -1131,6 +1138,7 @@ export const MultiAngleImageNode = memo(
         selectedModel.id,
         storyboardCompatibleModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const resolvedApi2OkModelConfig = useMemo(
@@ -1146,6 +1154,7 @@ export const MultiAngleImageNode = memo(
         selectedModel.id,
         storyboardApi2OkModelConfig,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const resolvedModelExtraParams = useMemo(
@@ -1174,6 +1183,7 @@ export const MultiAngleImageNode = memo(
               selectedModel.id,
               storyboardNewApiModelConfig,
               storyboardProviderCustomModels,
+              storyboardNewApiModelConfigs,
               {
                 resolution: requestedNewApiResolution,
                 extraParams: resolvedModelExtraParams,
@@ -1185,7 +1195,9 @@ export const MultiAngleImageNode = memo(
         resolvedModelExtraParams,
         selectedModel.id,
         storyboardNewApiModelConfig,
+        storyboardNewApiModelConfigs,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const requestedOopiiResolution = useMemo(
@@ -1217,6 +1229,7 @@ export const MultiAngleImageNode = memo(
         resolvedModelExtraParams,
         selectedModel.id,
         storyboardProviderCustomModels,
+        storyboardNewApiModelConfigs,
       ],
     );
     const effectiveExtraParams = useMemo(
@@ -1417,6 +1430,7 @@ export const MultiAngleImageNode = memo(
           storyboardNewApiModelConfig,
           storyboardApi2OkModelConfig,
           storyboardProviderCustomModels,
+          storyboardNewApiModelConfigs,
         );
         const nextExtraParams = {
           ...(data.extraParams ?? {}),

@@ -14,10 +14,15 @@ import {
 } from './storyboardCompatible';
 import {
   createStoryboardNewApiImageModel,
+  isStoryboardNewApiProviderId,
   normalizeStoryboardNewApiModelConfig,
+  resolveStoryboardNewApiProviderIdFromModelId,
   resolveStoryboardNewApiModeLabel,
   resolveStoryboardNewApiRuntimeModelConfig,
+  STORYBOARD_NEWAPI2_PROVIDER_ID,
   STORYBOARD_NEWAPI_PROVIDER_ID,
+  STORYBOARD_NEWAPI_PROVIDER_IDS,
+  type StoryboardNewApiProviderId,
   type StoryboardNewApiModelConfig,
 } from './storyboardNewApi';
 import {
@@ -56,10 +61,15 @@ export const STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS = [
   STORYBOARD_API2OK_PROVIDER_ID,
   STORYBOARD_COMPATIBLE_PROVIDER_ID,
   STORYBOARD_NEWAPI_PROVIDER_ID,
+  STORYBOARD_NEWAPI2_PROVIDER_ID,
 ] as const;
 
 export type StoryboardCustomModelProviderId =
   typeof STORYBOARD_CUSTOM_MODEL_PROVIDER_IDS[number];
+
+export type StoryboardNewApiModelConfigMap = Partial<
+  Record<StoryboardNewApiProviderId, StoryboardNewApiModelConfig | null>
+>;
 
 export interface CustomStoryboardModelEntry {
   id: string;
@@ -80,6 +90,7 @@ export interface StoryboardModelSettingsLike {
   storyboardProviderCustomModels?: Record<string, CustomStoryboardModelEntry[]>;
   storyboardCompatibleModelConfig?: StoryboardCompatibleModelConfig | null;
   storyboardNewApiModelConfig?: StoryboardNewApiModelConfig | null;
+  storyboardNewApiModelConfigs?: StoryboardNewApiModelConfigMap | null;
   storyboardApi2OkModelConfig?: StoryboardApi2OkModelConfig | null;
 }
 
@@ -212,7 +223,46 @@ const BUILT_IN_STORYBOARD_MODELS: Record<
   })),
   compatible: [],
   newapi: [],
+  newapi2: [],
 };
+
+export function getStoryboardNewApiModelConfigForProvider(
+  providerId: string | null | undefined,
+  configs?: StoryboardNewApiModelConfigMap | null,
+  legacyConfig?: StoryboardNewApiModelConfig | null
+): StoryboardNewApiModelConfig | null | undefined {
+  return isStoryboardNewApiProviderId(providerId)
+    ? (configs?.[providerId] ?? (providerId === STORYBOARD_NEWAPI_PROVIDER_ID ? legacyConfig : undefined))
+    : legacyConfig;
+}
+
+function createEmptyStoryboardNewApiConfigMap(
+  legacyConfig?: StoryboardNewApiModelConfig | null
+): Record<StoryboardNewApiProviderId, StoryboardNewApiModelConfig | null | undefined> {
+  return STORYBOARD_NEWAPI_PROVIDER_IDS.reduce((result, providerId) => {
+    result[providerId] = providerId === STORYBOARD_NEWAPI_PROVIDER_ID ? legacyConfig : undefined;
+    return result;
+  }, {} as Record<StoryboardNewApiProviderId, StoryboardNewApiModelConfig | null | undefined>);
+}
+
+export function normalizeStoryboardNewApiModelConfigs(
+  input: unknown,
+  legacyConfig?: StoryboardNewApiModelConfig | null
+): Record<StoryboardNewApiProviderId, StoryboardNewApiModelConfig> {
+  const record =
+    input && typeof input === 'object' && !Array.isArray(input)
+      ? input as Record<string, unknown>
+      : {};
+  const defaults = createEmptyStoryboardNewApiConfigMap(legacyConfig);
+
+  return STORYBOARD_NEWAPI_PROVIDER_IDS.reduce((result, providerId) => {
+    result[providerId] = normalizeStoryboardNewApiModelConfig(
+      record[providerId] as Partial<StoryboardNewApiModelConfig> | null | undefined
+        ?? defaults[providerId]
+    );
+    return result;
+  }, {} as Record<StoryboardNewApiProviderId, StoryboardNewApiModelConfig>);
+}
 
 function normalizeTrimmedString(input: unknown): string {
   return typeof input === 'string' ? input.trim() : '';
@@ -331,7 +381,7 @@ export function normalizeCustomStoryboardModelEntries(
       id,
       modelId,
       displayName,
-      ...(resolvedProviderId === STORYBOARD_NEWAPI_PROVIDER_ID
+      ...(isStoryboardNewApiProviderId(resolvedProviderId)
         ? {
           newApiModelType: normalizeStoryboardNewApiCustomModelType(
             record?.newApiModelType ?? record?.modelType
@@ -366,6 +416,7 @@ function createLegacyCompatibleModelEntry(
 }
 
 function createLegacyNewApiModelEntry(
+  providerId: StoryboardNewApiProviderId,
   newApiConfig: StoryboardNewApiModelConfig | null | undefined
 ): CustomStoryboardModelEntry | null {
   const normalizedConfig = normalizeStoryboardNewApiModelConfig(newApiConfig);
@@ -375,11 +426,11 @@ function createLegacyNewApiModelEntry(
 
   return {
     id: buildCustomStoryboardModelEntryId(
-      STORYBOARD_NEWAPI_PROVIDER_ID,
+      providerId,
       normalizedConfig.requestModel
     ),
     modelId: normalizeStoryboardRequestModelId(
-      STORYBOARD_NEWAPI_PROVIDER_ID,
+      providerId,
       normalizedConfig.requestModel
     ),
     displayName: normalizedConfig.displayName,
@@ -422,7 +473,8 @@ export function normalizeStoryboardProviderCustomModels(
   input: unknown,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
-  api2OkConfig?: StoryboardApi2OkModelConfig | null
+  api2OkConfig?: StoryboardApi2OkModelConfig | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): Record<string, CustomStoryboardModelEntry[]> {
   const record =
     input && typeof input === 'object' && !Array.isArray(input)
@@ -453,7 +505,26 @@ export function normalizeStoryboardProviderCustomModels(
     }
 
     if (providerId === STORYBOARD_NEWAPI_PROVIDER_ID) {
-      const legacyEntry = createLegacyNewApiModelEntry(newApiConfig);
+      const legacyEntry = createLegacyNewApiModelEntry(
+        providerId,
+        getStoryboardNewApiModelConfigForProvider(providerId, newApiConfigs, newApiConfig)
+      );
+      if (
+        legacyEntry
+        && !normalizedEntries.some((entry) =>
+          toStoryboardProviderModelId(providerId, entry.modelId).toLowerCase()
+          === toStoryboardProviderModelId(providerId, legacyEntry.modelId).toLowerCase()
+        )
+      ) {
+        normalizedEntries.unshift(legacyEntry);
+      }
+    }
+
+    if (providerId === STORYBOARD_NEWAPI2_PROVIDER_ID) {
+      const legacyEntry = createLegacyNewApiModelEntry(
+        providerId,
+        getStoryboardNewApiModelConfigForProvider(providerId, newApiConfigs, newApiConfig)
+      );
       if (
         legacyEntry
         && !normalizedEntries.some((entry) =>
@@ -507,7 +578,8 @@ export function resolveStoryboardModelOptions(
   customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
-  api2OkConfig?: StoryboardApi2OkModelConfig | null
+  api2OkConfig?: StoryboardApi2OkModelConfig | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): StoryboardModelOption[] {
   if (!isStoryboardCustomModelProviderId(providerId)) {
     return [];
@@ -519,7 +591,8 @@ export function resolveStoryboardModelOptions(
     customModels,
     compatibleConfig,
     newApiConfig,
-    api2OkConfig
+    api2OkConfig,
+    newApiConfigs
   );
 
   for (const option of BUILT_IN_STORYBOARD_MODELS[providerId]) {
@@ -567,7 +640,8 @@ export function resolveConfiguredStoryboardModel(
     settings.storyboardProviderCustomModels,
     settings.storyboardCompatibleModelConfig,
     settings.storyboardNewApiModelConfig,
-    settings.storyboardApi2OkModelConfig
+    settings.storyboardApi2OkModelConfig,
+    settings.storyboardNewApiModelConfigs
   );
   const defaultModelId = resolvedOptions[0]?.modelId ?? '';
   const explicitModel = normalizeTrimmedString(settings.storyboardModelOverrides?.[providerId]);
@@ -600,7 +674,8 @@ export function normalizeStoryboardModelOverrides(
   customModels: Record<string, CustomStoryboardModelEntry[]>,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
-  api2OkConfig?: StoryboardApi2OkModelConfig | null
+  api2OkConfig?: StoryboardApi2OkModelConfig | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): Record<string, string> {
   const record =
     input && typeof input === 'object' && !Array.isArray(input)
@@ -614,6 +689,7 @@ export function normalizeStoryboardModelOverrides(
       storyboardProviderCustomModels: customModels,
       storyboardCompatibleModelConfig: compatibleConfig,
       storyboardNewApiModelConfig: newApiConfig,
+      storyboardNewApiModelConfigs: newApiConfigs,
       storyboardApi2OkModelConfig: api2OkConfig,
     });
     return result;
@@ -639,7 +715,7 @@ export function upsertCustomStoryboardModelEntry(
     id: buildCustomStoryboardModelEntryId(providerId, normalizedModelId),
     modelId: normalizedModelId,
     displayName,
-    ...(providerId === STORYBOARD_NEWAPI_PROVIDER_ID
+    ...(isStoryboardNewApiProviderId(providerId)
       ? {
         newApiModelType: normalizeStoryboardNewApiCustomModelType(
           options?.newApiModelType
@@ -696,20 +772,24 @@ export function resolveStoryboardNewApiModelConfigForModel(
   modelId: string | null | undefined,
   newApiConfig: StoryboardNewApiModelConfig | null | undefined,
   customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null,
   requestContext?: {
     resolution?: string | null;
     extraParams?: Record<string, unknown> | null;
   } | null
 ): StoryboardNewApiModelConfig {
-  const normalizedConfig = normalizeStoryboardNewApiModelConfig(newApiConfig);
   const normalizedModelId = normalizeTrimmedString(modelId);
-  if (!normalizedModelId.startsWith(`${STORYBOARD_NEWAPI_PROVIDER_ID}/`)) {
+  const providerId = resolveStoryboardNewApiProviderIdFromModelId(normalizedModelId);
+  const normalizedConfig = normalizeStoryboardNewApiModelConfig(
+    getStoryboardNewApiModelConfigForProvider(providerId, newApiConfigs, newApiConfig)
+  );
+  if (!providerId) {
     return resolveStoryboardNewApiRuntimeModelConfig(normalizedConfig, requestContext);
   }
 
-  const matchedEntry = getCustomStoryboardModels(STORYBOARD_NEWAPI_PROVIDER_ID, customModels).find(
+  const matchedEntry = getCustomStoryboardModels(providerId, customModels).find(
     (entry) =>
-      toStoryboardProviderModelId(STORYBOARD_NEWAPI_PROVIDER_ID, entry.modelId).toLowerCase()
+      toStoryboardProviderModelId(providerId, entry.modelId).toLowerCase()
       === normalizedModelId.toLowerCase()
   );
 
@@ -894,21 +974,23 @@ function createCompatibleCustomStoryboardImageModel(
 
 function createNewApiCustomStoryboardImageModel(
   entry: CustomStoryboardModelEntry,
+  providerId: StoryboardNewApiProviderId,
   newApiConfig: StoryboardNewApiModelConfig | null | undefined
 ): ImageModelDefinition | null {
   const resolvedConfig = resolveStoryboardNewApiModelConfigForModel(
-    toStoryboardProviderModelId(STORYBOARD_NEWAPI_PROVIDER_ID, entry.modelId),
+    toStoryboardProviderModelId(providerId, entry.modelId),
     newApiConfig,
-    { [STORYBOARD_NEWAPI_PROVIDER_ID]: [entry] }
+    { [providerId]: [entry] },
+    { [providerId]: newApiConfig }
   );
 
-  const legacyModel = createStoryboardNewApiImageModel(resolvedConfig);
+  const legacyModel = createStoryboardNewApiImageModel(resolvedConfig, providerId);
   if (!legacyModel) {
     return null;
   }
 
   const providerModelId = toStoryboardProviderModelId(
-    STORYBOARD_NEWAPI_PROVIDER_ID,
+    providerId,
     entry.modelId
   );
 
@@ -958,13 +1040,15 @@ export function createCustomStoryboardImageModels(
   customModels: Record<string, CustomStoryboardModelEntry[]> | null | undefined,
   compatibleConfig?: StoryboardCompatibleModelConfig | null,
   newApiConfig?: StoryboardNewApiModelConfig | null,
-  api2OkConfig?: StoryboardApi2OkModelConfig | null
+  api2OkConfig?: StoryboardApi2OkModelConfig | null,
+  newApiConfigs?: StoryboardNewApiModelConfigMap | null
 ): ImageModelDefinition[] {
   const normalizedCustomModels = normalizeStoryboardProviderCustomModels(
     customModels,
     compatibleConfig,
     newApiConfig,
-    api2OkConfig
+    api2OkConfig,
+    newApiConfigs
   );
   const result: ImageModelDefinition[] = [];
   const seenModelIds = new Set<string>();
@@ -980,8 +1064,12 @@ export function createCustomStoryboardImageModels(
           ? createOopiiCustomStoryboardImageModel(entry)
           : providerId === STORYBOARD_COMPATIBLE_PROVIDER_ID
           ? createCompatibleCustomStoryboardImageModel(entry, compatibleConfig)
-          : providerId === STORYBOARD_NEWAPI_PROVIDER_ID
-            ? createNewApiCustomStoryboardImageModel(entry, newApiConfig)
+          : isStoryboardNewApiProviderId(providerId)
+            ? createNewApiCustomStoryboardImageModel(
+              entry,
+              providerId,
+              getStoryboardNewApiModelConfigForProvider(providerId, newApiConfigs, newApiConfig)
+            )
             : createProviderCustomStoryboardImageModel(providerId, entry);
 
       if (!model) {

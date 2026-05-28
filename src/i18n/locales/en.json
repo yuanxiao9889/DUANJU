@@ -40,17 +40,20 @@
     "idle": {
       "title": "Close OOpii?",
       "description": "You can minimize the app to the tray and restore it later, or close the app completely.",
-      "descriptionNoTray": "macOS does not use tray hiding right now. The current project state will be saved before closing."
+      "descriptionNoTray": "macOS does not use tray hiding right now. The current project state will be saved before closing.",
+      "descriptionWindow": "The current project state will be saved before this workspace window closes."
     },
     "active": {
       "title": "Generation still in progress",
       "description": "The current canvas still has active generation tasks. You can minimize the app to the tray and let them keep running in the background, or close the app directly.",
-      "descriptionNoTray": "The current canvas still has active generation tasks. macOS does not use tray hiding right now, so closing will quit the app."
+      "descriptionNoTray": "The current canvas still has active generation tasks. macOS does not use tray hiding right now, so closing will quit the app.",
+      "descriptionWindow": "This workspace window still has active generation tasks. Closing it will stop this window after saving the current project state."
     },
     "hint": "Choosing Minimize hides the main window and keeps the background tasks running until you restore the app from the tray.",
     "minimize": "Minimize to Tray",
     "cancelClose": "Cancel Close",
-    "forceClose": "Close App"
+    "forceClose": "Close App",
+    "forceCloseWindow": "Close Window"
   },
   "errorLog": {
     "title": "Error Logs",
@@ -289,6 +292,9 @@
     "jimengRestore": "Restore Jimeng panel",
     "switchToEnglish": "English",
     "switchToChinese": "中文",
+    "newWindow": "New Window",
+    "newWindowTitle": "OOpii Infinite Canvas",
+    "newWindowOpenFailed": "Failed to open a new workspace window.",
     "clipLibrary": "Clip Library",
     "clipLibraryOpenFailed": "Failed to open the clip library window.",
     "clipLibraryStoryboardOnly": "Only storyboard projects support clip libraries.",
@@ -2674,6 +2680,7 @@
     "deselectAll": "Deselect All",
     "deleteSelected": "Delete Selected",
     "selectedCount": "{{count}} projects selected",
+    "openInOtherWindow": "Open in another window. Click to switch to that window.",
     "exitSelectMode": "Exit Select Mode",
     "created": "Created",
     "modified": "Modified",
@@ -3510,6 +3517,8 @@
     "canvasPerformance": "Canvas Performance",
     "canvasPerformanceDesc": "Tune overview rendering and viewport preloading for large projects. Defaults favor stability.",
     "canvasPerformancePageDesc": "Tune large-project rendering, thumbnails, and viewport preloading in one place.",
+    "canvasResultOriginalOnHover": "Show Original Result on Hover",
+    "canvasResultOriginalOnHoverDesc": "When enabled, hovering canvas image results temporarily switches previews to the original image, then restores the preview after hover. Off by default to reduce large-image loading.",
     "dataStorage": "Data Storage",
     "dataStorageDesc": "Manage project autosave, storage path, database backups, and restore.",
     "projectAutosaveTitle": "Project Autosave",
@@ -3774,7 +3783,8 @@
       "briefEmpty": "The agent will keep this brief updated as you answer questions.",
       "visualPreferenceEmpty": "Visual preferences will match the product, platform, and brand color automatically. You can also adjust them from the right panel.",
       "batchEmpty": "Choose ratios and let the agent create the unified generation prompt.",
-      "resultsEmpty": "Generated batches will be grouped here by ratio."
+      "resultsEmpty": "Generated batches will be grouped here by ratio.",
+      "agentPlan": "Production Plan"
     },
     "fields": {
       "productName": "Product",
@@ -3786,6 +3796,9 @@
       "optimizedUserIdeaInfo": "AI-Optimized Ideas",
       "detailPages": "Detail Pages",
       "inference": "AI Product Understanding",
+      "pageGoal": "Page Intent",
+      "blueprint": "Page Blueprint",
+      "qualityCheckSummary": "Pre-generation QA",
       "platform": "Platform",
       "audience": "Audience",
       "style": "Style",
@@ -3963,6 +3976,9 @@
       "variantsPerRatio": "Images per group",
       "createBatch": "Create Batch",
       "generateNodeInfo": "Generate Node Info",
+      "generatingNodeInfo": "Generating Node Info",
+      "generatingNodeInfoTitle": "Creating canvas nodes and asking AI to break down the information",
+      "generatingNodeInfoHint": "Please wait. The Agent will use product images, document copy, pagination mode, and visual preferences to create product, brief, visual preference, and batch generation nodes.",
       "startImageGeneration": "Start Image Generation",
       "emptyConversation": "Upload a product image or describe the product. I will create and update stage nodes on the canvas as we go.",
       "chatPlaceholder": "Tell me the platform, style, audience, copy angle, or say things like \"make it Xiaohongshu style\"...",
@@ -4079,7 +4095,30 @@
       "addProductReferenceImage": "Add product reference image, up to {{limit}}",
       "productImageDescriptionPlaceholder": "Describe this image, e.g. material detail, side view, packaging, or usage scene",
       "productImageRoleMain": "Main",
-      "productImageRoleReference": "Ref {{index}}"
+      "productImageRoleReference": "Ref {{index}}",
+      "skills": "Skills",
+      "skillsEmpty": "No skills are available yet. This space is reserved for future entries.",
+      "removeChatImage": "Remove image",
+      "chatImagesUploaded": "Added {{count}} image(s) to the chat input.",
+      "helperText": "Enter your request, add images, then let the Agent draft a production plan.",
+      "statusPlanCreated": "Plan node created or updated."
+    },
+    "agentPlan": {
+      "summary": "Plan summary",
+      "productUnderstanding": "Product understanding",
+      "creativeDirection": "Creative direction",
+      "prompt": "Core prompt",
+      "referenceImages": "Reference images",
+      "noReferenceImageNotes": "No reference image notes yet",
+      "productionSettings": "Production settings",
+      "startProduction": "Start production",
+      "generating": "Producing",
+      "needPrompt": "Add a core prompt before starting production.",
+      "imageOnlyPrompt": "I uploaded images first. Please analyze them and draft a plan.",
+      "statusThinking": "The Agent is analyzing the request and drafting a plan...",
+      "statusPlanCreated": "The plan is ready. Adjust it on the plan node before starting production.",
+      "statusFailed": "Plan generation failed.",
+      "helperText": "Add images and a request, and the Agent will draft a production plan first."
     }
   },
   "dreaminaSetup": {

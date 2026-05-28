@@ -93,6 +93,11 @@ import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedCl
 import { DIRECTOR_STAGE_WINDOW_LABEL } from "./features/director-stage/application/directorStageWindowBridge";
 import { DetachedDirectorStageWindow } from "./features/director-stage/ui/DetachedDirectorStageWindow";
 import { isTauriRuntime } from "./lib/tauriRuntime";
+import { openWorkspaceWindow } from "./features/app/workspaceWindowBridge";
+import {
+  registerProjectWindow,
+  unregisterProjectWindow,
+} from "./commands/projectWindowSessions";
 
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 2500;
 const WINDOW_CLOSE_REQUEST_TIMEOUT_MS = 1200;
@@ -431,10 +436,27 @@ function MainApp() {
   );
   const allJimengQueueJobs = useJimengVideoQueueStore((state) => state.allJobs);
   const isWindowCloseInProgressRef = useRef(false);
+  const currentWindowLabel = isTauriRuntime() ? getCurrentWindow().label : "browser";
   const hasAttemptedDreaminaAutoUpdateRef = useRef(false);
   useEffect(() => {
     void hydrate();
   }, [hydrate]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    void registerProjectWindow(currentWindowLabel).catch((error) => {
+      console.warn("failed to register project window", error);
+    });
+
+    return () => {
+      void unregisterProjectWindow(currentWindowLabel).catch((error) => {
+        console.warn("failed to unregister project window", error);
+      });
+    };
+  }, [currentWindowLabel]);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -1089,6 +1111,16 @@ function MainApp() {
       return;
     }
 
+    if (currentWindowLabel !== "main") {
+      try {
+        await unregisterProjectWindow(currentWindowLabel);
+      } catch (error) {
+        console.warn("failed to unregister workspace window before close", error);
+      }
+      await getCurrentWindow().destroy();
+      return;
+    }
+
     const exitRequested = await settleWithinTimeout(
       invoke<void>("request_app_exit"),
       WINDOW_CLOSE_REQUEST_TIMEOUT_MS,
@@ -1098,7 +1130,7 @@ function MainApp() {
     if (!exitRequested) {
       isWindowCloseInProgressRef.current = false;
     }
-  }, [finalizeCurrentProjectBeforeClose, t]);
+  }, [currentWindowLabel, finalizeCurrentProjectBeforeClose, t]);
 
   const handleMainWindowCloseIntent = useCallback(async () => {
     if (isWindowCloseInProgressRef.current) {
@@ -1305,6 +1337,10 @@ function MainApp() {
     }
   }, [currentProjectClipLastFolderId, currentProjectClipLibraryId, t]);
 
+  const handleOpenWorkspaceWindow = useCallback(async () => {
+    await openWorkspaceWindow(t("titleBar.newWindowTitle"));
+  }, [t]);
+
   return (
     <div className="w-full h-full flex flex-col bg-bg-dark">
       <TitleBar
@@ -1312,6 +1348,7 @@ function MainApp() {
           setExtensionsDialogLoaded(true);
           setShowExtensions(true);
         }}
+        onNewWindowClick={handleOpenWorkspaceWindow}
         onClipLibraryClick={handleOpenClipLibraryPanel}
         onSettingsClick={() => {
           setSettingsInitialCategory("general");
@@ -1521,7 +1558,8 @@ function MainApp() {
         isOpen={showAppCloseDialog}
         hasActiveGeneration={hasMainWindowActiveGeneration}
         actionState={closeDialogActionState}
-        canMinimizeToTray={isWindowsRuntime()}
+        closeScope={currentWindowLabel === "main" ? "app" : "window"}
+        canMinimizeToTray={currentWindowLabel === "main" && isWindowsRuntime()}
         onClose={() => {
           if (closeDialogActionState !== "idle") {
             return;

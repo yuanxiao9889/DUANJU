@@ -1609,9 +1609,20 @@ pub fn check_storage_session(app: AppHandle) -> Result<StorageSessionStatus, Str
 pub(crate) fn ensure_storage_session_write_allowed(app: &AppHandle) -> Result<(), String> {
     let current_path = resolve_storage_base_path(app)?;
     let status = check_storage_session_for_path(app, &current_path)?;
+    if status.active {
+        let owner_detail = status
+            .owner_process_id
+            .map(|process_id| format!("process id {process_id}"))
+            .or_else(|| status.owner_machine_id.clone())
+            .unwrap_or_else(|| "unknown owner".to_string());
+        return Err(format!(
+            "Storage is active in another app instance ({owner_detail}). Writes are blocked for {}.",
+            status.current_path
+        ));
+    }
     let machine_id = status.machine_id;
     let now = current_timestamp_ms();
-    let started_at = if status.stale || status.active {
+    let started_at = if status.stale {
         now
     } else {
         status.started_at.unwrap_or(now)

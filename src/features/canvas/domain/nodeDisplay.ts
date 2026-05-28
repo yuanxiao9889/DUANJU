@@ -51,6 +51,7 @@ export const DEFAULT_NODE_DISPLAY_NAME: Record<CanvasNodeType, string> = {
   [CANVAS_NODE_TYPES.commerceBrief]: '\u51fa\u56fe Brief',
   [CANVAS_NODE_TYPES.commerceVisualPreference]: '\u89c6\u89c9\u4e0e\u6392\u7248\u504f\u597d',
   [CANVAS_NODE_TYPES.commerceBatchGenerate]: '\u6279\u91cf\u51fa\u56fe',
+  [CANVAS_NODE_TYPES.commerceAgentPlan]: '\u5236\u4f5c\u65b9\u6848',
   [CANVAS_NODE_TYPES.commerceResultGroup]: '\u7535\u5546\u7ed3\u679c\u7ec4',
   [CANVAS_NODE_TYPES.scriptRoot]: '\u5267\u672c',
   [CANVAS_NODE_TYPES.scriptChapter]: '\u7ae0\u8282',

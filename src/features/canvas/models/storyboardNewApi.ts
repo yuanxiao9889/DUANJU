@@ -1,6 +1,12 @@
 import type { ImageModelDefinition, ResolutionOption } from './types';
 
 export const STORYBOARD_NEWAPI_PROVIDER_ID = 'newapi';
+export const STORYBOARD_NEWAPI2_PROVIDER_ID = 'newapi2';
+export const STORYBOARD_NEWAPI_PROVIDER_IDS = [
+  STORYBOARD_NEWAPI_PROVIDER_ID,
+  STORYBOARD_NEWAPI2_PROVIDER_ID,
+] as const;
+export type StoryboardNewApiProviderId = typeof STORYBOARD_NEWAPI_PROVIDER_IDS[number];
 export const STORYBOARD_NEWAPI_MODEL_ID =
   `${STORYBOARD_NEWAPI_PROVIDER_ID}/storyboard-experimental`;
 
@@ -62,6 +68,27 @@ function normalizeTrimmedString(input: unknown): string {
   return typeof input === 'string' ? input.trim() : '';
 }
 
+export function isStoryboardNewApiProviderId(
+  value: string | null | undefined
+): value is StoryboardNewApiProviderId {
+  const normalizedValue = (value ?? '').trim();
+  return STORYBOARD_NEWAPI_PROVIDER_IDS.some((providerId) => providerId === normalizedValue);
+}
+
+export function resolveStoryboardNewApiProviderIdFromModelId(
+  value: string | null | undefined
+): StoryboardNewApiProviderId | null {
+  const normalizedValue = normalizeTrimmedString(value);
+  const [providerId] = normalizedValue.split('/', 1);
+  return isStoryboardNewApiProviderId(providerId) ? providerId : null;
+}
+
+export function toStoryboardNewApiModelId(
+  providerId: StoryboardNewApiProviderId = STORYBOARD_NEWAPI_PROVIDER_ID
+): string {
+  return `${providerId}/storyboard-experimental`;
+}
+
 export function normalizeStoryboardNewApiApiFormat(
   input: string | null | undefined
 ): StoryboardNewApiApiFormat {
@@ -108,9 +135,11 @@ function stripNewApiProviderPrefix(model: string | null | undefined): string {
     return '';
   }
 
-  const prefix = `${STORYBOARD_NEWAPI_PROVIDER_ID}/`;
-  if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
-    return trimmed.slice(prefix.length).trim();
+  for (const providerId of STORYBOARD_NEWAPI_PROVIDER_IDS) {
+    const prefix = `${providerId}/`;
+    if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
+      return trimmed.slice(prefix.length).trim();
+    }
   }
 
   return trimmed;
@@ -181,9 +210,10 @@ export function isStoryboardNewApiModelConfigured(
 
 export function isStoryboardNewApiModelId(value: string | null | undefined): boolean {
   const normalizedValue = (value ?? '').trim();
-  return (
-    normalizedValue === STORYBOARD_NEWAPI_MODEL_ID
-    || normalizedValue.startsWith(`${STORYBOARD_NEWAPI_PROVIDER_ID}/`)
+  return STORYBOARD_NEWAPI_PROVIDER_IDS.some(
+    (providerId) =>
+      normalizedValue === toStoryboardNewApiModelId(providerId)
+      || normalizedValue.startsWith(`${providerId}/`)
   );
 }
 
@@ -214,7 +244,8 @@ export function resolveStoryboardNewApiModeLabel(
 }
 
 export function createStoryboardNewApiImageModel(
-  config: StoryboardNewApiModelConfig | null | undefined
+  config: StoryboardNewApiModelConfig | null | undefined,
+  providerId: StoryboardNewApiProviderId = STORYBOARD_NEWAPI_PROVIDER_ID
 ): ImageModelDefinition | null {
   const normalizedConfig = normalizeStoryboardNewApiModelConfig(config);
   if (!isStoryboardNewApiModelConfigured(normalizedConfig)) {
@@ -226,12 +257,12 @@ export function createStoryboardNewApiImageModel(
   );
 
   return {
-    id: STORYBOARD_NEWAPI_MODEL_ID,
+    id: toStoryboardNewApiModelId(providerId),
     mediaType: 'image',
     displayName: isGptImage2Model
       ? STORYBOARD_NEWAPI_GPT_IMAGE_2_REQUEST_MODEL
       : normalizedConfig.displayName,
-    providerId: STORYBOARD_NEWAPI_PROVIDER_ID,
+    providerId,
     description: isGptImage2Model
       ? 'NewAPI gpt-image-2 endpoint with OpenAI Images routing and size/quality parameters.'
       : 'NewAPI-backed storyboard image endpoint.',
@@ -290,7 +321,7 @@ export function createStoryboardNewApiImageModel(
       }
       : undefined,
     resolveRequest: ({ referenceImageCount }) => ({
-      requestModel: STORYBOARD_NEWAPI_MODEL_ID,
+      requestModel: toStoryboardNewApiModelId(providerId),
       modeLabel: resolveStoryboardNewApiModeLabel(
         isGptImage2Model ? 'openai-images' : normalizedConfig.apiFormat,
         referenceImageCount

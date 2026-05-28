@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import type { Viewport } from "@xyflow/react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   useCanvasStore,
   type CanvasEdge,
@@ -31,12 +32,24 @@ import {
   type ProjectSummaryRecord,
 } from "@/commands/projectState";
 import {
+  claimProjectEditSession,
+  focusProjectWindow,
+  releaseProjectEditSession,
+} from "@/commands/projectWindowSessions";
+import {
   createDefaultCanvasColorLabelMap,
   normalizeCanvasColorLabelMap,
   type CanvasColorLabelMap,
 } from "@/features/canvas/domain/semanticColors";
 import { setActiveMediaProjectId } from "@/features/canvas/application/mediaPersistenceContext";
 import { isTauriRuntime } from "@/lib/tauriRuntime";
+
+function getCurrentWindowLabel(): string | null {
+  if (!isTauriRuntime()) {
+    return null;
+  }
+  return getCurrentWindow().label;
+}
 
 export const DEFAULT_VIEWPORT: Viewport = {
   x: 0,
@@ -1479,6 +1492,16 @@ function rememberRecentlyClosedProject(project: Project): void {
   }
 }
 
+function releaseProjectWindowSession(projectId: string | null | undefined): void {
+  const windowLabel = getCurrentWindowLabel();
+  if (!projectId || !windowLabel) {
+    return;
+  }
+  void releaseProjectEditSession(projectId, windowLabel).catch((error) => {
+    console.warn("Failed to release project edit session", error);
+  });
+}
+
 function projectFromSummary(summary: ProjectSummary): Project {
   return {
     ...summary,
@@ -2660,7 +2683,34 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     setActiveMediaProjectId(id, get().currentProject?.name ?? null);
 
     void (async () => {
+      let claimedWindowLabel: string | null = null;
+      let keepClaim = false;
       try {
+        const windowLabel = getCurrentWindowLabel();
+        if (windowLabel) {
+          const claim = await claimProjectEditSession(id, windowLabel);
+          if (!claim.claimed) {
+            if (claim.ownerWindowLabel) {
+              await focusProjectWindow(claim.ownerWindowLabel).catch((error) => {
+                console.warn("Failed to focus occupied project window", error);
+              });
+            }
+            if (reqSeq === openProjectRequestSeq) {
+              set({
+                currentProjectId: null,
+                currentProject: null,
+                isOpeningProject: false,
+                saveStatus: "idle",
+                lastSaveError: null,
+                lastSaveReason: null,
+              });
+              setActiveMediaProjectId(null);
+            }
+            return;
+          }
+          claimedWindowLabel = windowLabel;
+        }
+
         const cachedProject = recentClosedProjectCache.get(id);
         if (cachedProject) {
           if (reqSeq !== openProjectRequestSeq) {
@@ -2683,6 +2733,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             nodeCount: cachedProject.nodes.length,
             elapsedSinceOpenMs: Math.round(performance.now() - openStartedAt),
           });
+          keepClaim = true;
           return;
         }
 
@@ -2757,12 +2808,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           openCount,
           elapsedSinceOpenMs: Math.round(performance.now() - openStartedAt),
         });
+        keepClaim = true;
       } catch (error) {
         if (reqSeq !== openProjectRequestSeq) {
           return;
         }
         console.error("Failed to open project", error);
         set({ isOpeningProject: false });
+      } finally {
+        if (!keepClaim && claimedWindowLabel) {
+          await releaseProjectEditSession(id, claimedWindowLabel).catch((error) => {
+            console.warn("Failed to release abandoned project edit session", error);
+          });
+        }
       }
     })();
   },
@@ -2799,6 +2857,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         lastSaveReason: null,
       }));
       setActiveMediaProjectId(null);
+      releaseProjectWindowSession(currentProjectId);
       return;
     }
 
@@ -2884,6 +2943,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             lastSaveReason: null,
           }));
           setActiveMediaProjectId(null);
+          releaseProjectWindowSession(currentProjectId);
           return;
         }
 
@@ -2918,6 +2978,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       lastSaveReason: null,
     }));
     setActiveMediaProjectId(null);
+    releaseProjectWindowSession(currentProjectId);
   },
 
   getCurrentProject: () => {

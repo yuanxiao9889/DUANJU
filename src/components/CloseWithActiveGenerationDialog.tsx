@@ -8,6 +8,7 @@ interface CloseWithActiveGenerationDialogProps {
   hasActiveGeneration: boolean;
   actionState: CloseDialogAction;
   canMinimizeToTray?: boolean;
+  closeScope?: "app" | "window";
   onClose: () => void;
   onMinimize: () => Promise<void> | void;
   onForceClose: () => Promise<void> | void;
@@ -18,6 +19,7 @@ export function CloseWithActiveGenerationDialog({
   hasActiveGeneration,
   actionState,
   canMinimizeToTray = true,
+  closeScope = "app",
   onClose,
   onMinimize,
   onForceClose,
@@ -26,6 +28,12 @@ export function CloseWithActiveGenerationDialog({
   const isBusy = actionState !== "idle";
   const handleClose = isBusy ? () => undefined : onClose;
   const textVariant = hasActiveGeneration ? "active" : "idle";
+  const descriptionKey =
+    closeScope === "window" && !canMinimizeToTray
+      ? `appCloseDialog.${textVariant}.descriptionWindow`
+      : `appCloseDialog.${textVariant}.${canMinimizeToTray ? "description" : "descriptionNoTray"}`;
+  const forceCloseKey =
+    closeScope === "window" ? "appCloseDialog.forceCloseWindow" : "appCloseDialog.forceClose";
 
   return (
     <UiModal
@@ -64,16 +72,14 @@ export function CloseWithActiveGenerationDialog({
             }}
             disabled={isBusy}
           >
-            {t("appCloseDialog.forceClose")}
+            {t(forceCloseKey)}
           </UiButton>
         </>
       }
     >
       <div className="space-y-3">
         <p className="text-sm leading-6 text-text-dark">
-          {t(
-            `appCloseDialog.${textVariant}.${canMinimizeToTray ? "description" : "descriptionNoTray"}`,
-          )}
+          {t(descriptionKey)}
         </p>
         {canMinimizeToTray ? (
           <div className="rounded-lg border border-[rgba(255,255,255,0.1)] bg-bg-dark/60 px-3 py-2">

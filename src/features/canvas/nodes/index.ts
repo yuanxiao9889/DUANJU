@@ -217,6 +217,7 @@ export const nodeTypes: NodeTypes = {
   commerceBriefNode: CommerceStageNode,
   commerceVisualPreferenceNode: CommerceStageNode,
   commerceBatchGenerateNode: CommerceStageNode,
+  commerceAgentPlanNode: CommerceStageNode,
   commerceResultGroupNode: CommerceStageNode,
   scriptCharacterReferenceNode: ScriptCharacterReferenceNode,
   scriptLocationReferenceNode: ScriptLocationReferenceNode,

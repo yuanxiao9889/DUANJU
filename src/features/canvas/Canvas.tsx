@@ -2081,6 +2081,9 @@ export function Canvas() {
   const canvasViewportPreloadMarginScreens = useSettingsStore(
     (state) => state.canvasViewportPreloadMarginScreens,
   );
+  const enableCanvasResultOriginalOnHover = useSettingsStore(
+    (state) => state.enableCanvasResultOriginalOnHover,
+  );
   const setShowMiniMap = useSettingsStore((state) => state.setShowMiniMap);
   const setShowAlignmentGuides = useSettingsStore(
     (state) => state.setShowAlignmentGuides,
@@ -2180,8 +2183,9 @@ export function Canvas() {
       renderMode: canvasRenderMode,
       suspendMedia: canvasRenderMode === "overview",
       preferThumbnailMedia: shouldPreferThumbnailMedia,
+      enableResultOriginalOnHover: enableCanvasResultOriginalOnHover,
     }),
-    [canvasRenderMode, shouldPreferThumbnailMedia],
+    [canvasRenderMode, enableCanvasResultOriginalOnHover, shouldPreferThumbnailMedia],
   );
   const isCanvasOverviewRender = canvasRenderMode === "overview";
   const effectiveNodeTypes = isCanvasOverviewRender

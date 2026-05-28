@@ -15,6 +15,7 @@ export interface CommerceAdProductImage {
   label: string;
   description: string;
   kind: 'main' | 'reference' | 'logo' | 'packaging';
+  evidenceTags: string[];
 }
 
 export interface CommerceAdProductInference {
@@ -45,9 +46,13 @@ export interface CommerceAdDetailPage {
   id: string;
   pageNo: number;
   title: string;
+  pageGoal: string;
   lockedCopy: string;
   optimizedCopy: string;
   layoutNotes: string;
+  blueprint: string;
+  referenceImageIds: string[];
+  qualityNotes: string[];
   prompt: string;
 }
 
@@ -64,6 +69,8 @@ export interface CommerceAdBriefState {
   normalizedBrief: string;
   optimizedUserIdeaInfo: string;
   detailPages: CommerceAdDetailPage[];
+  qualityCheckSummary: string;
+  qualityIssues: string[];
   updatedAt: number | null;
 }
 
@@ -126,6 +133,32 @@ export interface CommerceAdGenerationBatch {
 export interface CommerceAdResultGroupState {
   batches: CommerceAdGenerationBatch[];
   activeBatchId: string | null;
+}
+
+export interface CommerceAgentSkill {
+  id: string;
+  title: string;
+  description: string;
+  iconKey: string;
+}
+
+export interface CommerceAgentPlanState {
+  summary: string;
+  productUnderstanding: string;
+  creativeDirection: string;
+  prompt: string;
+  referenceImages: CommerceAdProductImage[];
+  referenceImageNotes: string;
+  riskNotes: string[];
+  selectedSkillId: string;
+  providerId: string;
+  modelId: string;
+  size: string;
+  aspectRatios: string[];
+  variantsPerRatio: number;
+  batchCount: number;
+  status: 'idle' | 'ready' | 'generating' | 'failed';
+  lastError: string | null;
 }
 
 export type CommerceAdGuidanceStage =
@@ -293,6 +326,7 @@ function normalizeProductImage(value: unknown, index: number): CommerceAdProduct
     label: normalizeString(record.label) || `Image ${index + 1}`,
     description: normalizeString(record.description),
     kind,
+    evidenceTags: normalizeStringArray(record.evidenceTags),
   };
 }
 
@@ -365,11 +399,25 @@ export function normalizeCommerceAdDetailPages(value: unknown): CommerceAdDetail
       }
       const record = item as Partial<CommerceAdDetailPage>;
       const title = normalizeString(record.title);
+      const pageGoal = normalizeString(record.pageGoal);
       const lockedCopy = normalizeString(record.lockedCopy);
       const optimizedCopy = normalizeString(record.optimizedCopy);
       const layoutNotes = normalizeString(record.layoutNotes);
+      const blueprint = normalizeString(record.blueprint);
       const prompt = normalizeString(record.prompt);
-      if (!title && !lockedCopy && !optimizedCopy && !layoutNotes && !prompt) {
+      const referenceImageIds = normalizeStringArray(record.referenceImageIds);
+      const qualityNotes = normalizeStringArray(record.qualityNotes);
+      if (
+        !title
+        && !pageGoal
+        && !lockedCopy
+        && !optimizedCopy
+        && !layoutNotes
+        && !blueprint
+        && referenceImageIds.length === 0
+        && qualityNotes.length === 0
+        && !prompt
+      ) {
         return null;
       }
 
@@ -377,9 +425,13 @@ export function normalizeCommerceAdDetailPages(value: unknown): CommerceAdDetail
         id: normalizeString(record.id) || `commerce-detail-page-${index + 1}`,
         pageNo: normalizePositiveInteger(record.pageNo, index + 1),
         title,
+        pageGoal,
         lockedCopy,
         optimizedCopy,
         layoutNotes,
+        blueprint,
+        referenceImageIds,
+        qualityNotes,
         prompt,
       };
     })
@@ -405,6 +457,8 @@ export function createDefaultCommerceAdBriefState(): CommerceAdBriefState {
     normalizedBrief: '',
     optimizedUserIdeaInfo: '',
     detailPages: [],
+    qualityCheckSummary: '',
+    qualityIssues: [],
     updatedAt: null,
   };
 }
@@ -428,6 +482,8 @@ export function normalizeCommerceAdBriefState(value: unknown): CommerceAdBriefSt
     normalizedBrief: normalizeString(record.normalizedBrief),
     optimizedUserIdeaInfo: normalizeString(record.optimizedUserIdeaInfo),
     detailPages: normalizeCommerceAdDetailPages(record.detailPages),
+    qualityCheckSummary: normalizeString(record.qualityCheckSummary),
+    qualityIssues: normalizeStringArray(record.qualityIssues),
     updatedAt: normalizeTimestamp(record.updatedAt),
   };
 }
@@ -527,6 +583,61 @@ export function normalizeCommerceAdBatchGenerateState(value: unknown): CommerceA
     stylePromptFragment: normalizeString(record.stylePromptFragment),
     status,
     lastGeneratedAt: normalizeTimestamp(record.lastGeneratedAt),
+    lastError: normalizeString(record.lastError) || null,
+  };
+}
+
+export function createDefaultCommerceAgentPlanState(): CommerceAgentPlanState {
+  return {
+    summary: '',
+    productUnderstanding: '',
+    creativeDirection: '',
+    prompt: '',
+    referenceImages: [],
+    referenceImageNotes: '',
+    riskNotes: [],
+    selectedSkillId: '',
+    providerId: '',
+    modelId: '',
+    size: '2K',
+    aspectRatios: ['4:5'],
+    variantsPerRatio: 1,
+    batchCount: 1,
+    status: 'idle',
+    lastError: null,
+  };
+}
+
+export function normalizeCommerceAgentPlanState(value: unknown): CommerceAgentPlanState {
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Partial<CommerceAgentPlanState>
+      : {};
+  const status = ['idle', 'ready', 'generating', 'failed'].includes(record.status ?? '')
+    ? record.status as CommerceAgentPlanState['status']
+    : 'idle';
+  const aspectRatios = normalizeStringArray(record.aspectRatios);
+
+  return {
+    summary: normalizeString(record.summary),
+    productUnderstanding: normalizeString(record.productUnderstanding),
+    creativeDirection: normalizeString(record.creativeDirection),
+    prompt: normalizeString(record.prompt),
+    referenceImages: Array.isArray(record.referenceImages)
+      ? record.referenceImages
+          .map((item, index) => normalizeProductImage(item, index))
+          .filter((item): item is CommerceAdProductImage => Boolean(item))
+      : [],
+    referenceImageNotes: normalizeString(record.referenceImageNotes),
+    riskNotes: normalizeStringArray(record.riskNotes),
+    selectedSkillId: normalizeString(record.selectedSkillId),
+    providerId: normalizeString(record.providerId),
+    modelId: normalizeString(record.modelId),
+    size: normalizeString(record.size) || '2K',
+    aspectRatios: aspectRatios.length > 0 ? aspectRatios : ['4:5'],
+    variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(record.variantsPerRatio) || 1))),
+    batchCount: Math.max(1, Math.min(20, Math.round(Number(record.batchCount) || 1))),
+    status,
     lastError: normalizeString(record.lastError) || null,
   };
 }

@@ -39,17 +39,20 @@
     "idle": {
       "title": "关闭 OOpii？",
       "description": "你可以先最小化到托盘，之后再恢复窗口；也可以直接完全关闭应用。",
-      "descriptionNoTray": "macOS 当前不使用托盘隐藏窗口。关闭前会先保存当前项目状态。"
+      "descriptionNoTray": "macOS 当前不使用托盘隐藏窗口。关闭前会先保存当前项目状态。",
+      "descriptionWindow": "关闭这个工作窗口前，会先保存当前项目状态。"
     },
     "active": {
       "title": "有任务正在生成",
       "description": "当前画布仍有生成任务在进行中，你可以先最小化到托盘继续后台运行，或者直接关闭应用。",
-      "descriptionNoTray": "当前画布仍有生成任务在进行中。macOS 当前不使用托盘隐藏窗口，如继续关闭会结束应用。"
+      "descriptionNoTray": "当前画布仍有生成任务在进行中。macOS 当前不使用托盘隐藏窗口，如继续关闭会结束应用。",
+      "descriptionWindow": "这个工作窗口仍有生成任务在进行中。继续关闭会先保存当前项目状态，然后关闭这个窗口。"
     },
     "hint": "选择“最小化”后，主窗口会被隐藏，你之后可以从托盘重新打开应用。",
     "minimize": "最小化到托盘",
     "cancelClose": "取消关闭",
-    "forceClose": "关闭应用"
+    "forceClose": "关闭应用",
+    "forceCloseWindow": "关闭窗口"
   },
   "errorLog": {
     "title": "错误日志",
@@ -288,6 +291,9 @@
     "jimengRestore": "还原即梦面板",
     "switchToEnglish": "English",
     "switchToChinese": "中文",
+    "newWindow": "新建窗口",
+    "newWindowTitle": "OOpii 无限画布",
+    "newWindowOpenFailed": "打开新的工作窗口失败。",
     "clipLibrary": "剪辑素材库",
     "clipLibraryOpenFailed": "打开剪辑素材库窗口失败。",
     "clipLibraryStoryboardOnly": "只有 storyboard 项目支持剪辑素材库。",
@@ -2469,6 +2475,7 @@
     "deselectAll": "取消全选",
     "deleteSelected": "删除选中",
     "selectedCount": "已选择 {{count}} 个项目",
+    "openInOtherWindow": "已在其他窗口打开，点击可切换到该窗口",
     "exitSelectMode": "退出选择",
     "created": "创建时间",
     "modified": "修改时间",
@@ -3253,6 +3260,8 @@
     "canvasPerformance": "画布性能",
     "canvasPerformanceDesc": "调整大项目中的概览显示和视口预加载策略，默认值更稳。",
     "canvasPerformancePageDesc": "集中调整大项目渲染、缩略图与视口预加载策略。",
+    "canvasResultOriginalOnHover": "悬停结果图显示原图",
+    "canvasResultOriginalOnHoverDesc": "开启后，鼠标悬停在画布图片结果上时临时切换为原图，移出后恢复预览图。默认关闭以减少大图加载。",
     "dataStorage": "数据保存",
     "dataStorageDesc": "管理项目自动保存、存储路径、数据库备份与恢复。",
     "projectAutosaveTitle": "项目自动保存",
@@ -3517,7 +3526,8 @@
       "batchEmpty": "选择比例后，Agent 会整理统一出图提示词。",
       "resultsEmpty": "生成批次会按比例收纳在这里。",
       "visualPreference": "视觉与排版偏好",
-      "visualPreferenceEmpty": "视觉偏好会自动匹配商品、平台和品牌色，也可以在右侧手动调整。"
+      "visualPreferenceEmpty": "视觉偏好会自动匹配商品、平台和品牌色，也可以在右侧手动调整。",
+      "agentPlan": "制作方案"
     },
     "fields": {
       "productName": "商品",
@@ -3529,6 +3539,9 @@
       "optimizedUserIdeaInfo": "AI 优化想法",
       "detailPages": "详情页分页",
       "inference": "AI 商品理解",
+      "pageGoal": "页面意图",
+      "blueprint": "页面蓝图",
+      "qualityCheckSummary": "生成前质检",
       "platform": "平台",
       "audience": "人群",
       "style": "风格",
@@ -3633,6 +3646,9 @@
       "variantsPerRatio": "每组张数",
       "createBatch": "创建批次",
       "generateNodeInfo": "生成节点信息",
+      "generatingNodeInfo": "正在生成节点信息",
+      "generatingNodeInfoTitle": "正在创建画布节点并调用 AI 拆解信息",
+      "generatingNodeInfoHint": "请稍等，Agent 会根据商品图、文档信息、分页方式和视觉偏好生成商品资料、Brief、视觉偏好和批量出图节点。",
       "startImageGeneration": "开始生图",
       "emptyConversation": "上传商品图或描述商品，我会边聊边在画布创建和更新阶段节点。",
       "chatPlaceholder": "告诉我平台、风格、人群、文案方向，或直接说“换成小红书风格”...",
@@ -3822,7 +3838,30 @@
       "addProductReferenceImage": "添加商品参考图，最多 {{limit}} 张",
       "productImageDescriptionPlaceholder": "说明这张图的用途，例如材质细节、侧面图、包装图、使用场景",
       "productImageRoleMain": "主图",
-      "productImageRoleReference": "参考{{index}}"
+      "productImageRoleReference": "参考{{index}}",
+      "skills": "技能",
+      "skillsEmpty": "当前还没有可用技能，后续会在这里补充。",
+      "removeChatImage": "删除图片",
+      "chatImagesUploaded": "已添加 {{count}} 张图片到对话输入区。",
+      "helperText": "先输入需求、上传图片，再发给 Agent 做方案分析。",
+      "statusPlanCreated": "方案节点已创建或更新。"
+    },
+    "agentPlan": {
+      "summary": "方案摘要",
+      "productUnderstanding": "商品理解",
+      "creativeDirection": "创意方向",
+      "prompt": "核心 Prompt",
+      "referenceImages": "参考图",
+      "noReferenceImageNotes": "暂无参考图说明",
+      "productionSettings": "制作参数",
+      "startProduction": "开始制作",
+      "generating": "正在制作",
+      "needPrompt": "请先补充核心 Prompt 再开始制作。",
+      "imageOnlyPrompt": "我先发一些图片，请你分析并生成方案。",
+      "statusThinking": "Agent 正在分析需求并整理方案...",
+      "statusPlanCreated": "方案已生成，可在方案节点上继续调整后开始制作。",
+      "statusFailed": "方案生成失败。",
+      "helperText": "上传图片和需求后，Agent 会先生成制作方案。"
     }
   },
   "dreaminaSetup": {
