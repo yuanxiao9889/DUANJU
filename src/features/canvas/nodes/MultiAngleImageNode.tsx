@@ -1791,6 +1791,7 @@ export const MultiAngleImageNode = memo(
                 <CanvasNodeImage
                   src={sourceImage.previewImageUrl || sourceImage.imageUrl}
                   alt={t("node.multiAngleImage.sourceAlt")}
+                  hoverSourceUrl={sourceImage.imageUrl}
                   viewerSourceUrl={sourceImage.imageUrl}
                   className="h-full w-full object-cover opacity-80"
                   draggable={false}
@@ -1827,6 +1828,7 @@ export const MultiAngleImageNode = memo(
               <CanvasNodeImage
                 src={sourceImage.previewImageUrl || sourceImage.imageUrl}
                 alt={t("node.multiAngleImage.sourceAlt")}
+                hoverSourceUrl={sourceImage.imageUrl}
                 viewerSourceUrl={sourceImage.imageUrl}
                 className="h-full w-full object-cover"
                 draggable={false}

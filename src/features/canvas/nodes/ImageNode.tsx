@@ -658,6 +658,7 @@ export const ImageNode = memo(
                         <CanvasNodeImage
                           src={previewUrl}
                           fallbackSrc={item.imageUrl}
+                          hoverSourceUrl={item.imageUrl}
                           alt={`${t("scriptStoryboardTable.production.resultListTitle")} ${index + 1}`}
                           viewerSourceUrl={item.imageUrl}
                           viewerMetadata={item.generationSummary ?? undefined}

@@ -1,6 +1,6 @@
 [package]
 name = "storyboard-copilot"
-version = "3.1.10"
+version = "3.1.11"
 autobins = false
 default-run = "storyboard-copilot"
 description = "OOpii无限画布 - AI 驱动的无限画布分镜创作工具"
@@ -30,6 +30,7 @@ serde_json = "1"
 image = "0.25"
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
 base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 tracing = "0.1"

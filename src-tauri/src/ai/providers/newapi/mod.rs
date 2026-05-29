@@ -340,6 +340,60 @@ impl NewApiProvider {
         }
     }
 
+    fn mime_type_from_image_format(format: ImageFormat) -> &'static str {
+        match format {
+            ImageFormat::Jpeg => "image/jpeg",
+            ImageFormat::Png => "image/png",
+            ImageFormat::WebP => "image/webp",
+            ImageFormat::Gif => "image/gif",
+            ImageFormat::Bmp => "image/bmp",
+            ImageFormat::Avif => "image/avif",
+            _ => "image/png",
+        }
+    }
+
+    fn normalize_image_content_type(content_type: &str) -> Option<&'static str> {
+        let mime_type = content_type
+            .split(';')
+            .next()
+            .unwrap_or(content_type)
+            .trim()
+            .to_ascii_lowercase();
+        match mime_type.as_str() {
+            "image/jpeg" | "image/jpg" => Some("image/jpeg"),
+            "image/png" => Some("image/png"),
+            "image/webp" => Some("image/webp"),
+            "image/gif" => Some("image/gif"),
+            "image/bmp" => Some("image/bmp"),
+            "image/avif" => Some("image/avif"),
+            _ => None,
+        }
+    }
+
+    fn infer_image_mime_type(
+        content_type: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<&'static str, AIError> {
+        if let Some(mime_type) = content_type.and_then(Self::normalize_image_content_type) {
+            return Ok(mime_type);
+        }
+
+        image::guess_format(bytes)
+            .map(Self::mime_type_from_image_format)
+            .map_err(|error| {
+                let response_preview = String::from_utf8_lossy(
+                    &bytes[..bytes.len().min(512)],
+                )
+                .into_owned();
+                AIError::Provider(format!(
+                    "NewAPI async image task content was not a recognizable image: {}. Content-Type: {}. Response preview: {}",
+                    error,
+                    content_type.unwrap_or(""),
+                    response_preview
+                ))
+            })
+    }
+
     fn resolve_endpoint(endpoint_url: &str, request_model: &str) -> String {
         let trimmed = endpoint_url.trim().trim_end_matches('/');
         let trimmed = trimmed
@@ -2906,12 +2960,78 @@ impl NewApiProvider {
                 error, response_text
             ))
         })?;
-        Self::async_image_task_payload_to_poll_result(
+        let poll_result = Self::async_image_task_payload_to_poll_result(
             payload,
             &metadata,
             endpoint_url,
             handle.task_id.as_str(),
-        )
+        )?;
+
+        match poll_result {
+            ProviderTaskPollResult::Succeeded(content_url) => {
+                let image_source = self
+                    .fetch_async_image_task_content(&content_url, api_key, handle.task_id.as_str())
+                    .await?;
+                Ok(ProviderTaskPollResult::Succeeded(image_source))
+            }
+            other => Ok(other),
+        }
+    }
+
+    async fn fetch_async_image_task_content(
+        &self,
+        content_url: &str,
+        api_key: &str,
+        task_id: &str,
+    ) -> Result<String, AIError> {
+        let response = self
+            .client
+            .get(content_url)
+            .version(reqwest::Version::HTTP_11)
+            .header("Accept", "image/*, application/octet-stream")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("X-API-Key", api_key)
+            .header("X-Banana-Client", BANANA_CLIENT_HEADER_VALUE)
+            .send()
+            .await?;
+
+        let status = response.status();
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string);
+        let bytes = response.bytes().await?.to_vec();
+        info!(
+            "[NewAPI] async image task content {} -> {} bytes={} content_type={}",
+            content_url,
+            status,
+            bytes.len(),
+            content_type.as_deref().unwrap_or("")
+        );
+
+        if !status.is_success() {
+            let response_preview =
+                String::from_utf8_lossy(&bytes[..bytes.len().min(1000)]).into_owned();
+            return Err(AIError::Provider(format!(
+                "NewAPI async image task content request failed {} for {}: {}",
+                status, task_id, response_preview
+            )));
+        }
+
+        if bytes.is_empty() {
+            return Err(AIError::Provider(format!(
+                "NewAPI async image task {} content was empty",
+                task_id
+            )));
+        }
+
+        let mime_type = Self::infer_image_mime_type(content_type.as_deref(), &bytes)?;
+        Ok(format!(
+            "data:{};base64,{}",
+            mime_type,
+            STANDARD.encode(bytes)
+        ))
     }
 
     fn async_image_task_payload_to_poll_result(
@@ -4096,6 +4216,28 @@ mod tests {
                     if message == "task failed upstream"
             ));
         }
+    }
+
+    #[test]
+    fn async_image_content_mime_requires_real_image_when_not_explicit_image_type() {
+        let png_bytes = STANDARD
+            .decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l8X2hwAAAABJRU5ErkJggg==",
+            )
+            .expect("valid png fixture");
+        let inferred =
+            NewApiProvider::infer_image_mime_type(Some("application/octet-stream"), &png_bytes)
+                .expect("expected png inference");
+        assert_eq!(inferred, "image/png");
+
+        let error = NewApiProvider::infer_image_mime_type(
+            Some("application/json; charset=utf-8"),
+            br#"{"error":"Invalid token"}"#,
+        )
+        .expect_err("expected json payload rejection");
+        assert!(error
+            .to_string()
+            .contains("content was not a recognizable image"));
     }
 
     #[test]

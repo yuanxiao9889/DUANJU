@@ -140,6 +140,9 @@ export interface CommerceAgentSkill {
   title: string;
   description: string;
   iconKey: string;
+  promptInstructions: string;
+  defaultQuestions: CommerceAdGuidanceQuestion[];
+  quickOptions: string[];
 }
 
 export interface CommerceAgentPlanState {
@@ -160,6 +163,40 @@ export interface CommerceAgentPlanState {
   status: 'idle' | 'ready' | 'generating' | 'failed';
   lastError: string | null;
 }
+
+export type CommerceAdAgentThreadPhase =
+  | 'collecting'
+  | 'planning'
+  | 'ready'
+  | 'refining'
+  | 'generating';
+
+export interface CommerceAdAgentConfirmedSlots {
+  platforms: string[];
+  objective: string;
+  audience: string;
+  sellingPoint: string;
+  visualDirection: string;
+  cta: string;
+  brandInfo: string;
+  outputFormat: string;
+}
+
+export interface CommerceAdAgentThreadState {
+  phase: CommerceAdAgentThreadPhase;
+  confirmedSlots: CommerceAdAgentConfirmedSlots;
+  missingSlots: string[];
+  imageAnalysis?: CommerceAdAgentImageAnalysis;
+  lastAskedFields: string[];
+  planVersion: number;
+}
+
+export type CommerceAdAgentTurnIntent =
+  | 'initial'
+  | 'supplement'
+  | 'revise'
+  | 'continue'
+  | 'new_image';
 
 export type CommerceAdGuidanceStage =
   | 'upload'
@@ -199,12 +236,23 @@ export interface CommerceAdAgentGuidance {
   readinessHint: string;
 }
 
+export interface CommerceAdAgentImageAnalysis {
+  summary: string;
+  observations: string[];
+  uncertainties: string[];
+  collapsedByDefault?: boolean;
+}
+
 export interface CommerceAdAgentMessage {
   id: string;
   role: CommerceAdAgentRole;
   content: string;
   createdAt: number;
+  images?: CommerceAdProductImage[];
   guidance?: CommerceAdAgentGuidance;
+  imageAnalysis?: CommerceAdAgentImageAnalysis;
+  status?: 'streaming' | 'done' | 'failed';
+  phase?: 'image_analysis' | 'skill_work' | 'questioning' | 'finalizing';
 }
 
 export type CommerceAdAgentAction =

@@ -31,11 +31,7 @@ fn project_windows() -> &'static Mutex<HashSet<String>> {
 }
 
 fn cleanup_dead_windows(app: &AppHandle) -> Result<(), String> {
-    let live_labels: HashSet<String> = app
-        .webview_windows()
-        .keys()
-        .cloned()
-        .collect();
+    let live_labels: HashSet<String> = app.webview_windows().keys().cloned().collect();
 
     {
         let mut windows = project_windows()
@@ -147,7 +143,10 @@ pub fn release_project_edit_session(
     let mut sessions = edit_sessions()
         .lock()
         .map_err(|_| "Failed to lock project edit sessions".to_string())?;
-    if sessions.get(project_id).is_some_and(|label| label == window_label) {
+    if sessions
+        .get(project_id)
+        .is_some_and(|label| label == window_label)
+    {
         sessions.remove(project_id);
     }
     Ok(())
@@ -201,7 +200,10 @@ pub(crate) fn ensure_project_write_allowed(
     let Some(owner_label) = sessions.get(project_id) else {
         return Ok(());
     };
-    let Some(window_label) = window_label.map(str::trim).filter(|label| !label.is_empty()) else {
+    let Some(window_label) = window_label
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+    else {
         return Err(format!(
             "Project {project_id} is open in another window. Writes require the owning window."
         ));

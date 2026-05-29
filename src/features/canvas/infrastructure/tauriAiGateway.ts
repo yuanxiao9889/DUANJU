@@ -5,6 +5,7 @@ import {
   submitGenerateImageJob,
 } from '@/commands/ai';
 import { optimizeReferenceImagesForApi } from '@/commands/image';
+import { assertCanSubmitImageGenerationJob } from '@/features/canvas/application/imageGenerationCircuitBreaker';
 import { imageUrlToDataUrl, persistImageLocally } from '@/features/canvas/application/imageData';
 import { createCurrentProjectMediaContext } from '@/features/canvas/application/mediaPersistenceContext';
 
@@ -180,6 +181,7 @@ export const tauriAiGateway: AiGateway = {
     });
   },
   submitGenerateImageJob: async (payload: GenerateImagePayload) => {
+    assertCanSubmitImageGenerationJob();
     const resolvedPayload = await resolveGenerateImagePayload(payload);
     const normalizedReferenceImages = await normalizeReferenceImages(resolvedPayload);
     return await submitGenerateImageJob({

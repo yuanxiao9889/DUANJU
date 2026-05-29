@@ -1198,6 +1198,7 @@ export const ImageCollageNode = memo(
                     <CanvasNodeImage
                       src={previewSource}
                       fallbackSrc={layer.imageUrl}
+                      hoverSourceUrl={layer.imageUrl}
                       alt={t("node.imageCollage.layerLabel", {
                         index: listLayers.length - index,
                       })}

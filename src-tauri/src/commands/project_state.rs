@@ -197,6 +197,18 @@ pub struct StyleTemplateStateRecord {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommerceAgentThreadRecord {
+    pub project_id: String,
+    pub thread_id: String,
+    pub title: String,
+    pub messages_json: String,
+    pub state_json: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveStyleTemplateStatePayload {
@@ -861,6 +873,94 @@ fn reset_clip_library_prototype_data_if_needed(conn: &Connection) -> Result<(), 
     Ok(())
 }
 
+fn ensure_commerce_agent_threads_schema(conn: &Connection) -> Result<(), String> {
+    if !table_exists(conn, "commerce_agent_threads")? {
+        return Ok(());
+    }
+
+    let columns = read_table_columns(conn, "commerce_agent_threads")?;
+    if columns.contains("thread_id") {
+        ensure_table_column(
+            conn,
+            "commerce_agent_threads",
+            "title",
+            "TEXT NOT NULL DEFAULT ''",
+        )?;
+        ensure_table_column(
+            conn,
+            "commerce_agent_threads",
+            "state_json",
+            "TEXT NOT NULL DEFAULT '{}'",
+        )?;
+        ensure_table_column(
+            conn,
+            "commerce_agent_threads",
+            "created_at",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        ensure_table_column(
+            conn,
+            "commerce_agent_threads",
+            "updated_at",
+            "INTEGER NOT NULL DEFAULT 0",
+        )?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_commerce_agent_threads_project_updated ON commerce_agent_threads(project_id, updated_at DESC)",
+            [],
+        )
+        .map_err(|e| format!("Failed to create commerce agent thread index: {}", e))?;
+        return Ok(());
+    }
+
+    conn.execute(
+        "DROP TABLE IF EXISTS commerce_agent_threads_legacy_migration",
+        [],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to drop stale commerce agent thread migration table: {}",
+            e
+        )
+    })?;
+    conn.execute(
+        "ALTER TABLE commerce_agent_threads RENAME TO commerce_agent_threads_legacy_migration",
+        [],
+    )
+    .map_err(|e| format!("Failed to migrate commerce agent thread table: {}", e))?;
+    conn.execute_batch(
+        r#"
+        CREATE TABLE commerce_agent_threads (
+          project_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          title TEXT NOT NULL DEFAULT '',
+          messages_json TEXT NOT NULL DEFAULT '[]',
+          state_json TEXT NOT NULL DEFAULT '{}',
+          created_at INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY(project_id, thread_id)
+        );
+        INSERT INTO commerce_agent_threads (
+          project_id, thread_id, title, messages_json, state_json, created_at, updated_at
+        )
+        SELECT
+          project_id,
+          'default',
+          'New chat',
+          messages_json,
+          '{}',
+          CASE WHEN updated_at > 0 THEN updated_at ELSE 0 END,
+          CASE WHEN updated_at > 0 THEN updated_at ELSE 0 END
+        FROM commerce_agent_threads_legacy_migration;
+        DROP TABLE commerce_agent_threads_legacy_migration;
+        CREATE INDEX IF NOT EXISTS idx_commerce_agent_threads_project_updated
+          ON commerce_agent_threads(project_id, updated_at DESC);
+        "#,
+    )
+    .map_err(|e| format!("Failed to rebuild commerce agent thread table: {}", e))?;
+
+    Ok(())
+}
+
 fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         r#"
@@ -967,6 +1067,18 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
           templates_json TEXT NOT NULL DEFAULT '[]',
           updated_at INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS commerce_agent_threads (
+          project_id TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          title TEXT NOT NULL DEFAULT '',
+          messages_json TEXT NOT NULL DEFAULT '[]',
+          state_json TEXT NOT NULL DEFAULT '{}',
+          created_at INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY(project_id, thread_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_commerce_agent_threads_project_updated
+          ON commerce_agent_threads(project_id, updated_at DESC);
         CREATE TABLE IF NOT EXISTS legacy_project_imports (
           legacy_id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL,
@@ -1051,6 +1163,8 @@ fn ensure_projects_table(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| format!("Failed to initialize projects table: {}", e))?;
+
+    ensure_commerce_agent_threads_schema(conn)?;
 
     ensure_table_column(
         conn,
@@ -5155,6 +5269,176 @@ pub fn update_project_viewport_record(
 }
 
 #[tauri::command]
+pub fn list_commerce_agent_threads(
+    app: AppHandle,
+    project_id: String,
+) -> Result<Vec<CommerceAgentThreadRecord>, String> {
+    let conn = open_db(&app)?;
+    ensure_projects_table(&conn)?;
+    let mut stmt = conn
+        .prepare(
+            r#"
+            SELECT project_id, thread_id, title, messages_json, state_json, created_at, updated_at
+            FROM commerce_agent_threads
+            WHERE project_id = ?1
+            ORDER BY updated_at DESC
+            LIMIT 15
+            "#,
+        )
+        .map_err(|e| format!("Failed to prepare commerce agent thread list: {}", e))?;
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            Ok(CommerceAgentThreadRecord {
+                project_id: row.get(0)?,
+                thread_id: row.get(1)?,
+                title: row.get(2)?,
+                messages_json: row.get(3)?,
+                state_json: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Failed to list commerce agent threads: {}", e))?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row.map_err(|e| format!("Failed to decode commerce agent thread: {}", e))?);
+    }
+    Ok(records)
+}
+
+#[tauri::command]
+pub fn get_commerce_agent_thread(
+    app: AppHandle,
+    project_id: String,
+    thread_id: String,
+) -> Result<Option<CommerceAgentThreadRecord>, String> {
+    let conn = open_db(&app)?;
+    ensure_projects_table(&conn)?;
+    conn.query_row(
+        r#"
+        SELECT project_id, thread_id, title, messages_json, state_json, created_at, updated_at
+        FROM commerce_agent_threads
+        WHERE project_id = ?1 AND thread_id = ?2
+        "#,
+        params![project_id, thread_id],
+        |row| {
+            Ok(CommerceAgentThreadRecord {
+                project_id: row.get(0)?,
+                thread_id: row.get(1)?,
+                title: row.get(2)?,
+                messages_json: row.get(3)?,
+                state_json: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(|e| format!("Failed to load commerce agent thread: {}", e))
+}
+
+#[tauri::command]
+pub fn upsert_commerce_agent_thread(
+    app: AppHandle,
+    record: CommerceAgentThreadRecord,
+    window_label: Option<String>,
+) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &record.project_id,
+        window_label.as_deref(),
+    )?;
+    serde_json::from_str::<Value>(&record.messages_json)
+        .map_err(|e| format!("Invalid commerce agent messages JSON: {}", e))?;
+    serde_json::from_str::<Value>(&record.state_json)
+        .map_err(|e| format!("Invalid commerce agent state JSON: {}", e))?;
+
+    let conn = open_db(&app)?;
+    ensure_projects_table(&conn)?;
+    let thread_id = record.thread_id.trim();
+    if thread_id.is_empty() {
+        return Err("Commerce agent thread id is required".to_string());
+    }
+    let title = if record.title.trim().is_empty() {
+        "New chat".to_string()
+    } else {
+        record.title.trim().to_string()
+    };
+    let created_at = if record.created_at > 0 {
+        record.created_at
+    } else {
+        now_timestamp_ms()
+    };
+    let updated_at = if record.updated_at > 0 {
+        record.updated_at
+    } else {
+        now_timestamp_ms()
+    };
+    conn.execute(
+        r#"
+        INSERT INTO commerce_agent_threads (
+          project_id, thread_id, title, messages_json, state_json, created_at, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        ON CONFLICT(project_id, thread_id) DO UPDATE SET
+          title = excluded.title,
+          messages_json = excluded.messages_json,
+          state_json = excluded.state_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![
+            record.project_id,
+            thread_id,
+            title,
+            record.messages_json,
+            record.state_json,
+            created_at,
+            updated_at
+        ],
+    )
+    .map_err(|e| format!("Failed to save commerce agent thread: {}", e))?;
+    conn.execute(
+        r#"
+        DELETE FROM commerce_agent_threads
+        WHERE project_id = ?1
+          AND thread_id NOT IN (
+            SELECT thread_id
+            FROM commerce_agent_threads
+            WHERE project_id = ?1
+            ORDER BY updated_at DESC
+            LIMIT 15
+          )
+        "#,
+        params![record.project_id],
+    )
+    .map_err(|e| format!("Failed to prune commerce agent threads: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_commerce_agent_thread(
+    app: AppHandle,
+    project_id: String,
+    thread_id: String,
+    window_label: Option<String>,
+) -> Result<(), String> {
+    storage::ensure_storage_session_write_allowed(&app)?;
+    project_window_sessions::ensure_project_write_allowed(
+        &app,
+        &project_id,
+        window_label.as_deref(),
+    )?;
+    let conn = open_db(&app)?;
+    ensure_projects_table(&conn)?;
+    conn.execute(
+        "DELETE FROM commerce_agent_threads WHERE project_id = ?1 AND thread_id = ?2",
+        params![project_id, thread_id],
+    )
+    .map_err(|e| format!("Failed to delete commerce agent thread: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub fn rename_project_record(
     app: AppHandle,
     project_id: String,
@@ -5232,6 +5516,11 @@ pub fn delete_project_record(
         params![project_id],
     )
     .map_err(|e| format!("Failed to delete project graph nodes: {}", e))?;
+    tx.execute(
+        "DELETE FROM commerce_agent_threads WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| format!("Failed to delete commerce agent thread: {}", e))?;
     tx.execute(
         "DELETE FROM jimeng_video_queue_jobs WHERE project_id = ?1",
         params![project_id],
@@ -5387,11 +5676,60 @@ mod tests {
         normalize_image_ref_path, project_has_meaningful_content,
         read_style_template_state_from_connection, read_table_columns,
         rewrite_project_payload_media_paths, save_style_template_state_in_connection,
-        LegacyProjectPayload, SaveStyleTemplateStatePayload,
+        CommerceAgentThreadRecord, LegacyProjectPayload, SaveStyleTemplateStatePayload,
     };
     use rusqlite::Connection;
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn ensure_projects_table_migrates_legacy_commerce_agent_thread() {
+        let conn = Connection::open_in_memory().expect("failed to open in-memory db");
+        conn.execute_batch(
+            r#"
+            CREATE TABLE commerce_agent_threads (
+              project_id TEXT PRIMARY KEY,
+              messages_json TEXT NOT NULL DEFAULT '[]',
+              updated_at INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO commerce_agent_threads (project_id, messages_json, updated_at)
+            VALUES ('project-a', '[{"id":"m1","role":"user","content":"hello"}]', 1234);
+            "#,
+        )
+        .expect("failed to seed legacy commerce agent thread");
+
+        ensure_projects_table(&conn).expect("commerce agent thread migration should succeed");
+
+        let columns = read_table_columns(&conn, "commerce_agent_threads")
+            .expect("failed to inspect commerce agent thread columns");
+        assert!(columns.contains("thread_id"));
+        assert!(columns.contains("title"));
+        assert!(columns.contains("state_json"));
+        assert!(columns.contains("created_at"));
+
+        let record: CommerceAgentThreadRecord = conn
+            .query_row(
+                "SELECT project_id, thread_id, title, messages_json, state_json, created_at, updated_at FROM commerce_agent_threads WHERE project_id = 'project-a'",
+                [],
+                |row| {
+                    Ok(CommerceAgentThreadRecord {
+                        project_id: row.get(0)?,
+                        thread_id: row.get(1)?,
+                        title: row.get(2)?,
+                        messages_json: row.get(3)?,
+                        state_json: row.get(4)?,
+                        created_at: row.get(5)?,
+                        updated_at: row.get(6)?,
+                    })
+                },
+            )
+            .expect("failed to read migrated commerce agent thread");
+        assert_eq!(record.thread_id, "default");
+        assert_eq!(record.title, "New chat");
+        assert_eq!(record.state_json, "{}");
+        assert_eq!(record.created_at, 1234);
+        assert_eq!(record.updated_at, 1234);
+    }
 
     #[test]
     fn ensure_projects_table_migrates_legacy_projects_before_creating_indexes() {

@@ -112,7 +112,8 @@
       "externalTaskId": "External Task ID",
       "jobId": "Internal Job ID",
       "none": "No ID"
-    }
+    },
+    "circuitBreakerOpen": "AI image tasks were submitted too frequently, so protection has paused new submissions. Please wait {{seconds}} seconds and try again."
   },
   "cameraParams": {
     "title": "Camera Params",
@@ -292,9 +293,12 @@
     "jimengRestore": "Restore Jimeng panel",
     "switchToEnglish": "English",
     "switchToChinese": "中文",
+    "mainWindow": "Main Window",
+    "secondaryWindow": "Secondary Window",
     "newWindow": "New Window",
     "newWindowTitle": "OOpii Infinite Canvas",
     "newWindowOpenFailed": "Failed to open a new workspace window.",
+    "focusSecondaryWindow": "Focus Secondary Window",
     "clipLibrary": "Clip Library",
     "clipLibraryOpenFailed": "Failed to open the clip library window.",
     "clipLibraryStoryboardOnly": "Only storyboard projects support clip libraries.",
@@ -3980,7 +3984,17 @@
       "generatingNodeInfoTitle": "Creating canvas nodes and asking AI to break down the information",
       "generatingNodeInfoHint": "Please wait. The Agent will use product images, document copy, pagination mode, and visual preferences to create product, brief, visual preference, and batch generation nodes.",
       "startImageGeneration": "Start Image Generation",
-      "emptyConversation": "Upload a product image or describe the product. I will create and update stage nodes on the canvas as we go.",
+      "newChat": "New chat",
+      "chatHistory": "Chat history",
+      "historySearchPlaceholder": "Search history",
+      "emptyHistory": "No conversations yet",
+      "untitledChat": "New chat",
+      "imageAnalysis": {
+        "title": "Image analysis",
+        "observations": "Observations",
+        "uncertainties": "Uncertain information"
+      },
+      "emptyConversation": "Upload an image, choose a skill, or type your design request.",
       "chatPlaceholder": "Tell me the platform, style, audience, copy angle, or say things like \"make it Xiaohongshu style\"...",
       "send": "Send",
       "uploadedImages": "Uploaded {{count}} product reference image(s), now {{total}} / {{limit}}.",
@@ -4042,7 +4056,7 @@
         "noFixedInfo": "No fixed information on this page yet."
       },
       "guidance": {
-        "emptyTitle": "Clarify the product and design goal first",
+        "emptyTitle": "Start with an image or a short request",
         "emptySummary": "I will understand the product first, then organize platform, audience, selling points, visual style, and copy direction into the canvas brief node.",
         "emptyStepUpload": "Upload product images",
         "emptyStepInfer": "Infer product info",
@@ -4097,9 +4111,25 @@
       "productImageRoleMain": "Main",
       "productImageRoleReference": "Ref {{index}}",
       "skills": "Skills",
+      "clearSkill": "Clear skill",
       "skillsEmpty": "No skills are available yet. This space is reserved for future entries.",
+      "skillCategories": {
+        "ad": "Ads",
+        "social": "Social Media",
+        "ecommerce": "E-Commerce",
+        "branding": "Branding"
+      },
+      "skillOptions": {
+        "adCreative": {
+          "title": "Ad Creative",
+          "description": "Design platform-fit ad assets for Instagram, Facebook, TikTok, LinkedIn, YouTube, Google, and X."
+        }
+      },
       "removeChatImage": "Remove image",
       "chatImagesUploaded": "Added {{count}} image(s) to the chat input.",
+      "chatImagesOnly": "Please upload image files.",
+      "chatImagesUploadFailed": "Image upload failed. Please try another image.",
+      "chatDropHint": "Drop images here to add them to the message.",
       "helperText": "Enter your request, add images, then let the Agent draft a production plan.",
       "statusPlanCreated": "Plan node created or updated."
     },
@@ -4116,6 +4146,10 @@
       "needPrompt": "Add a core prompt before starting production.",
       "imageOnlyPrompt": "I uploaded images first. Please analyze them and draft a plan.",
       "statusThinking": "The Agent is analyzing the request and drafting a plan...",
+      "thinkingStepUnderstanding": "I am reading the product info and your latest request...",
+      "thinkingStepEvidence": "I am matching the uploaded images with useful product evidence...",
+      "thinkingStepPlan": "I am updating the canvas plan node...",
+      "compactDone": "I have updated the production plan with your latest information. You can continue adding details or start production from the plan node.",
       "statusPlanCreated": "The plan is ready. Adjust it on the plan node before starting production.",
       "statusFailed": "Plan generation failed.",
       "helperText": "Add images and a request, and the Agent will draft a production plan first."

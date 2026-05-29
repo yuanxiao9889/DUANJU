@@ -111,7 +111,8 @@
       "externalTaskId": "上游任务 ID",
       "jobId": "内部 Job ID",
       "none": "无可用 ID"
-    }
+    },
+    "circuitBreakerOpen": "AI 图片任务提交过于频繁，已触发保护熔断。请等待 {{seconds}} 秒后再试。"
   },
   "cameraParams": {
     "title": "相机参数",
@@ -291,9 +292,12 @@
     "jimengRestore": "还原即梦面板",
     "switchToEnglish": "English",
     "switchToChinese": "中文",
+    "mainWindow": "主窗口",
+    "secondaryWindow": "副窗口",
     "newWindow": "新建窗口",
     "newWindowTitle": "OOpii 无限画布",
     "newWindowOpenFailed": "打开新的工作窗口失败。",
+    "focusSecondaryWindow": "聚焦副窗口",
     "clipLibrary": "剪辑素材库",
     "clipLibraryOpenFailed": "打开剪辑素材库窗口失败。",
     "clipLibraryStoryboardOnly": "只有 storyboard 项目支持剪辑素材库。",
@@ -3650,7 +3654,17 @@
       "generatingNodeInfoTitle": "正在创建画布节点并调用 AI 拆解信息",
       "generatingNodeInfoHint": "请稍等，Agent 会根据商品图、文档信息、分页方式和视觉偏好生成商品资料、Brief、视觉偏好和批量出图节点。",
       "startImageGeneration": "开始生图",
-      "emptyConversation": "上传商品图或描述商品，我会边聊边在画布创建和更新阶段节点。",
+      "newChat": "新建对话",
+      "chatHistory": "历史对话",
+      "historySearchPlaceholder": "搜索历史对话",
+      "emptyHistory": "暂无历史对话",
+      "untitledChat": "新对话",
+      "imageAnalysis": {
+        "title": "图片分析",
+        "observations": "观察到的内容",
+        "uncertainties": "不确定信息"
+      },
+      "emptyConversation": "上传图片、选择技能，或直接输入你的设计需求。",
       "chatPlaceholder": "告诉我平台、风格、人群、文案方向，或直接说“换成小红书风格”...",
       "send": "发送",
       "uploadedImages": "已上传 {{count}} 张商品参考图（当前 {{total}} / {{limit}}）。",
@@ -3712,7 +3726,7 @@
         "noFixedInfo": "这一页还没有固定信息。"
       },
       "guidance": {
-        "emptyTitle": "先把商品和设计目标聊清楚",
+        "emptyTitle": "从一张图片或一句需求开始",
         "emptySummary": "我会先帮你理解商品，再把平台、人群、卖点、画面风格和文案方向整理成左侧 Brief 节点。",
         "emptyStepUpload": "上传商品图",
         "emptyStepInfer": "反推商品信息",
@@ -3840,9 +3854,25 @@
       "productImageRoleMain": "主图",
       "productImageRoleReference": "参考{{index}}",
       "skills": "技能",
+      "clearSkill": "清除技能",
       "skillsEmpty": "当前还没有可用技能，后续会在这里补充。",
+      "skillCategories": {
+        "ad": "广告",
+        "social": "社媒",
+        "ecommerce": "电商",
+        "branding": "品牌"
+      },
+      "skillOptions": {
+        "adCreative": {
+          "title": "广告创意",
+          "description": "为 Instagram、Facebook、TikTok、LinkedIn、YouTube、Google 和 X 设计平台适配广告素材。"
+        }
+      },
       "removeChatImage": "删除图片",
       "chatImagesUploaded": "已添加 {{count}} 张图片到对话输入区。",
+      "chatImagesOnly": "请上传图片文件。",
+      "chatImagesUploadFailed": "图片上传失败，请换一张图片再试。",
+      "chatDropHint": "把图片拖到这里，添加到本次对话。",
       "helperText": "先输入需求、上传图片，再发给 Agent 做方案分析。",
       "statusPlanCreated": "方案节点已创建或更新。"
     },
@@ -3859,6 +3889,10 @@
       "needPrompt": "请先补充核心 Prompt 再开始制作。",
       "imageOnlyPrompt": "我先发一些图片，请你分析并生成方案。",
       "statusThinking": "Agent 正在分析需求并整理方案...",
+      "thinkingStepUnderstanding": "我正在读取商品信息和你刚补充的需求...",
+      "thinkingStepEvidence": "我正在把上传图片和商品证据对应起来...",
+      "thinkingStepPlan": "我正在更新画布上的制作方案节点...",
+      "compactDone": "我已根据最新信息更新制作方案。你可以继续补充细节，或在方案节点里开始制作。",
       "statusPlanCreated": "方案已生成，可在方案节点上继续调整后开始制作。",
       "statusFailed": "方案生成失败。",
       "helperText": "上传图片和需求后，Agent 会先生成制作方案。"

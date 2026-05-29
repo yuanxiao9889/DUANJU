@@ -121,6 +121,16 @@ export interface OrganizeProjectMediaResult {
   copiedCount: number;
 }
 
+export interface CommerceAgentThreadRecord {
+  projectId: string;
+  threadId: string;
+  title: string;
+  messagesJson: string;
+  stateJson: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export async function listProjectSummaries(): Promise<ProjectSummaryRecord[]> {
   return await invoke<ProjectSummaryRecord[]>('list_project_summaries');
 }
@@ -196,6 +206,44 @@ export async function updateProjectViewportRecord(
   await invoke('update_project_viewport_record', {
     projectId,
     viewportJson,
+    windowLabel: getCurrentWindowLabel(),
+  });
+}
+
+export async function listCommerceAgentThreads(
+  projectId: string
+): Promise<CommerceAgentThreadRecord[]> {
+  return await invoke<CommerceAgentThreadRecord[]>('list_commerce_agent_threads', {
+    projectId,
+  });
+}
+
+export async function getCommerceAgentThread(
+  projectId: string,
+  threadId: string
+): Promise<CommerceAgentThreadRecord | null> {
+  return await invoke<CommerceAgentThreadRecord | null>('get_commerce_agent_thread', {
+    projectId,
+    threadId,
+  });
+}
+
+export async function upsertCommerceAgentThread(
+  record: CommerceAgentThreadRecord
+): Promise<void> {
+  await invoke('upsert_commerce_agent_thread', {
+    record,
+    windowLabel: getCurrentWindowLabel(),
+  });
+}
+
+export async function deleteCommerceAgentThread(
+  projectId: string,
+  threadId: string
+): Promise<void> {
+  await invoke('delete_commerce_agent_thread', {
+    projectId,
+    threadId,
     windowLabel: getCurrentWindowLabel(),
   });
 }

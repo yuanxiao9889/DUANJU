@@ -8,13 +8,16 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  History,
   Images,
   ImagePlus,
   Loader2,
   Megaphone,
-  MessageSquareText,
+  MessageSquarePlus,
+  PanelTop,
   PackageCheck,
   Plus,
+  Search,
   Send,
   Settings,
   Shirt,
@@ -50,8 +53,10 @@ import {
 } from '@/features/commerce-ad/application/commerceAdCanvasActions';
 import {
   isLikelyVisionTextModel,
+  buildCommerceAdAgentVisiblePrompt,
   runCommerceAdAgentTurn,
 } from '@/features/commerce-ad/application/commerceAdAgent';
+import { getCommerceAgentSkills } from '@/features/commerce-ad/application/commerceAgentSkills';
 import {
   BRAND_ACCENT_PRESETS,
   VISUAL_PREFERENCE_OPTION_KEYS,
@@ -68,6 +73,10 @@ import {
   type CommerceAdAgentMessage,
   type CommerceAdAgentAction,
   type CommerceAdAgentGuidance,
+  type CommerceAdAgentImageAnalysis,
+  type CommerceAdAgentThreadState,
+  type CommerceAdAgentTurnIntent,
+  type CommerceAgentSkill,
   type CommerceAdBatchGenerateState,
   type CommerceAdDetailPage,
   type CommerceAdGeneratedImageRecord,
@@ -76,7 +85,6 @@ import {
   type CommerceAdProductState,
   type CommerceAdVisualPreferenceState,
   type CommerceAgentPlanState,
-  type CommerceAgentSkill,
 } from '@/features/commerce-ad/types';
 import {
   getImageModel,
@@ -89,13 +97,34 @@ import {
   STORYBOARD_OOPII_MODEL_ID,
 } from '@/features/canvas/models';
 import { openSettingsDialog } from '@/features/settings/settingsEvents';
+import {
+  listCommerceAgentThreads,
+  getCommerceAgentThread,
+  upsertCommerceAgentThread,
+  deleteCommerceAgentThread,
+  type CommerceAgentThreadRecord,
+} from '@/commands/projectState';
+import {
+  cancelCommerceAdAgentStream,
+  listenCommerceAdAgentStream,
+  startCommerceAdAgentStream,
+  type CommerceAdAgentStreamEvent,
+} from '@/commands/textGen';
 import { useCanvasStore } from '@/stores/canvasStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { useProjectStore } from '@/stores/projectStore';
 
 const COMMERCE_AGENT_PRODUCT_INFO_COLLAPSED_STORAGE_KEY = 'commerce-agent-product-info-collapsed';
 const COMMERCE_AGENT_VISUAL_PREFERENCE_COLLAPSED_STORAGE_KEY = 'commerce-agent-visual-preference-collapsed';
 const COMMERCE_AGENT_BATCH_SETTINGS_COLLAPSED_STORAGE_KEY = 'commerce-agent-batch-settings-collapsed';
 const COMMERCE_AGENT_ACTIVE_MODULE_STORAGE_KEY = 'commerce-agent-active-module';
+const COMMERCE_AGENT_PANEL_WIDTH_STORAGE_KEY = 'commerce-agent-panel-width';
+const COMMERCE_AGENT_THREAD_SAVE_DEBOUNCE_MS = 600;
+const COMMERCE_AGENT_THREAD_LIMIT = 15;
+const COMMERCE_AGENT_DEFAULT_THREAD_ID = 'default';
+const COMMERCE_AGENT_PANEL_MIN_WIDTH = 340;
+const COMMERCE_AGENT_PANEL_MAX_WIDTH = 620;
+const COMMERCE_AGENT_THINKING_PREVIEW_MAX_CHARS = 86;
 const COMMERCE_START_IMAGE_GENERATION_EVENT = 'commerce-ad:start-image-generation';
 const COMMERCE_START_AGENT_PLAN_GENERATION_EVENT = 'commerce-ad:start-agent-plan-generation';
 const COMMERCE_RETRY_IMAGE_GENERATION_EVENT = 'commerce-ad:retry-image-generation';
@@ -106,6 +135,7 @@ const DEFAULT_AGENT_MESSAGES: CommerceAdAgentMessage[] = [];
 const COMMERCE_DEFAULT_IMAGE_MODEL_ID = STORYBOARD_OOPII_MODEL_ID;
 const COMMERCE_DEFAULT_RESOLUTION = '2K';
 const COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT = 5;
+const AD_AGENT_REQUIRED_SLOT_KEYS = ['platforms', 'objective', 'visualDirection'] as const;
 const COMMERCE_AGENT_MODULES = [
   { id: 'detailPage', icon: PackageCheck },
   { id: 'productImageOptimize', icon: Sparkles },
@@ -113,7 +143,6 @@ const COMMERCE_AGENT_MODULES = [
   { id: 'campaignPoster', icon: Megaphone },
   { id: 'sceneImage', icon: Images },
 ] as const;
-const COMMERCE_AGENT_SKILLS: CommerceAgentSkill[] = [];
 type CommerceAgentModuleId = (typeof COMMERCE_AGENT_MODULES)[number]['id'];
 type CommerceAgentTask =
   | 'chat'
@@ -146,14 +175,29 @@ function readActiveCommerceAgentModule(): CommerceAgentModuleId {
 function createLocalMessage(
   role: CommerceAdAgentMessage['role'],
   content: string,
-  guidance?: CommerceAdAgentGuidance
+  options: {
+    images?: CommerceAdProductImage[];
+    guidance?: CommerceAdAgentGuidance;
+    imageAnalysis?: CommerceAdAgentImageAnalysis;
+    status?: CommerceAdAgentMessage['status'];
+    phase?: CommerceAdAgentMessage['phase'];
+  } | CommerceAdAgentGuidance = {}
 ): CommerceAdAgentMessage {
+  const guidance = 'stage' in options ? options : options.guidance;
+  const images = 'stage' in options ? [] : options.images ?? [];
+  const imageAnalysis = 'stage' in options ? undefined : options.imageAnalysis;
+  const status = 'stage' in options ? undefined : options.status;
+  const phase = 'stage' in options ? undefined : options.phase;
   return {
     id: `commerce-agent-local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     role,
     content,
     createdAt: Date.now(),
+    ...(images.length > 0 ? { images } : {}),
     ...(guidance ? { guidance } : {}),
+    ...(imageAnalysis ? { imageAnalysis } : {}),
+    ...(status ? { status } : {}),
+    ...(phase ? { phase } : {}),
   };
 }
 
@@ -198,6 +242,320 @@ function GuidancePillList({
           {item}
         </span>
       ))}
+    </div>
+  );
+}
+
+function createDefaultAgentThreadState(): CommerceAdAgentThreadState {
+  return {
+    phase: 'collecting',
+    confirmedSlots: {
+      platforms: [],
+      objective: '',
+      audience: '',
+      sellingPoint: '',
+      visualDirection: '',
+      cta: '',
+      brandInfo: '',
+      outputFormat: '',
+    },
+    missingSlots: ['platforms', 'objective', 'visualDirection'],
+    lastAskedFields: [],
+    planVersion: 0,
+  };
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return Array.from(new Set(value.map((item) => (
+    typeof item === 'string' ? item.trim() : ''
+  )).filter(Boolean)));
+}
+
+function parseAgentThreadState(stateJson?: string | null): CommerceAdAgentThreadState {
+  if (!stateJson?.trim()) {
+    return createDefaultAgentThreadState();
+  }
+  try {
+    const parsed = JSON.parse(stateJson) as Partial<CommerceAdAgentThreadState> | null;
+    if (!parsed || typeof parsed !== 'object') {
+      return createDefaultAgentThreadState();
+    }
+    const defaults = createDefaultAgentThreadState();
+    const confirmed = parsed.confirmedSlots && typeof parsed.confirmedSlots === 'object'
+      ? parsed.confirmedSlots as Partial<CommerceAdAgentThreadState['confirmedSlots']>
+      : {};
+    const imageAnalysis = parsed.imageAnalysis
+      && typeof parsed.imageAnalysis === 'object'
+      && (
+        typeof parsed.imageAnalysis.summary === 'string'
+        || Array.isArray(parsed.imageAnalysis.observations)
+        || Array.isArray(parsed.imageAnalysis.uncertainties)
+      )
+      ? {
+          summary: typeof parsed.imageAnalysis.summary === 'string' ? parsed.imageAnalysis.summary : '',
+          observations: normalizeStringList(parsed.imageAnalysis.observations),
+          uncertainties: normalizeStringList(parsed.imageAnalysis.uncertainties),
+          collapsedByDefault: parsed.imageAnalysis.collapsedByDefault !== false,
+        }
+      : undefined;
+    return {
+      phase: ['collecting', 'planning', 'ready', 'refining', 'generating'].includes(parsed.phase ?? '')
+        ? parsed.phase as CommerceAdAgentThreadState['phase']
+        : defaults.phase,
+      confirmedSlots: {
+        platforms: normalizeStringList(confirmed.platforms),
+        objective: typeof confirmed.objective === 'string' ? confirmed.objective.trim() : '',
+        audience: typeof confirmed.audience === 'string' ? confirmed.audience.trim() : '',
+        sellingPoint: typeof confirmed.sellingPoint === 'string' ? confirmed.sellingPoint.trim() : '',
+        visualDirection: typeof confirmed.visualDirection === 'string' ? confirmed.visualDirection.trim() : '',
+        cta: typeof confirmed.cta === 'string' ? confirmed.cta.trim() : '',
+        brandInfo: typeof confirmed.brandInfo === 'string' ? confirmed.brandInfo.trim() : '',
+        outputFormat: typeof confirmed.outputFormat === 'string' ? confirmed.outputFormat.trim() : '',
+      },
+      missingSlots: normalizeStringList(parsed.missingSlots),
+      imageAnalysis,
+      lastAskedFields: normalizeStringList(parsed.lastAskedFields),
+      planVersion: Number.isFinite(parsed.planVersion) ? Math.max(0, Number(parsed.planVersion)) : 0,
+    };
+  } catch {
+    return createDefaultAgentThreadState();
+  }
+}
+
+function hasMinimumExecutableAdState(state: CommerceAdAgentThreadState): boolean {
+  return Boolean(
+    state.imageAnalysis
+    && state.confirmedSlots.platforms.length > 0
+    && state.confirmedSlots.objective
+    && state.confirmedSlots.visualDirection
+  );
+}
+
+function isDefaultAgentThreadState(state: CommerceAdAgentThreadState): boolean {
+  return (
+    state.phase === 'collecting'
+    && state.confirmedSlots.platforms.length === 0
+    && !state.confirmedSlots.objective
+    && !state.confirmedSlots.audience
+    && !state.confirmedSlots.sellingPoint
+    && !state.confirmedSlots.visualDirection
+    && !state.confirmedSlots.cta
+    && !state.confirmedSlots.brandInfo
+    && !state.confirmedSlots.outputFormat
+    && !state.imageAnalysis
+    && state.planVersion === 0
+  );
+}
+
+function computeMissingAgentSlots(state: CommerceAdAgentThreadState): string[] {
+  return AD_AGENT_REQUIRED_SLOT_KEYS.filter((key) => {
+    if (key === 'platforms') {
+      return state.confirmedSlots.platforms.length === 0;
+    }
+    return !state.confirmedSlots[key];
+  });
+}
+
+function inferAdAgentTurnIntent(input: {
+  text: string;
+  hasNewImages: boolean;
+  state: CommerceAdAgentThreadState;
+}): CommerceAdAgentTurnIntent {
+  const text = input.text.trim().toLowerCase();
+  if (input.hasNewImages && input.state.imageAnalysis) {
+    return 'new_image';
+  }
+  if (/换成|改成|改为|替换|不要|重新|换/.test(text)) {
+    return 'revise';
+  }
+  if (/继续|生成|开始|可以|出方案|直接做|下一步|go\b|start\b/.test(text)) {
+    return 'continue';
+  }
+  if (input.state.planVersion > 0 || input.state.imageAnalysis) {
+    return 'supplement';
+  }
+  return 'initial';
+}
+
+function extractConfirmedSlotsFromText(text: string): Partial<CommerceAdAgentThreadState['confirmedSlots']> {
+  const normalized = text.trim();
+  const lower = normalized.toLowerCase();
+  const platforms = [
+    ['instagram', 'Instagram Feed'],
+    ['facebook', 'Facebook Feed'],
+    ['tiktok', 'TikTok'],
+    ['linkedin', 'LinkedIn'],
+    ['youtube', 'YouTube'],
+    ['google', 'Google Ads'],
+    ['x平台', 'X'],
+    ['twitter', 'X'],
+  ]
+    .filter(([needle]) => lower.includes(needle.toLowerCase()))
+    .map(([, label]) => label);
+  const objective = (() => {
+    if (/品牌曝光|曝光|认知|awareness/i.test(normalized)) return '品牌曝光';
+    if (/转化|下单|购买|conversion/i.test(normalized)) return '转化下单';
+    if (/引流|点击|访问|traffic/i.test(normalized)) return '点击引流';
+    if (/获客|留资|线索|lead/i.test(normalized)) return '获客留资';
+    return '';
+  })();
+  const visualDirection = (() => {
+    if (/高端|质感|高级|精品|奢华/.test(normalized)) return '高端单品主视觉';
+    if (/生活方式|场景|居家|户外/.test(normalized)) return '生活方式场景';
+    if (/ugc|达人|原生|真实/.test(lower)) return 'UGC 原生广告';
+    if (/促销|优惠|折扣|限时/.test(normalized)) return '促销利益点海报';
+    return '';
+  })();
+  const cta = (() => {
+    const match = normalized.match(/(?:CTA|行动号召|按钮)[：: ]?([^；;\n]+)/i);
+    return match?.[1]?.trim() ?? '';
+  })();
+  const brandInfo = (() => {
+    const match = normalized.match(/(?:品牌|品牌名)[：: ]?([^；;\n]+)/);
+    return match?.[1]?.trim() ?? '';
+  })();
+  const audience = (() => {
+    const match = normalized.match(/(?:人群|受众|目标用户)[：: ]?([^；;\n]+)/);
+    return match?.[1]?.trim() ?? '';
+  })();
+  const sellingPoint = (() => {
+    const match = normalized.match(/(?:卖点|核心卖点|突出)[：: ]?([^；;\n]+)/);
+    return match?.[1]?.trim() ?? '';
+  })();
+  const outputFormat = (() => {
+    if (/主视觉|单图|静态图/.test(normalized)) return '静态广告主视觉';
+    if (/短视频|reels|story|竖版/.test(lower)) return '短视频/竖版版位';
+    return '';
+  })();
+  return {
+    ...(platforms.length > 0 ? { platforms } : {}),
+    ...(objective ? { objective } : {}),
+    ...(visualDirection ? { visualDirection } : {}),
+    ...(cta ? { cta } : {}),
+    ...(brandInfo ? { brandInfo } : {}),
+    ...(audience ? { audience } : {}),
+    ...(sellingPoint ? { sellingPoint } : {}),
+    ...(outputFormat ? { outputFormat } : {}),
+  };
+}
+
+function mergeAgentThreadState(
+  current: CommerceAdAgentThreadState,
+  patch: Omit<Partial<CommerceAdAgentThreadState>, 'confirmedSlots'> & {
+    confirmedSlots?: Partial<CommerceAdAgentThreadState['confirmedSlots']>;
+  }
+): CommerceAdAgentThreadState {
+  const confirmedPatch = patch.confirmedSlots ?? {};
+  const imageAnalysis = patch.imageAnalysis ?? current.imageAnalysis;
+  const next: CommerceAdAgentThreadState = {
+    ...current,
+    ...patch,
+    ...(imageAnalysis ? { imageAnalysis } : {}),
+    confirmedSlots: {
+      ...current.confirmedSlots,
+      ...confirmedPatch,
+      platforms: confirmedPatch.platforms?.length
+        ? Array.from(new Set(confirmedPatch.platforms))
+        : current.confirmedSlots.platforms,
+    },
+    lastAskedFields: patch.lastAskedFields ?? current.lastAskedFields,
+    missingSlots: patch.missingSlots ?? current.missingSlots,
+  };
+  next.missingSlots = computeMissingAgentSlots(next);
+  next.phase = hasMinimumExecutableAdState(next)
+    ? (patch.phase === 'refining' ? 'refining' : 'ready')
+    : (patch.phase ?? next.phase);
+  return next;
+}
+
+function buildThinkingPreviewText(text: string): string {
+  const compact = text
+    .replace(/\*\*/g, '')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!compact) {
+    return '';
+  }
+
+  const sentenceMatches = compact.match(/[^。！？!?]+[。！？!?]?/g) ?? [compact];
+  const recentSentences = sentenceMatches
+    .map((sentence) => sentence.trim())
+    .filter(Boolean)
+    .slice(-2)
+    .join(' ');
+  if (recentSentences.length <= COMMERCE_AGENT_THINKING_PREVIEW_MAX_CHARS) {
+    return recentSentences;
+  }
+
+  return `${recentSentences.slice(-COMMERCE_AGENT_THINKING_PREVIEW_MAX_CHARS).trimStart()}...`;
+}
+
+function ImageAnalysisDisclosure({
+  analysis,
+}: {
+  analysis: CommerceAdAgentImageAnalysis;
+}) {
+  const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(!analysis.collapsedByDefault);
+  const hasContent = Boolean(
+    analysis.summary
+    || analysis.observations.length > 0
+    || analysis.uncertainties.length > 0
+  );
+
+  if (!hasContent) {
+    return null;
+  }
+
+  return (
+    <div className="mt-2 overflow-hidden rounded-lg border border-border-dark/70 bg-text-dark/[0.04]">
+      <button
+        type="button"
+        className="flex h-10 w-full items-center justify-between gap-3 px-3 text-left text-xs font-medium text-text-dark transition hover:bg-text-dark/[0.05]"
+        onClick={() => setIsOpen((open) => !open)}
+        aria-expanded={isOpen}
+      >
+        <span className="inline-flex min-w-0 items-center gap-2">
+          <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+          <span className="truncate">{t('commerceAd.agent.imageAnalysis.title')}</span>
+        </span>
+        <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen ? (
+        <div className="space-y-2 border-t border-border-dark/60 px-3 py-3 text-xs leading-5 text-text-dark/85">
+          {analysis.summary ? (
+            <p className="whitespace-pre-wrap">{analysis.summary}</p>
+          ) : null}
+          {analysis.observations.length > 0 ? (
+            <div>
+              <div className="font-medium text-text-dark">
+                {t('commerceAd.agent.imageAnalysis.observations')}
+              </div>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {analysis.observations.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {analysis.uncertainties.length > 0 ? (
+            <div>
+              <div className="font-medium text-text-dark">
+                {t('commerceAd.agent.imageAnalysis.uncertainties')}
+              </div>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {analysis.uncertainties.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -301,6 +659,96 @@ function composeProductImageReferenceNotes(images: CommerceAdProductImage[]): st
     })
     .filter(Boolean)
     .join('\n');
+}
+
+function collectConversationContext(messages: CommerceAdAgentMessage[]): {
+  text: string;
+  images: CommerceAdProductImage[];
+} {
+  const visibleMessages = messages.filter((message) => !isInternalProductInfoMessage(message));
+  const text = visibleMessages
+    .slice(-8)
+    .map((message) => `${message.role === 'user' ? '用户' : 'Agent'}：${message.content.trim()}`)
+    .filter((line) => line.trim().length > 0)
+    .join('\n');
+  const images = normalizeProductImageRoles(
+    visibleMessages.flatMap((message) => message.images ?? [])
+  ).slice(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT);
+  return { text, images };
+}
+
+function parsePersistedCommerceAgentMessages(messagesJson: string): CommerceAdAgentMessage[] {
+  try {
+    const parsed = JSON.parse(messagesJson) as unknown;
+    if (!Array.isArray(parsed)) {
+      return DEFAULT_AGENT_MESSAGES;
+    }
+    return parsed
+      .filter((item): item is CommerceAdAgentMessage => (
+        Boolean(item)
+        && typeof item === 'object'
+        && typeof (item as CommerceAdAgentMessage).id === 'string'
+        && typeof (item as CommerceAdAgentMessage).role === 'string'
+        && typeof (item as CommerceAdAgentMessage).content === 'string'
+      ))
+      .map((message) => ({
+        ...message,
+        createdAt: Number(message.createdAt) || Date.now(),
+        images: Array.isArray(message.images) ? message.images : undefined,
+        imageAnalysis: message.imageAnalysis
+          && typeof message.imageAnalysis === 'object'
+          ? {
+              summary: typeof message.imageAnalysis.summary === 'string' ? message.imageAnalysis.summary : '',
+              observations: Array.isArray(message.imageAnalysis.observations)
+                ? message.imageAnalysis.observations.filter((item): item is string => typeof item === 'string')
+                : [],
+              uncertainties: Array.isArray(message.imageAnalysis.uncertainties)
+                ? message.imageAnalysis.uncertainties.filter((item): item is string => typeof item === 'string')
+                : [],
+              collapsedByDefault: message.imageAnalysis.collapsedByDefault !== false,
+            }
+          : undefined,
+      }));
+  } catch {
+    return DEFAULT_AGENT_MESSAGES;
+  }
+}
+
+function createCommerceAgentThreadId(): string {
+  return `commerce-thread-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function truncateCommerceAgentThreadTitle(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  return normalized.length > 24 ? `${normalized.slice(0, 24)}...` : normalized;
+}
+
+function deriveCommerceAgentThreadTitle(
+  messages: CommerceAdAgentMessage[],
+  selectedSkill: CommerceAgentSkill | null,
+  untitledChatLabel: string
+): string {
+  const firstUserMessage = messages.find((message) => (
+    message.role === 'user' && message.content.trim().length > 0
+  ));
+  if (firstUserMessage) {
+    return truncateCommerceAgentThreadTitle(firstUserMessage.content);
+  }
+  if (selectedSkill) {
+    return selectedSkill.title;
+  }
+  return untitledChatLabel;
+}
+
+function readCommerceAgentPanelWidth(): number {
+  if (typeof window === 'undefined') {
+    return 400;
+  }
+  const value = Number(window.localStorage.getItem(COMMERCE_AGENT_PANEL_WIDTH_STORAGE_KEY));
+  if (!Number.isFinite(value)) {
+    return 400;
+  }
+  return Math.min(COMMERCE_AGENT_PANEL_MAX_WIDTH, Math.max(COMMERCE_AGENT_PANEL_MIN_WIDTH, value));
 }
 
 function isInternalProductInfoMessage(message: CommerceAdAgentMessage): boolean {
@@ -411,7 +859,7 @@ function composeDetailPagePrompt(
 ): string {
   return [
     corePrompt.trim(),
-    `详情页第 ${page.pageNo} 页：${page.title || '未命名页面'}`,
+    `详情页第 ${page.pageNo} 页：${page.title || '未命名页'}`,
     page.lockedCopy.trim()
       ? `必须原样出现在画面上的文档信息，不得改写：\n${page.lockedCopy.trim()}`
       : '',
@@ -570,6 +1018,7 @@ function mergeProductState(
 function composeAgentPlanState(input: {
   text: string;
   images: CommerceAdProductImage[];
+  previousPlan?: CommerceAgentPlanState | null;
   selectedSkillId: string;
   resultActions: CommerceAdAgentAction[];
   fallbackModelId: string;
@@ -598,26 +1047,29 @@ function composeAgentPlanState(input: {
 
   return {
     ...defaultPlan,
-    summary: brief?.normalizedBrief || brief?.headline || input.text,
-    productUnderstanding: product?.inference?.summary || product?.userInfo || input.text,
+    ...(input.previousPlan ?? {}),
+    summary: brief?.normalizedBrief || brief?.headline || input.previousPlan?.summary || input.text,
+    productUnderstanding: product?.inference?.summary || product?.userInfo || input.previousPlan?.productUnderstanding || input.text,
     creativeDirection: [
       brief?.platform,
       brief?.audience,
       brief?.style,
       ...(brief?.sellingPoints ?? []).slice(0, 4),
-    ].filter(Boolean).join('\n'),
-    prompt,
-    referenceImages: input.images,
-    referenceImageNotes: composeProductImageReferenceNotes(input.images),
-    riskNotes,
-    selectedSkillId: input.selectedSkillId,
+    ].filter(Boolean).join('\n') || input.previousPlan?.creativeDirection || '',
+    prompt: prompt || input.previousPlan?.prompt || '',
+    referenceImages: input.images.length > 0 ? input.images : input.previousPlan?.referenceImages ?? [],
+    referenceImageNotes: input.images.length > 0
+      ? composeProductImageReferenceNotes(input.images)
+      : input.previousPlan?.referenceImageNotes ?? '',
+    riskNotes: riskNotes.length > 0 ? riskNotes : input.previousPlan?.riskNotes ?? [],
+    selectedSkillId: input.selectedSkillId || input.previousPlan?.selectedSkillId || '',
     providerId: batch?.modelId ? input.fallbackProviderId : input.fallbackProviderId,
     modelId: batch?.modelId || input.fallbackModelId,
     size: batch?.size || input.fallbackSize,
     aspectRatios: batch?.aspectRatios?.length ? batch.aspectRatios : input.fallbackRatios,
     variantsPerRatio: batch?.variantsPerRatio ?? 1,
     batchCount: batch?.batchCount ?? 1,
-    status: prompt ? 'ready' : 'idle',
+    status: (prompt || input.previousPlan?.prompt) ? 'ready' : 'idle',
     lastError: null,
   };
 }
@@ -641,7 +1093,7 @@ function VisionModelWarningBar({
           event.stopPropagation();
           onToggle();
         }}
-        className="pointer-events-auto flex h-8 w-full items-center gap-2 rounded-md border border-amber-300/40 bg-surface-dark/92 px-3 text-left text-xs font-medium text-amber-100 shadow-[0_16px_40px_rgba(0,0,0,0.26)] backdrop-blur transition-colors hover:border-amber-300/60 hover:bg-amber-500/12"
+        className="pointer-events-auto flex h-8 w-full items-center gap-2 rounded-md border border-amber-300/40 bg-surface-dark px-3 text-left text-xs font-medium text-amber-100 shadow-[0_16px_40px_rgba(0,0,0,0.26)] transition-colors hover:border-amber-300/60 hover:bg-bg-dark"
         aria-expanded={isOpen}
       >
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -652,7 +1104,7 @@ function VisionModelWarningBar({
 
       {isOpen ? (
         <div
-          className="pointer-events-auto mt-2 rounded-lg border border-amber-400/30 bg-surface-dark/96 p-3 text-sm text-amber-100 shadow-[0_20px_60px_rgba(0,0,0,0.32)] backdrop-blur"
+          className="pointer-events-auto mt-2 rounded-lg border border-amber-400/30 bg-surface-dark p-3 text-sm text-amber-100 shadow-[0_20px_60px_rgba(0,0,0,0.32)]"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex items-start gap-2">
@@ -690,7 +1142,7 @@ function CommerceAgentModuleSwitcher({
 
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-6 z-[95] flex justify-center px-4">
-      <div className="pointer-events-auto flex max-w-[calc(100%-2rem)] items-center gap-1 overflow-x-auto rounded-lg border border-border-dark/70 bg-surface-dark/92 p-1 shadow-[0_16px_42px_rgba(0,0,0,0.32)] backdrop-blur">
+      <div className="pointer-events-auto flex max-w-[calc(100%-2rem)] items-center gap-1 overflow-x-auto rounded-lg border border-border-dark/70 bg-surface-dark p-1 shadow-[0_16px_42px_rgba(0,0,0,0.32)]">
         {COMMERCE_AGENT_MODULES.map((module) => {
           const Icon = module.icon;
           const active = activeModule === module.id;
@@ -1434,9 +1886,6 @@ function GuidanceCard({
   onToggleChoice: (key: string, value: string) => void;
 }) {
   const { t } = useTranslation();
-  void messageId;
-  void selectedChoiceKeys;
-  void onToggleChoice;
   if (!hasGuidanceContent(guidance)) {
     return null;
   }
@@ -1481,7 +1930,7 @@ function GuidanceCard({
             {guidance.designDirections.map((direction) => {
               const key = buildGuidanceChoiceKey(messageId, 'direction', direction.id);
               const value = direction.description
-                ? `${direction.title}：${direction.description}`
+                ? [direction.title, direction.description].join('：')
                 : direction.title;
               return (
                 <button
@@ -1580,8 +2029,6 @@ function GuidanceCard({
   );
 }
 
-void GuidanceCard;
-
 function CommerceAdWorkspaceInner() {
   const { t } = useTranslation();
   const flow = useReactFlow<CanvasNode, CanvasEdge>();
@@ -1593,11 +2040,23 @@ function CommerceAdWorkspaceInner() {
   const visualPreferenceContentRef = useRef<HTMLElement | null>(null);
   const batchSettingsContentRef = useRef<HTMLElement | null>(null);
   const replaceImageIdRef = useRef<string | null>(null);
+  const activeCommerceStreamRequestIdRef = useRef<string | null>(null);
+  const hasLoadedAgentThreadRef = useRef(false);
+  const activeThreadCreatedAtRef = useRef(Date.now());
+  const activeThreadIdRef = useRef(COMMERCE_AGENT_DEFAULT_THREAD_ID);
   const [messages, setMessages] = useState<CommerceAdAgentMessage[]>(DEFAULT_AGENT_MESSAGES);
   const [draft, setDraft] = useState('');
   const [chatImages, setChatImages] = useState<CommerceAdProductImage[]>([]);
-  const [selectedSkillId] = useState('');
-  const [isSkillsOpen, setIsSkillsOpen] = useState(false);
+  const [selectedSkillId, setSelectedSkillId] = useState('');
+  const [selectedGuidanceChoiceKeys, setSelectedGuidanceChoiceKeys] = useState<string[]>([]);
+  const [isSkillPickerOpen, setIsSkillPickerOpen] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState(COMMERCE_AGENT_DEFAULT_THREAD_ID);
+  const [threadSummaries, setThreadSummaries] = useState<CommerceAgentThreadRecord[]>([]);
+  const [isThreadHistoryOpen, setIsThreadHistoryOpen] = useState(false);
+  const [threadSearchQuery, setThreadSearchQuery] = useState('');
+  const [agentThreadState, setAgentThreadState] = useState<CommerceAdAgentThreadState>(createDefaultAgentThreadState);
+  const [thinkingPreviewByMessageId, setThinkingPreviewByMessageId] = useState<Record<string, string>>({});
+  const [agentPanelWidth, setAgentPanelWidth] = useState(readCommerceAgentPanelWidth);
   const [isChatDragActive, setIsChatDragActive] = useState(false);
   const [detailInputMode, setDetailInputMode] = useState<CommerceAdProductState['detailInputMode']>('auto');
   const [lockedDocumentInfo, setLockedDocumentInfo] = useState('');
@@ -1621,6 +2080,15 @@ function CommerceAdWorkspaceInner() {
   const [visualPreferenceDraft, setVisualPreferenceDraft] = useState<CommerceAdVisualPreferenceState>(() => (
     createDefaultCommerceAdVisualPreferenceState()
   ));
+  const availableSkills = useMemo<CommerceAgentSkill[]>(() => getCommerceAgentSkills().map((skill) => (
+    skill.id === 'ad-creative'
+      ? {
+          ...skill,
+          title: t('commerceAd.agent.skillOptions.adCreative.title'),
+          description: t('commerceAd.agent.skillOptions.adCreative.description'),
+        }
+      : skill
+  )), [t]);
 
   const nodes = useCanvasStore((state) => state.nodes);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
@@ -1630,6 +2098,7 @@ function CommerceAdWorkspaceInner() {
   const addEdge = useCanvasStore((state) => state.addEdge);
   const setSelectedNode = useCanvasStore((state) => state.setSelectedNode);
   const settings = useSettingsStore((state) => state);
+  const currentProjectId = useProjectStore((state) => state.currentProjectId);
 
   const productNode = useMemo(
     () => resolveActiveStageNode<CommerceProductNodeData>(nodes, CANVAS_NODE_TYPES.commerceProduct, selectedNodeId),
@@ -1641,6 +2110,10 @@ function CommerceAdWorkspaceInner() {
   );
   const batchNode = useMemo(
     () => resolveActiveStageNode<CommerceBatchGenerateNodeData>(nodes, CANVAS_NODE_TYPES.commerceBatchGenerate, selectedNodeId),
+    [nodes, selectedNodeId]
+  );
+  const agentPlanNode = useMemo(
+    () => resolveActiveStageNode<CommerceAgentPlanNodeData>(nodes, CANVAS_NODE_TYPES.commerceAgentPlan, selectedNodeId),
     [nodes, selectedNodeId]
   );
   const visualPreferenceNode = useMemo(
@@ -1660,6 +2133,147 @@ function CommerceAdWorkspaceInner() {
     () => activeTextProvider ? resolveConfiguredScriptModel(activeTextProvider, settings) : '',
     [activeTextProvider, settings]
   );
+  const selectedSkill = useMemo(
+    () => availableSkills.find((skill) => skill.id === selectedSkillId) ?? null,
+    [availableSkills, selectedSkillId]
+  );
+  const activeThreadSummary = useMemo(
+    () => threadSummaries.find((thread) => thread.threadId === activeThreadId) ?? null,
+    [activeThreadId, threadSummaries]
+  );
+
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  useEffect(() => {
+    hasLoadedAgentThreadRef.current = false;
+    setMessages(DEFAULT_AGENT_MESSAGES);
+    setAgentThreadState(createDefaultAgentThreadState());
+    setThreadSummaries([]);
+    setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
+    activeThreadCreatedAtRef.current = Date.now();
+    setDraft('');
+    setChatImages([]);
+    setStatusText(null);
+    setThinkingPreviewByMessageId({});
+    setIsThreadHistoryOpen(false);
+    if (!currentProjectId) {
+      return;
+    }
+
+    let cancelled = false;
+    void listCommerceAgentThreads(currentProjectId)
+      .then(async (records) => {
+        if (cancelled) {
+          return;
+        }
+        const sortedRecords = records
+          .slice()
+          .sort((a, b) => b.updatedAt - a.updatedAt)
+          .slice(0, COMMERCE_AGENT_THREAD_LIMIT);
+        setThreadSummaries(sortedRecords);
+        const record = sortedRecords[0] ?? null;
+        if (!record) {
+          setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
+          activeThreadCreatedAtRef.current = Date.now();
+          setMessages(DEFAULT_AGENT_MESSAGES);
+          setAgentThreadState(createDefaultAgentThreadState());
+          return;
+        }
+        setActiveThreadId(record.threadId);
+        activeThreadCreatedAtRef.current = record.createdAt || record.updatedAt || Date.now();
+        setMessages(parsePersistedCommerceAgentMessages(record.messagesJson));
+        setAgentThreadState(parseAgentThreadState(record.stateJson));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMessages(DEFAULT_AGENT_MESSAGES);
+          setAgentThreadState(createDefaultAgentThreadState());
+          setThreadSummaries([]);
+          setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
+          activeThreadCreatedAtRef.current = Date.now();
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          hasLoadedAgentThreadRef.current = true;
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    if (!currentProjectId || !hasLoadedAgentThreadRef.current) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      if (
+        messages.length === 0
+        && isDefaultAgentThreadState(agentThreadState)
+        && !activeThreadSummary
+        && activeThreadId === COMMERCE_AGENT_DEFAULT_THREAD_ID
+      ) {
+        return;
+      }
+      const now = Date.now();
+      const title = deriveCommerceAgentThreadTitle(
+        messages,
+        selectedSkill,
+        t('commerceAd.agent.untitledChat')
+      );
+      const createdAt = activeThreadSummary?.createdAt || activeThreadCreatedAtRef.current || now;
+      void upsertCommerceAgentThread({
+        projectId: currentProjectId,
+        threadId: activeThreadId,
+        title,
+        messagesJson: JSON.stringify(messages),
+        stateJson: JSON.stringify(agentThreadState),
+        createdAt,
+        updatedAt: now,
+      }).then(() => {
+        setThreadSummaries((items) => {
+          if (activeThreadId !== activeThreadIdRef.current) {
+            return items;
+          }
+          const nextRecord: CommerceAgentThreadRecord = {
+            projectId: currentProjectId,
+            threadId: activeThreadId,
+            title,
+            messagesJson: JSON.stringify(messages),
+            stateJson: JSON.stringify(agentThreadState),
+            createdAt,
+            updatedAt: now,
+          };
+          return [
+            nextRecord,
+            ...items.filter((item) => item.threadId !== activeThreadId),
+          ]
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .slice(0, COMMERCE_AGENT_THREAD_LIMIT);
+        });
+      });
+    }, COMMERCE_AGENT_THREAD_SAVE_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeThreadId, activeThreadSummary?.createdAt, agentThreadState, currentProjectId, messages, selectedSkill, t]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      COMMERCE_AGENT_PANEL_WIDTH_STORAGE_KEY,
+      String(agentPanelWidth)
+    );
+  }, [agentPanelWidth]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1778,69 +2392,6 @@ function CommerceAdWorkspaceInner() {
   const shouldShowVisionWarning = productImages.length > 0 && !canUseVisionModel;
   const hasResolvedProductInfo = hasProductInfo(productNode?.data);
   const visualPreferenceSummary = composeVisualPreferenceSummary(visualPreferenceDraft);
-  const emptyGuidance = useMemo<CommerceAdAgentGuidance>(() => ({
-    stage: 'upload',
-    summary: t('commerceAd.agent.guidance.emptySummary'),
-    confirmedFacts: [
-      t('commerceAd.agent.guidance.emptyStepUpload'),
-      t('commerceAd.agent.guidance.emptyStepInfer'),
-      t('commerceAd.agent.guidance.emptyStepDesign'),
-    ],
-    missingFields: [
-      t('commerceAd.agent.guidance.missingProduct'),
-      t('commerceAd.agent.guidance.missingPlatform'),
-      t('commerceAd.agent.guidance.missingDirection'),
-    ],
-    questions: [
-      {
-        id: 'start',
-        label: t('commerceAd.agent.guidance.emptyQuestion'),
-        allowMultiple: true,
-        options: [
-          {
-            id: 'upload-product',
-            label: t('commerceAd.agent.guidance.optionUploadProduct'),
-            value: t('commerceAd.agent.guidance.optionUploadProduct'),
-          },
-          {
-            id: 'manual-product',
-            label: t('commerceAd.agent.guidance.optionManualProduct'),
-            value: t('commerceAd.agent.guidance.optionManualProduct'),
-          },
-          {
-            id: 'design-direction',
-            label: t('commerceAd.agent.guidance.optionDesignDirection'),
-            value: t('commerceAd.agent.guidance.optionDesignDirection'),
-          },
-        ],
-      },
-    ],
-    designDirections: [
-      {
-        id: 'clean-hero',
-        title: t('commerceAd.agent.guidance.directionCleanHeroTitle'),
-        description: t('commerceAd.agent.guidance.directionCleanHeroDesc'),
-        tags: [
-          t('commerceAd.agent.guidance.tagHero'),
-          t('commerceAd.agent.guidance.tagPremium'),
-        ],
-      },
-      {
-        id: 'lifestyle',
-        title: t('commerceAd.agent.guidance.directionLifestyleTitle'),
-        description: t('commerceAd.agent.guidance.directionLifestyleDesc'),
-        tags: [
-          t('commerceAd.agent.guidance.tagScenario'),
-          t('commerceAd.agent.guidance.tagSocial'),
-        ],
-      },
-    ],
-    quickReplies: [
-      t('commerceAd.agent.guidance.quickXiaohongshu'),
-      t('commerceAd.agent.guidance.quickPremium'),
-    ],
-    readinessHint: t('commerceAd.agent.guidance.emptyReadiness'),
-  }), [t]);
   const createUploadGuidance = useCallback((count: number): CommerceAdAgentGuidance => ({
     stage: 'upload',
     summary: t('commerceAd.agent.guidance.uploadSummary', {
@@ -1887,34 +2438,200 @@ function CommerceAdWorkspaceInner() {
     ],
     readinessHint: t('commerceAd.agent.guidance.uploadReadiness'),
   }), [t]);
-  void useMemo(() => {
-    const values = new Map<string, string>();
-    const collect = (messageId: string, guidance: CommerceAdAgentGuidance | undefined) => {
-      if (!guidance) {
-        return;
+  const handleToggleGuidanceChoice = useCallback((key: string, value: string) => {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+      return;
+    }
+    setSelectedGuidanceChoiceKeys((keys) => (
+      keys.includes(key)
+        ? keys.filter((item) => item !== key)
+        : [...keys, key]
+    ));
+    setDraft((current) => {
+      const parts = current
+        .split('；')
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (parts.includes(normalizedValue)) {
+        return current;
       }
-      guidance.designDirections.forEach((direction) => {
-        values.set(
-          buildGuidanceChoiceKey(messageId, 'direction', direction.id),
-          direction.description ? `${direction.title}：${direction.description}` : direction.title
-        );
+      return parts.length > 0 ? `${current.trim()}；${normalizedValue}` : normalizedValue;
+    });
+  }, []);
+  const persistActiveThreadSnapshot = useCallback(() => {
+    if (
+      !currentProjectId
+      || (
+        messages.length === 0
+        && !activeThreadSummary
+        && activeThreadId === COMMERCE_AGENT_DEFAULT_THREAD_ID
+      )
+    ) {
+      return;
+    }
+    const now = Date.now();
+    const createdAt = activeThreadSummary?.createdAt || activeThreadCreatedAtRef.current || now;
+    const title = deriveCommerceAgentThreadTitle(
+      messages,
+      selectedSkill,
+      t('commerceAd.agent.untitledChat')
+    );
+    void upsertCommerceAgentThread({
+        projectId: currentProjectId,
+        threadId: activeThreadId,
+        title,
+        messagesJson: JSON.stringify(messages),
+        stateJson: JSON.stringify(agentThreadState),
+      createdAt,
+      updatedAt: now,
+    });
+  }, [activeThreadId, activeThreadSummary, agentThreadState, currentProjectId, messages, selectedSkill, t]);
+
+  const handleCreateNewThread = useCallback(() => {
+    if (isThinking || !currentProjectId) {
+      return;
+    }
+    persistActiveThreadSnapshot();
+    const now = Date.now();
+    const threadId = createCommerceAgentThreadId();
+    activeThreadCreatedAtRef.current = now;
+    setActiveThreadId(threadId);
+    setMessages(DEFAULT_AGENT_MESSAGES);
+    setAgentThreadState(createDefaultAgentThreadState());
+    setDraft('');
+    setChatImages([]);
+    setSelectedGuidanceChoiceKeys([]);
+    setStatusText(null);
+    setThinkingPreviewByMessageId({});
+    setIsThreadHistoryOpen(false);
+    setThreadSearchQuery('');
+    setThreadSummaries((items) => {
+      const nextRecord: CommerceAgentThreadRecord = {
+        projectId: currentProjectId ?? '',
+        threadId,
+        title: selectedSkill?.title || t('commerceAd.agent.untitledChat'),
+        messagesJson: '[]',
+        stateJson: JSON.stringify(createDefaultAgentThreadState()),
+        createdAt: now,
+        updatedAt: now,
+      };
+      return [
+        nextRecord,
+        ...items,
+      ]
+        .filter((item) => item.projectId === (currentProjectId ?? '') || item.threadId === threadId)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, COMMERCE_AGENT_THREAD_LIMIT);
+    });
+  }, [currentProjectId, isThinking, persistActiveThreadSnapshot, selectedSkill, t]);
+
+  const handleSelectThread = useCallback((threadId: string) => {
+    if (isThinking || !currentProjectId || threadId === activeThreadId) {
+      setIsThreadHistoryOpen(false);
+      return;
+    }
+    persistActiveThreadSnapshot();
+    const summary = threadSummaries.find((thread) => thread.threadId === threadId) ?? null;
+    activeThreadIdRef.current = threadId;
+    setActiveThreadId(threadId);
+    activeThreadCreatedAtRef.current = summary?.createdAt || summary?.updatedAt || Date.now();
+    setMessages(summary ? parsePersistedCommerceAgentMessages(summary.messagesJson) : DEFAULT_AGENT_MESSAGES);
+    setAgentThreadState(summary ? parseAgentThreadState(summary.stateJson) : createDefaultAgentThreadState());
+    setDraft('');
+    setChatImages([]);
+    setSelectedGuidanceChoiceKeys([]);
+    setStatusText(null);
+    setThinkingPreviewByMessageId({});
+    setIsThreadHistoryOpen(false);
+    void getCommerceAgentThread(currentProjectId, threadId)
+      .then((record) => {
+        if (threadId !== activeThreadIdRef.current) {
+          return;
+        }
+        const nextRecord = record ?? summary;
+        if (!nextRecord) {
+          return;
+        }
+        activeThreadCreatedAtRef.current = nextRecord.createdAt || nextRecord.updatedAt || Date.now();
+        setMessages(parsePersistedCommerceAgentMessages(nextRecord.messagesJson));
+        setAgentThreadState(parseAgentThreadState(nextRecord.stateJson));
+      })
+      .catch(() => {
+        if (threadId !== activeThreadIdRef.current) {
+          return;
+        }
+        if (summary) {
+          activeThreadCreatedAtRef.current = summary.createdAt || summary.updatedAt || Date.now();
+          setMessages(parsePersistedCommerceAgentMessages(summary.messagesJson));
+          setAgentThreadState(parseAgentThreadState(summary.stateJson));
+        }
       });
-      guidance.questions.forEach((question) => {
-        question.options.forEach((option) => {
-          values.set(
-            buildGuidanceChoiceKey(messageId, question.id, option.id),
-            option.value || option.label
-          );
-        });
+  }, [activeThreadId, currentProjectId, isThinking, persistActiveThreadSnapshot, threadSummaries]);
+
+  const handleDeleteThread = useCallback((
+    threadId: string,
+    event: React.MouseEvent<HTMLButtonElement>
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isThinking || !currentProjectId) {
+      return;
+    }
+
+    void deleteCommerceAgentThread(currentProjectId, threadId)
+      .then(() => {
+        setThreadSummaries((items) => items.filter((item) => item.threadId !== threadId));
+        if (threadId !== activeThreadIdRef.current) {
+          return;
+        }
+        const now = Date.now();
+        activeThreadIdRef.current = COMMERCE_AGENT_DEFAULT_THREAD_ID;
+        activeThreadCreatedAtRef.current = now;
+        setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
+        setMessages(DEFAULT_AGENT_MESSAGES);
+        setAgentThreadState(createDefaultAgentThreadState());
+        setDraft('');
+        setChatImages([]);
+        setSelectedGuidanceChoiceKeys([]);
+        setStatusText(null);
       });
-      guidance.quickReplies.forEach((reply) => {
-        values.set(buildGuidanceChoiceKey(messageId, 'quick', reply), reply);
-      });
+  }, [currentProjectId, isThinking]);
+
+  const handleAgentPanelResizeStart = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = agentPanelWidth;
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const nextWidth = Math.min(
+        COMMERCE_AGENT_PANEL_MAX_WIDTH,
+        Math.max(COMMERCE_AGENT_PANEL_MIN_WIDTH, startWidth - (moveEvent.clientX - startX))
+      );
+      setAgentPanelWidth(nextWidth);
     };
-    collect('commerce-empty-guidance', emptyGuidance);
-    messages.forEach((message) => collect(message.id, message.guidance));
-    return values;
-  }, [emptyGuidance, messages]);
+    const handlePointerUp = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  }, [agentPanelWidth]);
+
+  const filteredThreadSummaries = useMemo(() => {
+    const query = threadSearchQuery.trim().toLowerCase();
+    const sortedThreads = threadSummaries
+      .slice()
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, COMMERCE_AGENT_THREAD_LIMIT);
+    if (!query) {
+      return sortedThreads;
+    }
+    return sortedThreads.filter((thread) => (
+      thread.title.toLowerCase().includes(query)
+      || thread.messagesJson.toLowerCase().includes(query)
+      || thread.stateJson.toLowerCase().includes(query)
+    ));
+  }, [threadSearchQuery, threadSummaries]);
   const visibleMessages = useMemo(
     () => messages.filter((message) => !isInternalProductInfoMessage(message)),
     [messages]
@@ -2362,6 +3079,7 @@ function CommerceAdWorkspaceInner() {
   const addChatImagesFromFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList).filter((file) => file.type.startsWith('image/'));
     if (files.length === 0) {
+      setStatusText(t('commerceAd.agent.chatImagesOnly'));
       return;
     }
     const remainingSlots = Math.max(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT - chatImages.length);
@@ -2398,15 +3116,17 @@ function CommerceAdWorkspaceInner() {
       );
       setChatImages((items) => normalizeProductImageRoles([...items, ...preparedImages]));
       setStatusText(t('commerceAd.agent.chatImagesUploaded', { count: preparedImages.length }));
+    } catch {
+      setStatusText(t('commerceAd.agent.chatImagesUploadFailed'));
     } finally {
       setUploading(false);
     }
   }, [chatImages.length, settings.canvasOverviewThumbnailMaxDimension, t]);
 
   const handleChatImageInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
-    const files = event.target.files;
+    const files = Array.from(event.target.files ?? []);
     event.target.value = '';
-    if (files) {
+    if (files.length > 0) {
       void addChatImagesFromFiles(files);
     }
   }, [addChatImagesFromFiles]);
@@ -3369,34 +4089,196 @@ function CommerceAdWorkspaceInner() {
 
   const handleSubmit = useCallback(() => {
     const text = draft.trim();
-    if (isThinking || (!text && chatImages.length === 0)) {
+    const selectedSkill = availableSkills.find((skill) => skill.id === selectedSkillId) ?? null;
+    if (isThinking || (!text && chatImages.length === 0 && !selectedSkill)) {
       return;
     }
+    const submittedImages = chatImages;
+    const priorContext = collectConversationContext(messages);
+    const contextImages = normalizeProductImageRoles([
+      ...priorContext.images,
+      ...submittedImages,
+    ]).slice(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT);
+    const skillContext = selectedSkill
+      ? `已选择技能：${selectedSkill.title}\n技能目标：${selectedSkill.description}`
+      : '';
+    const submittedText = text || selectedSkill?.title || '';
+    const combinedText = [priorContext.text, skillContext, submittedText].filter(Boolean).join('\n');
+    const deterministicSlotPatch = extractConfirmedSlotsFromText(text);
+    const turnIntent = inferAdAgentTurnIntent({
+      text,
+      hasNewImages: submittedImages.length > 0,
+      state: agentThreadState,
+    });
+    const threadStateForTurn = mergeAgentThreadState(agentThreadState, {
+      phase: turnIntent === 'revise' ? 'refining' : agentThreadState.phase,
+      confirmedSlots: deterministicSlotPatch,
+    });
+    const assistantMessageId = `commerce-agent-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const streamRequestId = `commerce-agent-request-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setDraft('');
+    setChatImages([]);
+    setSelectedGuidanceChoiceKeys([]);
+    setThinkingPreviewByMessageId((items) => {
+      const next = { ...items };
+      delete next[assistantMessageId];
+      return next;
+    });
     void (async () => {
-      const nextUserMessage = text || t('commerceAd.agentPlan.imageOnlyPrompt');
-      setMessages((items) => [...items, createLocalMessage('user', nextUserMessage)]);
+      const nextUserMessage = text || selectedSkill?.title || t('commerceAd.agentPlan.imageOnlyPrompt');
+      setMessages((items) => [
+        ...items,
+        createLocalMessage('user', nextUserMessage, {
+          images: submittedImages,
+        }),
+        {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: '',
+          createdAt: Date.now(),
+          status: 'streaming',
+          phase: 'image_analysis',
+        },
+      ]);
       setIsThinking(true);
       setActiveAgentTask('chat');
       setStatusText(t('commerceAd.agentPlan.statusThinking'));
+      activeCommerceStreamRequestIdRef.current = streamRequestId;
       try {
         const product = createDefaultCommerceAdProductState();
-        product.images = chatImages;
-        product.userInfo = text;
-        product.userIdeaInfo = text;
-        const agentResult = await runCommerceAdAgentTurn({
-          userMessage: text || nextUserMessage,
+        product.images = contextImages;
+        product.userInfo = combinedText;
+        product.userIdeaInfo = combinedText;
+        const turnInput = {
+          userMessage: [skillContext, text || nextUserMessage].filter(Boolean).join('\n\n'),
+          conversationSummary: priorContext.text,
           product,
           brief: null,
           visualPreference: createDefaultCommerceAdVisualPreferenceState(),
           batch: null,
-          referenceImages: dedupeStrings(chatImages.map((image) => image.imageUrl)),
+          referenceImages: dedupeStrings(contextImages.map((image) => image.imageUrl)),
           canUseVisionModel: true,
+          selectedSkill,
+          threadState: threadStateForTurn,
+          turnIntent,
+        };
+        let streamedPreviewText = '';
+        const waitForStream = new Promise<void>((resolve, reject) => {
+          void listenCommerceAdAgentStream((event: CommerceAdAgentStreamEvent) => {
+            if (event.requestId !== streamRequestId) {
+              return;
+            }
+            if (event.type === 'phase_changed') {
+              const statusMessage = /token|流式|分段输出/i.test(event.message)
+                ? t('commerceAd.agentPlan.statusThinking')
+                : event.message;
+              setStatusText(statusMessage);
+              setMessages((items) => items.map((message) => (
+                message.id === assistantMessageId
+                  ? { ...message, phase: event.phase }
+                  : message
+              )));
+            }
+            if (event.type === 'text_delta') {
+              streamedPreviewText = `${streamedPreviewText}${event.delta}`;
+              const preview = buildThinkingPreviewText(streamedPreviewText);
+              if (preview) {
+                setThinkingPreviewByMessageId((items) => ({
+                  ...items,
+                  [assistantMessageId]: preview,
+                }));
+              }
+            }
+            if (event.type === 'message_completed') {
+              setThinkingPreviewByMessageId((items) => {
+                const next = { ...items };
+                delete next[assistantMessageId];
+                return next;
+              });
+              setMessages((items) => items.map((message) => (
+                message.id === assistantMessageId
+                  ? { ...message, status: 'streaming', phase: 'finalizing' }
+                  : message
+              )));
+              resolve();
+            }
+            if (event.type === 'stream_cancelled') {
+              setThinkingPreviewByMessageId((items) => {
+                const next = { ...items };
+                delete next[assistantMessageId];
+                return next;
+              });
+              resolve();
+            }
+            if (event.type === 'stream_failed') {
+              setThinkingPreviewByMessageId((items) => {
+                const next = { ...items };
+                delete next[assistantMessageId];
+                return next;
+              });
+              setStatusText(t('commerceAd.agentPlan.statusThinking'));
+              reject(new Error(event.message));
+            }
+          }).then((unlisten) => {
+            const cleanup = () => window.setTimeout(() => unlisten(), 1000);
+            waitForStream.then(cleanup, cleanup);
+          }).catch(reject);
         });
-        setMessages((items) => [...items, agentResult.assistantMessage]);
+        try {
+          await startCommerceAdAgentStream({
+            requestId: streamRequestId,
+            prompt: buildCommerceAdAgentVisiblePrompt(turnInput),
+            temperature: 0.35,
+            maxTokens: 1200,
+            referenceImages: turnInput.canUseVisionModel ? turnInput.referenceImages : [],
+          });
+          await waitForStream;
+        } catch (streamError) {
+          console.warn('[CommerceAdAgent] visible stream failed', streamError);
+        }
+        const agentResult = await runCommerceAdAgentTurn({
+          ...turnInput,
+        });
+        const nextAgentThreadState = mergeAgentThreadState(threadStateForTurn, {
+          ...(agentResult.threadStatePatch ?? {}),
+          imageAnalysis: agentResult.assistantMessage.imageAnalysis
+            ?? threadStateForTurn.imageAnalysis,
+          lastAskedFields: agentResult.assistantMessage.guidance?.questions?.map((question) => question.id)
+            ?? agentResult.threadStatePatch?.lastAskedFields
+            ?? threadStateForTurn.lastAskedFields,
+          planVersion: (
+            agentResult.nextAction === 'plan'
+            || agentResult.nextAction === 'ready'
+            || agentResult.nextAction === 'generate'
+          )
+            ? threadStateForTurn.planVersion + 1
+            : agentResult.threadStatePatch?.planVersion ?? threadStateForTurn.planVersion,
+        });
+        setMessages((items) => items.map((message) => (
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                content: agentResult.assistantMessage.content,
+                guidance: agentResult.assistantMessage.guidance,
+                imageAnalysis: turnIntent === 'initial' || turnIntent === 'new_image'
+                  ? agentResult.assistantMessage.imageAnalysis
+                  : undefined,
+                status: 'done',
+                phase: 'finalizing',
+              }
+            : message
+        )));
+        setAgentThreadState(nextAgentThreadState);
+        setThinkingPreviewByMessageId((items) => {
+          const next = { ...items };
+          delete next[assistantMessageId];
+          return next;
+        });
+        setStatusText(t('commerceAd.agentPlan.thinkingStepPlan'));
         const planState = composeAgentPlanState({
-          text,
-          images: chatImages,
+          text: combinedText,
+          images: contextImages,
+          previousPlan: agentPlanNode?.data ?? null,
           selectedSkillId,
           resultActions: agentResult.actions,
           fallbackModelId: COMMERCE_DEFAULT_IMAGE_MODEL_ID,
@@ -3414,12 +4296,23 @@ function CommerceAdWorkspaceInner() {
         setStatusText(t('commerceAd.agentPlan.statusPlanCreated'));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        setMessages((items) => [
-          ...items,
-          createLocalMessage('assistant', t('commerceAd.agent.errorMessage', { message })),
-        ]);
+        setThinkingPreviewByMessageId((items) => {
+          const next = { ...items };
+          delete next[assistantMessageId];
+          return next;
+        });
+        setMessages((items) => items.map((item) => (
+          item.id === assistantMessageId
+            ? {
+                ...item,
+                content: t('commerceAd.agent.errorMessage', { message }),
+                status: 'failed',
+              }
+            : item
+        )));
         setStatusText(t('commerceAd.agentPlan.statusFailed'));
       } finally {
+        activeCommerceStreamRequestIdRef.current = null;
         setIsThinking(false);
         setActiveAgentTask(null);
         setChatImages([]);
@@ -3428,7 +4321,9 @@ function CommerceAdWorkspaceInner() {
   }, [
     chatImages,
     draft,
+    availableSkills,
     isThinking,
+    messages,
     selectedSkillId,
     settings.storyboardApi2OkModelConfig,
     settings.storyboardCompatibleModelConfig,
@@ -3438,7 +4333,7 @@ function CommerceAdWorkspaceInner() {
     upsertAgentPlanNode,
   ]);
 
-  const handleChatDrop = useCallback((event: ReactDragEvent<HTMLTextAreaElement>) => {
+  const handleChatDrop = useCallback((event: ReactDragEvent<HTMLElement>) => {
     event.preventDefault();
     setIsChatDragActive(false);
     const files = Array.from(event.dataTransfer.files ?? []).filter((file) => file.type.startsWith('image/'));
@@ -3447,7 +4342,7 @@ function CommerceAdWorkspaceInner() {
     }
   }, [addChatImagesFromFiles]);
 
-  const handleChatDragOver = useCallback((event: ReactDragEvent<HTMLTextAreaElement>) => {
+  const handleChatDragOver = useCallback((event: ReactDragEvent<HTMLElement>) => {
     event.preventDefault();
     setIsChatDragActive(true);
   }, []);
@@ -3456,7 +4351,16 @@ function CommerceAdWorkspaceInner() {
     setIsChatDragActive(false);
   }, []);
 
-  const activeModuleTitle = t(`commerceAd.agent.modules.${activeModule}.title`);
+  useEffect(() => {
+    return () => {
+      const requestId = activeCommerceStreamRequestIdRef.current;
+      if (requestId) {
+        void cancelCommerceAdAgentStream(requestId);
+        activeCommerceStreamRequestIdRef.current = null;
+      }
+    };
+  }, []);
+
   const isSyncProductInfoRunning = activeAgentTask === 'syncProductInfo';
   const isChatRunning = activeAgentTask === 'chat';
 
@@ -3481,139 +4385,365 @@ function CommerceAdWorkspaceInner() {
           />
         ) : null}
       </div>
-      <aside className="relative flex h-full w-[400px] shrink-0 flex-col border-l border-border-dark/70 bg-surface-dark/95 shadow-2xl">
-        <div className="border-b border-border-dark/70 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border-dark/70 bg-bg-dark text-text-dark">
-              <MessageSquareText className="h-4 w-4" />
-            </div>
-            <div className="min-w-0">
-              <h2 className="truncate text-sm font-semibold text-text-dark">
-                {activeModuleTitle}
-              </h2>
-              <p className="truncate text-xs text-text-muted">
-                {activeTextModel
-                  ? t('commerceAd.agent.modelStatus', { model: activeTextModel })
-                  : t('commerceAd.agent.noModel')}
-              </p>
-            </div>
+      <aside
+        className="relative flex h-full shrink-0 flex-col border-l border-border-dark/70 bg-surface-dark/95 shadow-2xl"
+        style={{ width: agentPanelWidth }}
+      >
+        <div
+          className="absolute bottom-0 left-0 top-0 z-20 w-1 cursor-col-resize transition hover:bg-accent/35"
+          onPointerDown={handleAgentPanelResizeStart}
+          aria-hidden="true"
+        />
+        <div className="relative z-10 flex justify-end gap-2 border-b border-border-dark/70 px-3 py-2.5">
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition hover:bg-text-dark/[0.08] hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={handleCreateNewThread}
+            disabled={isThinking}
+            aria-label={t('commerceAd.agent.newChat')}
+            title={t('commerceAd.agent.newChat')}
+          >
+            <MessageSquarePlus className="h-4 w-4" />
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                isThreadHistoryOpen
+                  ? 'bg-text-dark/[0.10] text-text-dark'
+                  : 'text-text-muted hover:bg-text-dark/[0.08] hover:text-text-dark'
+              }`}
+              onClick={() => setIsThreadHistoryOpen((open) => !open)}
+              disabled={isThinking}
+              aria-label={t('commerceAd.agent.chatHistory')}
+              title={t('commerceAd.agent.chatHistory')}
+            >
+              <History className="h-4 w-4" />
+            </button>
+            {isThreadHistoryOpen ? (
+              <div className="absolute right-0 top-10 z-40 w-[min(340px,calc(100vw-36px))] overflow-hidden rounded-2xl border border-border-dark/70 bg-surface-dark shadow-[0_18px_48px_rgba(0,0,0,0.40)]">
+                <div className="border-b border-border-dark/60 px-4 pb-3 pt-3">
+                  <div className="text-sm font-semibold text-text-dark">
+                    {t('commerceAd.agent.chatHistory')}
+                  </div>
+                  <div className="relative mt-3">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                    <input
+                      value={threadSearchQuery}
+                      onChange={(event) => setThreadSearchQuery(event.target.value)}
+                      className="h-9 w-full rounded-lg border border-border-dark/70 bg-bg-dark/75 pl-9 pr-3 text-sm text-text-dark outline-none transition placeholder:text-text-muted focus:border-accent/50"
+                      placeholder={t('commerceAd.agent.historySearchPlaceholder')}
+                    />
+                  </div>
+                </div>
+                <div className="ui-scrollbar max-h-[420px] overflow-y-auto p-2">
+                  {filteredThreadSummaries.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-xs text-text-muted">
+                      {t('commerceAd.agent.emptyHistory')}
+                    </div>
+                  ) : filteredThreadSummaries.map((thread) => {
+                    const isActive = thread.threadId === activeThreadId;
+                    return (
+                      <div
+                        key={thread.threadId}
+                        className={`group flex w-full items-center gap-2 rounded-xl border px-2 py-2 transition ${
+                          isActive
+                            ? 'border-accent bg-bg-dark text-text-dark'
+                            : 'border-transparent text-text-muted hover:border-border-dark/70 hover:bg-bg-dark hover:text-text-dark'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 text-left"
+                          onClick={() => handleSelectThread(thread.threadId)}
+                        >
+                          <span className="flex w-full items-center gap-2">
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                              {thread.title || t('commerceAd.agent.untitledChat')}
+                            </span>
+                          </span>
+                          <span className="mt-1 block w-full truncate text-xs text-text-muted">
+                            {new Date(thread.updatedAt || thread.createdAt || Date.now()).toLocaleString()}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-text-muted opacity-80 transition hover:bg-text-dark/10 hover:text-text-dark disabled:pointer-events-none disabled:opacity-35"
+                          aria-label={t('common.delete')}
+                          title={t('common.delete')}
+                          disabled={isThinking}
+                          onClick={(event) => handleDeleteThread(thread.threadId, event)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
 
         <div className="ui-scrollbar flex-1 overflow-y-auto px-4 pb-4">
           <section className="space-y-2 pt-4">
-            {visibleMessages.length === 0 ? (
-              <div className="rounded-lg border border-border-dark/70 bg-bg-dark/50 p-3 text-sm leading-6 text-text-muted">
-                <div className="font-medium text-text-dark">
-                  {t('commerceAd.agent.guidance.emptyTitle')}
-                </div>
-                <p className="mt-1 text-xs leading-5 text-text-muted">
-                  {t('commerceAd.agent.emptyConversation')}
-                </p>
-              </div>
-            ) : visibleMessages.map((message) => (
+            {visibleMessages.map((message) => (
               <div
                 key={message.id}
                 className={message.role === 'user'
                   ? 'rounded-lg border border-text-dark/10 bg-text-dark/[0.08] px-3 py-2 text-sm leading-6 text-text-dark'
                   : 'rounded-lg border border-border-dark/70 bg-bg-dark/70 px-3 py-2 text-sm leading-6 text-text-dark/90'}
               >
-                <div className="whitespace-pre-wrap">{message.content}</div>
+                {message.content ? (
+                  <div className="whitespace-pre-wrap">{message.content}</div>
+                ) : thinkingPreviewByMessageId[message.id] ? (
+                  <div className="flex items-start gap-2 rounded-lg border border-border-dark/60 bg-surface-dark/70 px-3 py-2 text-xs leading-5 text-text-muted">
+                    <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+                    <span className="line-clamp-2">{thinkingPreviewByMessageId[message.id]}</span>
+                  </div>
+                ) : message.status === 'streaming' ? (
+                  <div className="flex items-center gap-2 text-xs text-text-muted">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    <span>{t('commerceAd.agentPlan.statusThinking')}</span>
+                  </div>
+                ) : null}
+                {message.images?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {message.images.map((image) => (
+                      <div
+                        key={image.id}
+                        className="h-14 w-14 overflow-hidden rounded-lg border border-border-dark/70 bg-bg-dark"
+                        title={image.label}
+                      >
+                        <img
+                          src={resolveImageDisplayUrl(image.previewImageUrl || image.imageUrl)}
+                          alt={image.label}
+                          className="h-full w-full object-cover"
+                          draggable={false}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {message.imageAnalysis ? (
+                  <ImageAnalysisDisclosure analysis={message.imageAnalysis} />
+                ) : null}
+                {message.guidance ? (
+                  <GuidanceCard
+                    messageId={message.id}
+                    guidance={message.guidance}
+                    selectedChoiceKeys={selectedGuidanceChoiceKeys}
+                    onToggleChoice={handleToggleGuidanceChoice}
+                  />
+                ) : null}
               </div>
             ))}
           </section>
         </div>
 
-        <div className="border-t border-border-dark/70 p-3">
+        <div
+          className="border-t border-border-dark/70 p-3"
+          onDragOver={handleChatDragOver}
+          onDragLeave={handleChatDragLeave}
+          onDrop={handleChatDrop}
+        >
           {statusText ? (
             <div className="mb-2 text-xs text-text-muted">{statusText}</div>
           ) : null}
-          {chatImages.length > 0 ? (
-            <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-              {chatImages.map((image) => (
-                <div key={image.id} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-border-dark/70 bg-bg-dark">
-                  <img
-                    src={resolveImageDisplayUrl(image.previewImageUrl || image.imageUrl)}
-                    alt={image.label}
-                    className="h-full w-full object-cover"
-                    draggable={false}
+          <div
+            className={`relative rounded-[22px] border bg-bg-dark/85 p-2.5 shadow-[0_14px_36px_rgba(0,0,0,0.22)] transition-colors ${
+              isChatDragActive
+                ? 'border-text-dark/35 bg-text-dark/[0.05]'
+                : 'border-border-dark/70'
+            }`}
+          >
+            {isChatDragActive ? (
+              <div className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-[18px] border border-dashed border-text-dark/30 bg-bg-dark/85 text-xs font-medium text-text-dark">
+                {t('commerceAd.agent.chatDropHint')}
+              </div>
+            ) : null}
+            {chatImages.length > 0 ? (
+              <div className="mb-2 flex gap-2 overflow-x-auto pb-1">
+                {chatImages.map((image) => (
+                  <div key={image.id} className="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-border-dark/70 bg-surface-dark">
+                    <img
+                      src={resolveImageDisplayUrl(image.previewImageUrl || image.imageUrl)}
+                      alt={image.label}
+                      className="h-full w-full object-cover"
+                      draggable={false}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-0.5 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-black/70 text-white transition hover:bg-black"
+                      onClick={() => handleRemoveChatImage(image.id)}
+                      aria-label={t('commerceAd.agent.removeChatImage')}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <UiTextAreaField
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              rows={3}
+              className="min-h-[78px] !border-transparent !bg-transparent px-1 py-1 text-sm leading-6 shadow-none focus:!border-transparent"
+              placeholder={t('commerceAd.agent.chatPlaceholder')}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  handleSubmit();
+                }
+              }}
+              onPaste={handleChatPaste}
+            />
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <label
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition hover:bg-text-dark/[0.08] hover:text-text-dark ${
+                    uploading || isThinking ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+                  }`}
+                  aria-label={t('commerceAd.agent.upload')}
+                  title={t('commerceAd.agent.upload')}
+                >
+                  {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                  <input
+                    ref={chatImageFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="sr-only"
+                    onChange={handleChatImageInputChange}
+                    disabled={uploading || isThinking}
                   />
+                </label>
+                <button
+                  type="button"
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition ${
+                    isSkillPickerOpen
+                      ? 'bg-text-dark/[0.10] text-text-dark'
+                      : 'text-text-muted hover:bg-text-dark/[0.08] hover:text-text-dark'
+                  }`}
+                  onClick={() => setIsSkillPickerOpen((open) => !open)}
+                  aria-label={t('commerceAd.agent.skills')}
+                  title={t('commerceAd.agent.skills')}
+                >
+                  <BookOpen className="h-4 w-4" />
+                </button>
+                {selectedSkill ? (
+                  <span className="inline-flex max-w-[150px] items-center rounded-full border border-text-dark/15 bg-text-dark/[0.08] pl-2.5 pr-1 text-xs font-medium text-text-dark">
+                    <button
+                      type="button"
+                      className="min-w-0 truncate py-1"
+                      onClick={() => setIsSkillPickerOpen((open) => !open)}
+                      title={selectedSkill.title}
+                    >
+                      {selectedSkill.title}
+                    </button>
+                    <button
+                      type="button"
+                      className="ml-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-text-muted transition hover:bg-text-dark/[0.10] hover:text-text-dark"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedSkillId('');
+                      }}
+                      aria-label={t('commerceAd.agent.clearSkill')}
+                      title={t('commerceAd.agent.clearSkill')}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#222222] text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-45 dark:bg-text-dark dark:text-bg-dark dark:hover:bg-white"
+                onClick={handleSubmit}
+                disabled={isThinking || (!draft.trim() && chatImages.length === 0 && !selectedSkill)}
+                aria-label={t('commerceAd.agent.send')}
+                title={t('commerceAd.agent.send')}
+              >
+                {isChatRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </button>
+            </div>
+            {isSkillPickerOpen ? (
+              <div className="absolute bottom-[52px] left-0 right-4 z-20 overflow-hidden rounded-2xl border border-border-dark/70 bg-surface-dark shadow-[0_18px_48px_rgba(0,0,0,0.38)]">
+                <div className="px-4 pb-2 pt-3 text-sm font-semibold text-text-dark">
+                  {t('commerceAd.agent.skills')}
+                </div>
+                <div className="ui-scrollbar flex gap-2 overflow-x-auto border-b border-border-dark/60 px-3 pb-3">
                   <button
                     type="button"
-                    className="absolute right-0.5 top-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-black/70 text-[10px] text-white"
-                    onClick={() => handleRemoveChatImage(image.id)}
-                    aria-label={t('commerceAd.agent.removeChatImage')}
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-text-dark/20 bg-text-dark/[0.08] px-3 text-xs font-medium text-text-dark"
                   >
-                    <X className="h-3 w-3" />
+                    <PanelTop className="h-3.5 w-3.5" />
+                    {t('commerceAd.agent.skillCategories.ad')}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border-dark/70 bg-bg-dark/70 px-3 text-xs text-text-muted"
+                    disabled
+                  >
+                    <BookOpen className="h-3.5 w-3.5" />
+                    {t('commerceAd.agent.skillCategories.social')}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border-dark/70 bg-bg-dark/70 px-3 text-xs text-text-muted"
+                    disabled
+                  >
+                    <PackageCheck className="h-3.5 w-3.5" />
+                    {t('commerceAd.agent.skillCategories.ecommerce')}
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-border-dark/70 bg-bg-dark/70 px-3 text-xs text-text-muted"
+                    disabled
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    {t('commerceAd.agent.skillCategories.branding')}
                   </button>
                 </div>
-              ))}
-            </div>
-          ) : null}
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <button
-              type="button"
-              className="inline-flex h-8 items-center gap-2 rounded-full border border-border-dark/70 bg-bg-dark px-3 text-xs text-text-dark transition hover:bg-text-dark/[0.06]"
-              onClick={() => chatImageFileInputRef.current?.click()}
-            >
-              <ImagePlus className="h-3.5 w-3.5" />
-              {t('commerceAd.agent.upload')}
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center gap-2 rounded-full border border-border-dark/70 bg-bg-dark px-3 text-xs text-text-dark transition hover:bg-text-dark/[0.06]"
-              onClick={() => setIsSkillsOpen((open) => !open)}
-            >
-              <BookOpen className="h-3.5 w-3.5" />
-              {t('commerceAd.agent.skills')}
-            </button>
-          </div>
-          {isSkillsOpen ? (
-            <div className="mb-2 rounded-lg border border-border-dark/70 bg-bg-dark/90 p-3 text-xs text-text-muted">
-              {COMMERCE_AGENT_SKILLS.length === 0 ? (
-                <div>{t('commerceAd.agent.skillsEmpty')}</div>
-              ) : null}
-            </div>
-          ) : null}
-          <input
-            ref={chatImageFileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleChatImageInputChange}
-          />
-          <UiTextAreaField
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            rows={4}
-            className={`min-h-[120px] ${isChatDragActive ? 'border-text-dark/40 bg-text-dark/[0.04]' : ''}`}
-            placeholder={t('commerceAd.agent.chatPlaceholder')}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                event.preventDefault();
-                handleSubmit();
-              }
-            }}
-            onPaste={handleChatPaste}
-            onDragOver={handleChatDragOver}
-            onDragLeave={handleChatDragLeave}
-            onDrop={handleChatDrop}
-          />
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <div className="text-[11px] text-text-muted">
-              {isThinking ? t('commerceAd.agent.statusThinking') : t('commerceAd.agentPlan.helperText')}
-            </div>
-            <UiButton
-              type="button"
-              className="h-9 gap-2 px-4"
-              onClick={handleSubmit}
-              disabled={isThinking || (!draft.trim() && chatImages.length === 0)}
-              aria-label={t('commerceAd.agent.send')}
-            >
-              {isChatRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              {t('commerceAd.agent.send')}
-            </UiButton>
+                <div className="ui-scrollbar max-h-[360px] space-y-1 overflow-y-auto p-3">
+                  {availableSkills.map((skill) => {
+                    const isSelected = skill.id === selectedSkillId;
+                    return (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition ${
+                          isSelected
+                            ? 'border-text-dark/25 bg-bg-dark text-text-dark'
+                            : 'border-transparent bg-surface-dark text-text-muted hover:border-border-dark/70 hover:bg-bg-dark hover:text-text-dark'
+                        }`}
+                        onClick={() => {
+                          setSelectedSkillId(skill.id);
+                          setIsSkillPickerOpen(false);
+                        }}
+                      >
+                        <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${
+                          isSelected
+                            ? 'bg-text-dark text-bg-dark'
+                            : 'bg-bg-dark text-accent'
+                        }`}>
+                          <Megaphone className="h-4.5 w-4.5" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            {skill.title}
+                            {isSelected ? <Check className="h-3.5 w-3.5" /> : null}
+                          </span>
+                          <span className="mt-1 block truncate text-xs leading-5 text-text-muted">
+                            {skill.description}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </aside>

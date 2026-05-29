@@ -170,27 +170,34 @@ export const CanvasNodeImage = memo(forwardRef<HTMLImageElement, CanvasNodeImage
   );
   const normalizedOverviewSrc = useMemo(() => normalizeImageSrc(overviewSrc), [overviewSrc]);
   const normalizedHoverSource = useMemo(() => normalizeImageSrc(hoverSourceUrl), [hoverSourceUrl]);
+  const defaultRequestedSrc = useMemo(
+    () => (
+      isOverviewRender || shouldPreferThumbnailMedia
+        ? (normalizedOverviewSrc ?? primarySrc)
+        : primarySrc
+    ),
+    [
+      isOverviewRender,
+      normalizedOverviewSrc,
+      primarySrc,
+      shouldPreferThumbnailMedia,
+    ]
+  );
   const shouldUseHoverSource =
     shouldShowOriginalOnHover
     && isHovered
     && normalizedHoverSource !== null
-    && normalizedHoverSource !== primarySrc
-    && !isOverviewRender
-    && !shouldPreferThumbnailMedia;
+    && normalizedHoverSource !== defaultRequestedSrc
+    && !isOverviewRender;
   const requestedSrc = useMemo(
     () => (
       shouldUseHoverSource
         ? normalizedHoverSource
-        : isOverviewRender || shouldPreferThumbnailMedia
-          ? (normalizedOverviewSrc ?? primarySrc)
-          : primarySrc
+        : defaultRequestedSrc
     ),
     [
-      isOverviewRender,
+      defaultRequestedSrc,
       normalizedHoverSource,
-      normalizedOverviewSrc,
-      primarySrc,
-      shouldPreferThumbnailMedia,
       shouldUseHoverSource,
     ]
   );

@@ -93,7 +93,11 @@ import { DetachedClipLibraryWindow } from "./features/clip-library/ui/DetachedCl
 import { DIRECTOR_STAGE_WINDOW_LABEL } from "./features/director-stage/application/directorStageWindowBridge";
 import { DetachedDirectorStageWindow } from "./features/director-stage/ui/DetachedDirectorStageWindow";
 import { isTauriRuntime } from "./lib/tauriRuntime";
-import { openWorkspaceWindow } from "./features/app/workspaceWindowBridge";
+import {
+  getSecondaryWorkspaceWindowLabel,
+  isSecondaryWorkspaceWindowLabel,
+  openWorkspaceWindow,
+} from "./features/app/workspaceWindowBridge";
 import {
   registerProjectWindow,
   unregisterProjectWindow,
@@ -437,6 +441,10 @@ function MainApp() {
   const allJimengQueueJobs = useJimengVideoQueueStore((state) => state.allJobs);
   const isWindowCloseInProgressRef = useRef(false);
   const currentWindowLabel = isTauriRuntime() ? getCurrentWindow().label : "browser";
+  const isSecondaryWorkspaceWindow =
+    isTauriRuntime() && isSecondaryWorkspaceWindowLabel(currentWindowLabel);
+  const [secondaryWorkspaceWindowLabel, setSecondaryWorkspaceWindowLabel] =
+    useState<string | null>(null);
   const hasAttemptedDreaminaAutoUpdateRef = useRef(false);
   useEffect(() => {
     void hydrate();
@@ -457,6 +465,39 @@ function MainApp() {
       });
     };
   }, [currentWindowLabel]);
+
+  useEffect(() => {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    let disposed = false;
+
+    const refreshSecondaryWorkspaceWindow = async () => {
+      try {
+        const label = await getSecondaryWorkspaceWindowLabel();
+        if (!disposed) {
+          setSecondaryWorkspaceWindowLabel(label);
+        }
+      } catch (error) {
+        console.warn("failed to refresh secondary workspace window state", error);
+        if (!disposed) {
+          setSecondaryWorkspaceWindowLabel(null);
+        }
+      }
+    };
+
+    void refreshSecondaryWorkspaceWindow();
+    const intervalId = window.setInterval(
+      () => void refreshSecondaryWorkspaceWindow(),
+      1500,
+    );
+
+    return () => {
+      disposed = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -1338,7 +1379,10 @@ function MainApp() {
   }, [currentProjectClipLastFolderId, currentProjectClipLibraryId, t]);
 
   const handleOpenWorkspaceWindow = useCallback(async () => {
-    await openWorkspaceWindow(t("titleBar.newWindowTitle"));
+    const window = await openWorkspaceWindow(t("titleBar.newWindowTitle"));
+    setSecondaryWorkspaceWindowLabel(
+      isSecondaryWorkspaceWindowLabel(window.label) ? window.label : null,
+    );
   }, [t]);
 
   return (
@@ -1349,6 +1393,8 @@ function MainApp() {
           setShowExtensions(true);
         }}
         onNewWindowClick={handleOpenWorkspaceWindow}
+        isSecondaryWorkspaceWindow={isSecondaryWorkspaceWindow}
+        hasSecondaryWorkspaceWindow={Boolean(secondaryWorkspaceWindowLabel)}
         onClipLibraryClick={handleOpenClipLibraryPanel}
         onSettingsClick={() => {
           setSettingsInitialCategory("general");

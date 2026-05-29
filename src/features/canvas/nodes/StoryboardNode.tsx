@@ -583,6 +583,7 @@ const FrameCard = memo(
             <CanvasNodeImage
               src={imageSource ?? ""}
               overviewSrc={frame.thumbnailUrl ?? null}
+              hoverSourceUrl={frame.imageUrl ?? null}
               alt={`Frame ${index + 1}`}
               viewerSourceUrl={viewerSource}
               viewerImageList={viewerImageList}

@@ -20,6 +20,8 @@ import titlebarLogo from '@/assets/titlebar-logo.png';
 interface TitleBarProps {
   onExtensionsClick: () => void;
   onNewWindowClick?: () => Promise<void> | void;
+  isSecondaryWorkspaceWindow?: boolean;
+  hasSecondaryWorkspaceWindow?: boolean;
   onClipLibraryClick?: () => Promise<void> | void;
   onSettingsClick: () => void;
   onCloseRequest?: () => Promise<void> | void;
@@ -33,6 +35,8 @@ interface TitleBarProps {
 export function TitleBar({
   onExtensionsClick,
   onNewWindowClick,
+  isSecondaryWorkspaceWindow = false,
+  hasSecondaryWorkspaceWindow = false,
   onClipLibraryClick,
   onSettingsClick,
   onCloseRequest,
@@ -184,6 +188,15 @@ export function TitleBar({
     }
   }, [onNewWindowClick, t]);
 
+  const windowRoleLabel = isSecondaryWorkspaceWindow
+    ? t('titleBar.secondaryWindow')
+    : t('titleBar.mainWindow');
+  const canOpenNewWorkspaceWindow =
+    Boolean(onNewWindowClick) && !isSecondaryWorkspaceWindow;
+  const newWindowButtonTitle = hasSecondaryWorkspaceWindow
+    ? t('titleBar.focusSecondaryWindow')
+    : t('titleBar.newWindow');
+
   const handleClipLibraryMouseDown = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
     if (event.button !== 0) {
       clipLibraryPointerArmedRef.current = false;
@@ -297,6 +310,17 @@ export function TitleBar({
               v{runtimeVersion}
             </span>
           ) : null}
+          <span
+            className={`ml-1 rounded border px-2 py-0.5 text-[11px] font-medium leading-none ${
+              isSecondaryWorkspaceWindow
+                ? 'border-amber-400/45 bg-amber-400/12 text-amber-200'
+                : 'border-border-dark bg-bg-dark/60 text-text-muted'
+            }`}
+            title={windowRoleLabel}
+            data-tauri-drag-region
+          >
+            {windowRoleLabel}
+          </span>
         </div>
       </div>
 
@@ -323,14 +347,17 @@ export function TitleBar({
           )}
         </button>
 
-        <button
-          type="button"
-          onClick={() => void handleNewWindowClick()}
-          className="h-full px-3 hover:bg-bg-dark transition-colors"
-          title={t('titleBar.newWindow')}
-        >
-          <Plus className="w-4 h-4 text-text-muted" />
-        </button>
+        {canOpenNewWorkspaceWindow ? (
+          <button
+            type="button"
+            onClick={() => void handleNewWindowClick()}
+            className="h-full px-3 hover:bg-bg-dark transition-colors"
+            title={newWindowButtonTitle}
+            aria-label={newWindowButtonTitle}
+          >
+            <Plus className={`w-4 h-4 ${hasSecondaryWorkspaceWindow ? 'text-amber-200' : 'text-text-muted'}`} />
+          </button>
+        ) : null}
 
         <button
           type="button"

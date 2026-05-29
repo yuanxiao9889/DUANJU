@@ -542,6 +542,7 @@ export const UploadNode = memo(
               src={imageSource ?? ""}
               fallbackSrc={fallbackImageSource}
               overviewSrc={thumbnailUrl}
+              hoverSourceUrl={originalImageUrl}
               viewerSourceUrl={originalImageUrl ?? previewImageUrl}
               alt={t("node.upload.uploadedAlt")}
               className="h-full w-full object-contain"

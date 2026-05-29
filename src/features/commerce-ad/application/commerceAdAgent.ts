@@ -2,37 +2,92 @@ import { generateText } from '@/commands/textGen';
 import {
   type CommerceAdAgentAction,
   type CommerceAdAgentGuidance,
+  type CommerceAdAgentImageAnalysis,
   type CommerceAdAgentMessage,
   type CommerceAdBatchGenerateState,
   type CommerceAdBriefState,
   type CommerceAdDetailPage,
   type CommerceAdDesignDirection,
   type CommerceAdGuidanceQuestion,
+  type CommerceAdAgentThreadState,
+  type CommerceAdAgentTurnIntent,
   type CommerceAdProductState,
   type CommerceAdVisualPreferenceState,
+  type CommerceAgentSkill,
   createDefaultCommerceAdVisualPreferenceState,
   normalizeCommerceAdVisualPreferenceState,
 } from '@/features/commerce-ad/types';
 
 export interface CommerceAdAgentTurnInput {
   userMessage: string;
+  conversationSummary?: string;
   product: CommerceAdProductState | null;
   brief: CommerceAdBriefState | null;
   visualPreference: CommerceAdVisualPreferenceState | null;
   batch: CommerceAdBatchGenerateState | null;
   referenceImages: string[];
   canUseVisionModel: boolean;
+  selectedSkill?: CommerceAgentSkill | null;
+  threadState?: CommerceAdAgentThreadState | null;
+  turnIntent?: CommerceAdAgentTurnIntent;
 }
 
 export interface CommerceAdAgentTurnResult {
   assistantMessage: CommerceAdAgentMessage;
   actions: CommerceAdAgentAction[];
+  threadStatePatch?: Partial<CommerceAdAgentThreadState>;
+  nextAction?: 'ask' | 'plan' | 'ready' | 'generate';
+}
+
+export function buildCommerceAdAgentVisiblePrompt(input: CommerceAdAgentTurnInput): string {
+  const skill = input.selectedSkill ?? null;
+  return [
+    'You are the visible chat voice of a Chinese design agent in a node-canvas app.',
+    'Write natural Simplified Chinese for the user. Do not output JSON.',
+    'The user should see this only as a temporary thinking preview while the real structured analysis runs.',
+    '',
+    'Required flow:',
+    '1. Output short thinking-style progress phrases only, not a final answer.',
+    '2. Keep each phrase under 28 Chinese characters and write at most 3 short phrases total.',
+    '3. Do not use numbered lists, Markdown headings, bold text, or long paragraphs.',
+    '4. Do not enumerate image details, missing fields, platform options, or recommendations.',
+    '5. Good style examples: 正在看图里的主体和卖点。 / 正在判断适合的广告版位。 / 正在整理需要补充的信息。',
+    '',
+    skill ? 'Selected skill instructions:' : 'Selected skill instructions: none.',
+    skill ? skill.promptInstructions : '',
+    '',
+    'Conversation summary:',
+    input.conversationSummary?.trim() || '(no prior conversation summary)',
+    '',
+    'Current product state:',
+    JSON.stringify(input.product, null, 2),
+    '',
+    `Reference image count: ${input.referenceImages.length}`,
+    '',
+    'Current thread state:',
+    JSON.stringify(input.threadState ?? null, null, 2),
+    '',
+    `Turn intent: ${input.turnIntent ?? 'initial'}`,
+    '',
+    'Current brief state:',
+    JSON.stringify(input.brief, null, 2),
+    '',
+    'Current visual preference state:',
+    JSON.stringify(input.visualPreference, null, 2),
+    '',
+    'Current batch state:',
+    JSON.stringify(input.batch, null, 2),
+    '',
+    'User message:',
+    input.userMessage.trim() || '(no new message; analyze current uploaded product image and state)',
+  ].filter((line) => line !== null && line !== undefined).join('\n');
 }
 
 function createMessage(
   role: CommerceAdAgentMessage['role'],
   content: string,
-  guidance?: CommerceAdAgentGuidance
+  guidance?: CommerceAdAgentGuidance,
+  imageAnalysis?: CommerceAdAgentImageAnalysis
 ): CommerceAdAgentMessage {
   return {
     id: `commerce-agent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -40,6 +95,7 @@ function createMessage(
     content,
     createdAt: Date.now(),
     ...(guidance ? { guidance } : {}),
+    ...(imageAnalysis ? { imageAnalysis } : {}),
   };
 }
 
@@ -346,6 +402,62 @@ function readGuidance(record: Record<string, unknown>): CommerceAdAgentGuidance 
   };
 }
 
+function readImageAnalysis(record: Record<string, unknown>): CommerceAdAgentImageAnalysis | undefined {
+  const analysisRecord = readRecord(record, 'imageAnalysis');
+  if (Object.keys(analysisRecord).length === 0) {
+    return undefined;
+  }
+
+  const summary = readString(analysisRecord, 'summary');
+  const observations = readStringArray(analysisRecord, 'observations');
+  const uncertainties = readStringArray(analysisRecord, 'uncertainties');
+  if (!summary && observations.length === 0 && uncertainties.length === 0) {
+    return undefined;
+  }
+
+  return {
+    summary,
+    observations,
+    uncertainties,
+    collapsedByDefault: true,
+  };
+}
+
+function readThreadStatePatch(record: Record<string, unknown>): Partial<CommerceAdAgentThreadState> | undefined {
+  const patchRecord = readRecord(record, 'threadStatePatch');
+  if (Object.keys(patchRecord).length === 0) {
+    return undefined;
+  }
+  const confirmedRecord = readRecord(patchRecord, 'confirmedSlots');
+  const confirmedSlots = Object.keys(confirmedRecord).length > 0
+    ? {
+        platforms: readStringArray(confirmedRecord, 'platforms'),
+        objective: readString(confirmedRecord, 'objective'),
+        audience: readString(confirmedRecord, 'audience'),
+        sellingPoint: readString(confirmedRecord, 'sellingPoint'),
+        visualDirection: readString(confirmedRecord, 'visualDirection'),
+        cta: readString(confirmedRecord, 'cta'),
+        brandInfo: readString(confirmedRecord, 'brandInfo'),
+        outputFormat: readString(confirmedRecord, 'outputFormat'),
+      }
+    : undefined;
+  const phase = readString(patchRecord, 'phase');
+  return {
+    ...(phase ? { phase: phase as CommerceAdAgentThreadState['phase'] } : {}),
+    ...(confirmedSlots ? { confirmedSlots } : {}),
+    missingSlots: readStringArray(patchRecord, 'missingSlots'),
+    lastAskedFields: readStringArray(patchRecord, 'lastAskedFields'),
+    planVersion: Number(readString(patchRecord, 'planVersion')) || undefined,
+  };
+}
+
+function readNextAction(record: Record<string, unknown>): CommerceAdAgentTurnResult['nextAction'] {
+  const value = readString(record, 'nextAction');
+  return ['ask', 'plan', 'ready', 'generate'].includes(value)
+    ? value as CommerceAdAgentTurnResult['nextAction']
+    : undefined;
+}
+
 function buildFallbackGuidance(
   product: CommerceAdProductState | null,
   brief: Partial<CommerceAdBriefState> | null,
@@ -429,6 +541,26 @@ function mergeGuidance(
     quickReplies: guidance.quickReplies.length > 0 ? guidance.quickReplies : fallback.quickReplies,
     readinessHint: guidance.readinessHint || fallback.readinessHint,
   };
+}
+
+function normalizeGuidance(guidance: CommerceAdAgentGuidance | undefined): CommerceAdAgentGuidance | undefined {
+  if (!guidance) {
+    return undefined;
+  }
+
+  if (
+    !guidance.summary
+    && guidance.confirmedFacts.length === 0
+    && guidance.missingFields.length === 0
+    && guidance.questions.length === 0
+    && guidance.designDirections.length === 0
+    && guidance.quickReplies.length === 0
+    && !guidance.readinessHint
+  ) {
+    return undefined;
+  }
+
+  return guidance;
 }
 
 function buildFallbackBrief(product: CommerceAdProductState | null, userMessage: string): Partial<CommerceAdBriefState> {
@@ -660,6 +792,7 @@ export async function runCommerceAdAgentTurn(
 ): Promise<CommerceAdAgentTurnResult> {
   const actions: CommerceAdAgentAction[] = [];
   const message = input.userMessage.trim();
+  const selectedSkill = input.selectedSkill ?? null;
 
   if (
     input.referenceImages.length > 0
@@ -671,7 +804,7 @@ export async function runCommerceAdAgentTurn(
     const assistantMessage = createMessage(
       'assistant',
       '我已经收到商品图，但当前文本模型看起来不支持视觉理解。你可以切换到多模态 LLM 后再反推，或先手动补充商品名称、卖点、目标人群，我会继续帮你完善出图 Brief。',
-      buildFallbackGuidance(input.product, input.brief, 'infer')
+      selectedSkill ? undefined : buildFallbackGuidance(input.product, input.brief, 'infer')
     );
     actions.push({
       type: 'upsertProduct',
@@ -679,7 +812,7 @@ export async function runCommerceAdAgentTurn(
         lastError: '当前文本模型可能无法识别图片，请切换多模态 LLM 或手动补充商品信息。',
       },
     });
-    return { assistantMessage, actions };
+    return { assistantMessage, actions, nextAction: 'ask' };
   }
 
   const prompt = [
@@ -689,6 +822,28 @@ export async function runCommerceAdAgentTurn(
     'JSON schema:',
     JSON.stringify({
       assistant: '',
+      nextAction: 'ask|plan|ready|generate',
+      threadStatePatch: {
+        phase: 'collecting|planning|ready|refining|generating',
+        confirmedSlots: {
+          platforms: [''],
+          objective: '',
+          audience: '',
+          sellingPoint: '',
+          visualDirection: '',
+          cta: '',
+          brandInfo: '',
+          outputFormat: '',
+        },
+        missingSlots: [''],
+        lastAskedFields: [''],
+        planVersion: 0,
+      },
+      imageAnalysis: {
+        summary: '',
+        observations: [''],
+        uncertainties: [''],
+      },
       guidance: {
         stage: 'brief',
         summary: '',
@@ -802,6 +957,8 @@ export async function runCommerceAdAgentTurn(
     '- product.userIdeaInfo can be optimized for clarity and conversion, but do not change facts. Put the polished version in brief.optimizedUserIdeaInfo and related detailPages[].optimizedCopy.',
     '- brief.detailPages must contain id, pageNo, title, lockedCopy, optimizedCopy, layoutNotes, prompt. Each prompt should be production-ready for one detail-page image.',
     '- Also populate detailPages[].pageGoal, detailPages[].blueprint, detailPages[].referenceImageIds, and detailPages[].qualityNotes when possible. pageGoal should be a concrete ecommerce section intent such as 首屏信任、核心卖点、参数规格、材质工艺、使用场景、售后保障、禁忌提醒.',
+    '- If images are provided, populate imageAnalysis separately from assistant. imageAnalysis.summary should be concise; observations should list visible subject, scene/style cues, readable text, and possible selling points; uncertainties should list only things you cannot verify from the image.',
+    '- Do not duplicate the full image analysis inside assistant. The UI renders imageAnalysis in a collapsed section.',
     '- Treat product image descriptions as an evidence board. Assign evidence tags mentally such as 主图、材质细节、规格参数、包装、使用场景、风险限制, then reference the most relevant image ids in each detail page instead of defaulting every page to the main image.',
     '- Populate brief.qualityCheckSummary and brief.qualityIssues with a concise pre-generation QA pass: source-copy coverage, duplicate allocation, possible invented claims, thin pages, excessive page count, and platform/compliance risks.',
     '- Internally act as five cooperating agents in one JSON response: 商品资料 Agent extracts evidence, 详情页策划 Agent plans page goals, 文案 Agent only optimizes userIdeaInfo, Prompt Agent writes image prompts, and 质检 Agent checks risk before generation.',
@@ -812,9 +969,16 @@ export async function runCommerceAdAgentTurn(
     '- Do not default every page to the main product image. When a reference image is described as a detail/side/material/packaging/scene image, assign that visual evidence to the most relevant detail page and mention it explicitly in layoutNotes and prompt.',
     '- Synthesize visual understanding across all reference images, but do not invent locked on-image text from images alone. Text that must appear verbatim still comes only from product.lockedDocumentInfo or detailPages[].lockedCopy.',
     '- Act like a Chinese visual design consultant, not a command executor.',
-    '- Every assistant reply must explain in Chinese what is understood, what is uncertain, and what the user can choose next.',
-    '- Always populate guidance with structured cards for the UI.',
-    '- If key information is missing, ask 2-4 high-impact Chinese follow-up questions in guidance.questions and product.inference.followUpQuestions.',
+    '- Treat User message as a continuation of the existing conversation and Current states. Do not overwrite previous product facts, uploaded image evidence, or plan direction unless the user explicitly changes them.',
+    '- assistant must be a brief conclusion, 1-2 Chinese sentences max. Say only the current conclusion and what to do next.',
+    '- Do not duplicate imageAnalysis, confirmedFacts, missingFields, guidance questions, option lists, the full brief, prompt, or page plan inside assistant; those belong in the collapsed analysis, guidance card, or canvas plan node.',
+    '- Populate guidance only with information you actually inferred or questions/options you actually need from the user. Do not copy default skill option lists wholesale.',
+    '- If key information is missing, ask at most 1-2 high-impact Chinese follow-up questions in assistant and product.inference.followUpQuestions.',
+    '- Use Current thread state as memory. Preserve confirmedSlots unless the user clearly changes them.',
+    '- If Current thread state already has imageAnalysis and this turn has no new reference image, do not redo or restate full image analysis; reuse it silently.',
+    '- Never list confirmedSlots as missingFields. Only ask for slots that are still missing after applying the current user message.',
+    '- If platform, objective, and visualDirection are known and imageAnalysis or product information exists, set nextAction to ready or plan and produce a concrete ad creative plan instead of asking more setup questions.',
+    '- threadStatePatch should include only the updated phase, confirmedSlots, missingSlots, lastAskedFields, and planVersion needed after this turn.',
     '- Include 2-3 concrete Chinese designDirections when the product is understood or partially understood.',
     '- Before platform, audience, selling points, and style are clear, prioritize Chinese brief refinement instead of pushing generation settings.',
     '- guidance.quickReplies should be short Chinese phrases users can click and edit before sending.',
@@ -822,6 +986,36 @@ export async function runCommerceAdAgentTurn(
     '- Keep corePrompt production-ready for ecommerce image generation with faithful product preservation, but write it in Chinese by default.',
     '- visualPreference must be Chinese by default and include designStyle, colorPalette, platformVisual, language, brandAccentColor, summary, and a production-ready promptFragment.',
     '- batch.corePrompt and every batch.ratioPrompts value must explicitly include visualPreference.promptFragment constraints.',
+    selectedSkill
+      ? '- A user-selected skill is active. Treat the skill instructions below as first-class task requirements. The selected skill should change product inference, guidance questions, brief.platform, visualPreference.platformVisual, batch aspect ratios, and production prompt.'
+      : '',
+    selectedSkill
+      ? '- For 广告创意, do image analysis first, then create platform-native paid ad creative guidance. Do not default to ecommerce detail-page images unless the user explicitly asks for detail pages.'
+      : '',
+    selectedSkill
+      ? '- If platform, ad objective, audience, offer/selling point, CTA, or required output format is missing, ask concise questions and provide clickable options in guidance.questions and guidance.quickReplies, but only for missing/high-impact fields. If the image makes something clear, confirm it instead of asking.'
+      : '',
+    selectedSkill
+      ? '- When 广告创意 is active, brief.usage should describe paid ad creative, brief.platform should contain selected/recommended ad platforms, batch.aspectRatios should match chosen platforms, and prompts should be ad creative prompts rather than detail-page-only prompts.'
+      : '',
+    '',
+    selectedSkill ? 'Selected skill:' : '',
+    selectedSkill ? JSON.stringify({
+      id: selectedSkill.id,
+      title: selectedSkill.title,
+      description: selectedSkill.description,
+      promptInstructions: selectedSkill.promptInstructions,
+      defaultQuestions: selectedSkill.defaultQuestions,
+      quickOptions: selectedSkill.quickOptions,
+    }, null, 2) : '',
+    '',
+    'Conversation summary and prior user context:',
+    input.conversationSummary?.trim() || '(no prior conversation summary)',
+    '',
+    'Current thread state memory:',
+    JSON.stringify(input.threadState ?? null, null, 2),
+    '',
+    `Turn intent: ${input.turnIntent ?? 'initial'}`,
     '',
     'Current product state:',
     JSON.stringify(input.product, null, 2),
@@ -994,14 +1188,19 @@ export async function runCommerceAdAgentTurn(
       lastAnalyzedAt: productData.lastAnalyzedAt ?? input.product?.lastAnalyzedAt ?? null,
       lastError: productData.lastError ?? input.product?.lastError ?? null,
     };
-    const guidance = mergeGuidance(
-      readGuidance(parsed),
-      buildFallbackGuidance(
-        guidanceProduct,
-        mergedBrief,
-        guidanceProduct.inference?.summary ? 'direction' : 'brief'
-      )
-    );
+    const guidance = selectedSkill
+      ? normalizeGuidance(readGuidance(parsed))
+      : mergeGuidance(
+          readGuidance(parsed),
+          buildFallbackGuidance(
+            guidanceProduct,
+            mergedBrief,
+            guidanceProduct.inference?.summary ? 'direction' : 'brief'
+          )
+        );
+    const imageAnalysis = readImageAnalysis(parsed);
+    const threadStatePatch = readThreadStatePatch(parsed);
+    const nextAction = readNextAction(parsed);
 
     actions.push({ type: 'upsertProduct', data: productData });
     actions.push({ type: 'upsertBrief', data: mergedBrief });
@@ -1034,9 +1233,12 @@ export async function runCommerceAdAgentTurn(
       assistantMessage: createMessage(
         'assistant',
         readString(parsed, 'assistant') || '我已经把商品理解和出图 Brief 同步到左侧画布。你可以先选择一个设计方向，我再继续细化画面。',
-        guidance
+        guidance,
+        imageAnalysis
       ),
       actions,
+      threadStatePatch,
+      nextAction,
     };
   } catch (error) {
     const fallbackBrief = buildDetailFallbackBrief(input.product, message);
@@ -1045,7 +1247,9 @@ export async function runCommerceAdAgentTurn(
       fallbackBrief,
       input.visualPreference
     );
-    const guidance = buildFallbackGuidance(input.product, fallbackBrief, 'brief');
+    const guidance = selectedSkill
+      ? undefined
+      : buildFallbackGuidance(input.product, fallbackBrief, 'brief');
     actions.push({ type: 'upsertBrief', data: fallbackBrief });
     actions.push({ type: 'upsertVisualPreference', data: fallbackVisualPreference });
     actions.push({
@@ -1072,6 +1276,7 @@ export async function runCommerceAdAgentTurn(
         guidance
       ),
       actions,
+      nextAction: 'ask',
     };
   }
 }

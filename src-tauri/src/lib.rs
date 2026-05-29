@@ -18,8 +18,8 @@ use commands::jimeng_video_queue;
 use commands::media_audio;
 use commands::midjourney;
 use commands::project_state;
-use commands::ps_server;
 use commands::project_window_sessions;
+use commands::ps_server;
 use commands::script_project_package;
 use commands::seedance;
 use commands::style_preset_package;
@@ -432,6 +432,10 @@ pub fn run() {
             project_state::validate_project_graph_storage,
             project_state::upsert_project_record,
             project_state::update_project_viewport_record,
+            project_state::list_commerce_agent_threads,
+            project_state::get_commerce_agent_thread,
+            project_state::upsert_commerce_agent_thread,
+            project_state::delete_commerce_agent_thread,
             project_state::rename_project_record,
             project_state::delete_project_record,
             project_state::organize_project_media,
@@ -452,6 +456,8 @@ pub fn run() {
             text_gen::generate_text,
             text_gen::start_script_director_storyboard_stream,
             text_gen::cancel_script_director_storyboard_stream,
+            text_gen::start_commerce_ad_agent_stream,
+            text_gen::cancel_commerce_ad_agent_stream,
             text_gen::test_provider_connection,
             text_gen::get_active_text_model_status,
             update::check_latest_release_tag,

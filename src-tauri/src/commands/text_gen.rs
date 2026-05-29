@@ -5,9 +5,11 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::Emitter;
 use tokio::sync::RwLock;
+use tokio::time::{sleep, Duration};
 use tracing::info;
 
 use crate::ai::providers::build_default_providers;
+use crate::ai::providers::compatible::{CompatibleApiFormat, CompatibleProvider};
 use crate::ai::{GenerateRequest, ProviderRegistry};
 
 static TEXT_REGISTRY: std::sync::OnceLock<ProviderRegistry> = std::sync::OnceLock::new();
@@ -15,8 +17,11 @@ static ACTIVE_TEXT_MODEL_STATUS: std::sync::OnceLock<Arc<RwLock<Option<ActiveTex
     std::sync::OnceLock::new();
 static CANCELLED_DIRECTOR_STREAM_REQUESTS: std::sync::OnceLock<Arc<RwLock<HashSet<String>>>> =
     std::sync::OnceLock::new();
+static CANCELLED_COMMERCE_AGENT_STREAM_REQUESTS: std::sync::OnceLock<Arc<RwLock<HashSet<String>>>> =
+    std::sync::OnceLock::new();
 
 const SCRIPT_DIRECTOR_STORYBOARD_STREAM_EVENT: &str = "script-director-storyboard-stream";
+const COMMERCE_AD_AGENT_STREAM_EVENT: &str = "commerce-ad-agent-stream";
 
 fn get_text_registry() -> &'static ProviderRegistry {
     TEXT_REGISTRY.get_or_init(|| {
@@ -34,6 +39,10 @@ fn active_text_model_status() -> &'static Arc<RwLock<Option<ActiveTextModelStatu
 
 fn cancelled_director_stream_requests() -> &'static Arc<RwLock<HashSet<String>>> {
     CANCELLED_DIRECTOR_STREAM_REQUESTS.get_or_init(|| Arc::new(RwLock::new(HashSet::new())))
+}
+
+fn cancelled_commerce_agent_stream_requests() -> &'static Arc<RwLock<HashSet<String>>> {
+    CANCELLED_COMMERCE_AGENT_STREAM_REQUESTS.get_or_init(|| Arc::new(RwLock::new(HashSet::new())))
 }
 
 fn now_ms() -> i64 {
@@ -93,6 +102,24 @@ pub struct ScriptDirectorStoryboardStreamRequestDto {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ScriptDirectorStoryboardStreamResponseDto {
+    pub request_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CommerceAdAgentStreamRequestDto {
+    pub prompt: String,
+    pub request_id: String,
+    pub model: String,
+    pub provider: String,
+    pub api_key: String,
+    pub temperature: Option<f32>,
+    pub max_tokens: Option<u32>,
+    pub reference_images: Option<Vec<String>>,
+    pub extra_params: Option<HashMap<String, Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CommerceAdAgentStreamResponseDto {
     pub request_id: String,
 }
 
@@ -161,6 +188,105 @@ async fn update_active_text_model(provider: &str, model: &str, switch_started_at
     *guard = Some(status);
 }
 
+fn split_text_for_pseudo_stream(text: &str) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        current.push(ch);
+        let should_flush = matches!(ch, '。' | '！' | '？' | '\n' | '.' | '!' | '?')
+            || current.chars().count() >= 36;
+        if should_flush {
+            let trimmed = current.trim();
+            if !trimmed.is_empty() {
+                chunks.push(trimmed.to_string());
+            }
+            current.clear();
+        }
+    }
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        chunks.push(trimmed.to_string());
+    }
+    chunks
+}
+
+pub fn parse_openai_chat_sse_delta(line: &str) -> Result<Option<String>, String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with(':') {
+        return Ok(None);
+    }
+    let data = if let Some(data) = trimmed.strip_prefix("data:") {
+        data.trim()
+    } else if trimmed.starts_with('{') {
+        trimmed
+    } else {
+        return Ok(None);
+    };
+    if data == "[DONE]" {
+        return Ok(None);
+    }
+    if data.is_empty() {
+        return Ok(None);
+    }
+    let payload: Value = serde_json::from_str(data).map_err(|error| error.to_string())?;
+    Ok(payload
+        .pointer("/choices/0/delta/content")
+        .and_then(Value::as_str)
+        .map(ToString::to_string)
+        .or_else(|| {
+            payload
+                .pointer("/choices/0/message/content")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+        }))
+}
+
+fn normalize_commerce_oopii_chat_model(model: &str) -> String {
+    let stripped = model
+        .trim()
+        .split_once('/')
+        .map(|(_, bare)| bare.trim())
+        .unwrap_or_else(|| model.trim());
+    match stripped.to_ascii_lowercase().as_str() {
+        "gpt-5.4" => "all-5.4".to_string(),
+        "gpt-5.5" => "all-5.5".to_string(),
+        _ => stripped.to_string(),
+    }
+}
+
+fn is_commerce_oopii_chat_model(model: &str) -> bool {
+    let normalized = normalize_commerce_oopii_chat_model(model).to_ascii_lowercase();
+    normalized == "all-5.4"
+        || normalized == "all-5.5"
+        || model.trim().to_ascii_lowercase().starts_with("oopii/")
+}
+
+fn ensure_commerce_agent_stream_compatible_config(
+    provider: &str,
+    model: &str,
+    extra_params: &mut Option<HashMap<String, Value>>,
+) {
+    if !provider.trim().eq_ignore_ascii_case("oopii") || !is_commerce_oopii_chat_model(model) {
+        return;
+    }
+
+    let params = extra_params.get_or_insert_with(HashMap::new);
+    if params.get("compatible_config").is_some() {
+        return;
+    }
+
+    let request_model = normalize_commerce_oopii_chat_model(model);
+    params.insert(
+        "compatible_config".to_string(),
+        json!({
+            "api_format": "openai-chat",
+            "endpoint_url": "https://www.oopii.cc/",
+            "request_model": request_model,
+            "display_name": request_model,
+        }),
+    );
+}
+
 async fn is_director_stream_cancelled(request_id: &str) -> bool {
     cancelled_director_stream_requests()
         .read()
@@ -177,6 +303,27 @@ async fn mark_director_stream_cancelled(request_id: String) {
 
 async fn clear_director_stream_cancelled(request_id: &str) {
     cancelled_director_stream_requests()
+        .write()
+        .await
+        .remove(request_id);
+}
+
+async fn is_commerce_agent_stream_cancelled(request_id: &str) -> bool {
+    cancelled_commerce_agent_stream_requests()
+        .read()
+        .await
+        .contains(request_id)
+}
+
+async fn mark_commerce_agent_stream_cancelled(request_id: String) {
+    cancelled_commerce_agent_stream_requests()
+        .write()
+        .await
+        .insert(request_id);
+}
+
+async fn clear_commerce_agent_stream_cancelled(request_id: &str) {
+    cancelled_commerce_agent_stream_requests()
         .write()
         .await
         .remove(request_id);
@@ -760,6 +907,294 @@ async fn emit_director_stream_cancelled(
     )
 }
 
+fn emit_commerce_agent_stream_event(app: &tauri::AppHandle, payload: Value) -> Result<(), String> {
+    app.emit(COMMERCE_AD_AGENT_STREAM_EVENT, payload)
+        .map_err(|error: tauri::Error| error.to_string())
+}
+
+async fn emit_commerce_agent_stream_cancelled(
+    app: &tauri::AppHandle,
+    request_id: &str,
+) -> Result<(), String> {
+    emit_commerce_agent_stream_event(
+        app,
+        json!({
+            "type": "stream_cancelled",
+            "requestId": request_id,
+            "message": "已停止生成。",
+        }),
+    )
+}
+
+async fn run_commerce_ad_agent_openai_chat_sse(
+    app: &tauri::AppHandle,
+    request: &CommerceAdAgentStreamRequestDto,
+    req: &GenerateRequest,
+) -> Result<Option<String>, String> {
+    let config = CompatibleProvider::extract_config(req).map_err(|error| error.to_string())?;
+    if config.api_format != CompatibleApiFormat::OpenAiChat {
+        return Ok(None);
+    }
+
+    let endpoint = CompatibleProvider::resolve_openai_endpoint(
+        &config.endpoint_url,
+        CompatibleApiFormat::OpenAiChat,
+    );
+    let message_content = if let Some(reference_images) = req
+        .reference_images
+        .as_ref()
+        .filter(|images| !images.is_empty())
+    {
+        let mut content = vec![json!({
+            "type": "text",
+            "text": req.prompt.trim(),
+        })];
+        for source in reference_images {
+            content.push(json!({
+                "type": "image_url",
+                "image_url": {
+                    "url": CompatibleProvider::source_to_data_url(source)
+                        .await
+                        .map_err(|error| error.to_string())?
+                }
+            }));
+        }
+        Value::Array(content)
+    } else {
+        Value::String(req.prompt.trim().to_string())
+    };
+
+    let body = json!({
+        "model": CompatibleProvider::sanitize_model(&config.request_model),
+        "messages": [{
+            "role": "user",
+            "content": message_content
+        }],
+        "temperature": request.temperature.unwrap_or(0.35),
+        "max_tokens": request.max_tokens.unwrap_or(1200),
+        "stream": true,
+    });
+
+    let response = reqwest::Client::new()
+        .post(endpoint)
+        .version(reqwest::Version::HTTP_11)
+        .bearer_auth(request.api_key.trim())
+        .header("X-API-Key", request.api_key.trim())
+        .header("Accept", "text/event-stream")
+        .header("Content-Type", "application/json")
+        .header("User-Agent", "Storyboard-Copilot/commerce-agent-stream")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Stream request failed {}: {}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        ));
+    }
+
+    let mut full_text = String::new();
+    let mut buffer = String::new();
+    let mut stream = response.bytes_stream();
+    use futures_util::StreamExt;
+    while let Some(item) = stream.next().await {
+        if is_commerce_agent_stream_cancelled(&request.request_id).await {
+            emit_commerce_agent_stream_cancelled(app, &request.request_id).await?;
+            return Ok(Some(full_text));
+        }
+        let bytes = item.map_err(|error| error.to_string())?;
+        buffer.push_str(&String::from_utf8_lossy(&bytes));
+        while let Some(newline_index) = buffer.find('\n') {
+            let line = buffer[..newline_index].to_string();
+            buffer = buffer[newline_index + 1..].to_string();
+            if line.trim() == "data: [DONE]" || line.trim() == "data:[DONE]" {
+                return Ok(Some(full_text));
+            }
+            if let Some(delta) = parse_openai_chat_sse_delta(&line)? {
+                if delta.is_empty() {
+                    continue;
+                }
+                full_text.push_str(&delta);
+                emit_commerce_agent_stream_event(
+                    app,
+                    json!({
+                        "type": "text_delta",
+                        "requestId": request.request_id,
+                        "delta": delta,
+                    }),
+                )?;
+            }
+        }
+    }
+
+    Ok(Some(full_text))
+}
+
+async fn run_commerce_ad_agent_stream_job(
+    app: tauri::AppHandle,
+    request: CommerceAdAgentStreamRequestDto,
+) {
+    let result: Result<(), String> = async {
+        clear_commerce_agent_stream_cancelled(&request.request_id).await;
+        let switch_started_at = Instant::now();
+        let registry = get_text_registry();
+        let provider = registry
+            .get_provider(request.provider.trim())
+            .ok_or_else(|| format!("Provider '{}' not found", request.provider.trim()))?
+            .clone();
+        provider
+            .set_api_key(request.api_key.trim().to_string())
+            .await
+            .map_err(|error| error.to_string())?;
+        update_active_text_model(provider.name(), request.model.as_str(), switch_started_at).await;
+
+        let mut extra_params = request.extra_params.clone().filter(|params| !params.is_empty());
+        ensure_commerce_agent_stream_compatible_config(
+            request.provider.trim(),
+            request.model.as_str(),
+            &mut extra_params,
+        );
+
+        let req = GenerateRequest {
+            prompt: request.prompt.clone(),
+            model: request.model.clone(),
+            size: String::new(),
+            aspect_ratio: String::new(),
+            reference_images: request.reference_images.clone().filter(|items| !items.is_empty()),
+            extra_params,
+        };
+
+        emit_commerce_agent_stream_event(
+            &app,
+            json!({
+                "type": "stream_started",
+                "requestId": request.request_id,
+                "message": "开始分析图片和技能上下文。",
+            }),
+        )?;
+        emit_commerce_agent_stream_event(
+            &app,
+            json!({
+                "type": "phase_changed",
+                "requestId": request.request_id,
+                "phase": "image_analysis",
+                "message": "正在分析图片",
+            }),
+        )?;
+
+        let has_openai_chat_compatible_config = req
+            .extra_params
+            .as_ref()
+            .and_then(|params| params.get("compatible_config"))
+            .and_then(|value| value.get("api_format"))
+            .and_then(Value::as_str)
+            .map(|value| value == "openai-chat")
+            .unwrap_or(false);
+        let attempted_token_stream = has_openai_chat_compatible_config;
+        let streamed_text = if has_openai_chat_compatible_config {
+            match run_commerce_ad_agent_openai_chat_sse(&app, &request, &req).await {
+                Ok(text) => text,
+                Err(error) => {
+                    emit_commerce_agent_stream_event(
+                        &app,
+                        json!({
+                            "type": "phase_changed",
+                            "requestId": request.request_id,
+                            "phase": "skill_work",
+                            "message": format!("真实 token 流式连接失败，正在降级为分段输出：{}", error),
+                        }),
+                    )?;
+                    None
+                }
+            }
+        } else if request.provider.trim().eq_ignore_ascii_case("oopii") && is_commerce_oopii_chat_model(&request.model) {
+            emit_commerce_agent_stream_event(
+                &app,
+                json!({
+                    "type": "phase_changed",
+                    "requestId": request.request_id,
+                    "phase": "skill_work",
+                    "message": "OOpii 已按 OpenAI Chat 流式配置重试，但请求缺少 compatible_config，正在降级为分段输出。",
+                }),
+            )?;
+            None
+        } else {
+            None
+        };
+
+        let full_text = if let Some(text) = streamed_text {
+            text
+        } else {
+            let fallback_message = if attempted_token_stream {
+                "真实 token 流式连接失败，正在使用分段输出。"
+            } else {
+                "当前模型未配置真实 token 流式通道，正在使用分段输出。"
+            };
+            emit_commerce_agent_stream_event(
+                &app,
+                json!({
+                    "type": "phase_changed",
+                    "requestId": request.request_id,
+                    "phase": "skill_work",
+                    "message": fallback_message,
+                }),
+            )?;
+            let text = provider.generate(req).await.map_err(|error| error.to_string())?;
+            for chunk in split_text_for_pseudo_stream(&text) {
+                if is_commerce_agent_stream_cancelled(&request.request_id).await {
+                    emit_commerce_agent_stream_cancelled(&app, &request.request_id).await?;
+                    return Ok(());
+                }
+                emit_commerce_agent_stream_event(
+                    &app,
+                    json!({
+                        "type": "text_delta",
+                        "requestId": request.request_id,
+                        "delta": chunk,
+                    }),
+                )?;
+                sleep(Duration::from_millis(45)).await;
+            }
+            text
+        };
+
+        emit_commerce_agent_stream_event(
+            &app,
+            json!({
+                "type": "phase_changed",
+                "requestId": request.request_id,
+                "phase": "finalizing",
+                "message": "正在整理结构化结果",
+            }),
+        )?;
+        emit_commerce_agent_stream_event(
+            &app,
+            json!({
+                "type": "message_completed",
+                "requestId": request.request_id,
+                "text": full_text,
+            }),
+        )?;
+        Ok(())
+    }
+    .await;
+
+    if let Err(error) = result {
+        let _ = emit_commerce_agent_stream_event(
+            &app,
+            json!({
+                "type": "stream_failed",
+                "requestId": request.request_id,
+                "message": error,
+            }),
+        );
+    }
+    clear_commerce_agent_stream_cancelled(&request.request_id).await;
+}
+
 async fn run_script_director_storyboard_stream_job(
     app: tauri::AppHandle,
     request: ScriptDirectorStoryboardStreamRequestDto,
@@ -1045,6 +1480,29 @@ pub async fn cancel_script_director_storyboard_stream(request_id: String) -> Res
     Ok(())
 }
 
+#[tauri::command]
+pub async fn start_commerce_ad_agent_stream(
+    app: tauri::AppHandle,
+    request: CommerceAdAgentStreamRequestDto,
+) -> Result<CommerceAdAgentStreamResponseDto, String> {
+    clear_commerce_agent_stream_cancelled(&request.request_id).await;
+    let app_handle = app.clone();
+    let request_clone = request.clone();
+    tauri::async_runtime::spawn(async move {
+        run_commerce_ad_agent_stream_job(app_handle, request_clone).await;
+    });
+
+    Ok(CommerceAdAgentStreamResponseDto {
+        request_id: request.request_id,
+    })
+}
+
+#[tauri::command]
+pub async fn cancel_commerce_ad_agent_stream(request_id: String) -> Result<(), String> {
+    mark_commerce_agent_stream_cancelled(request_id).await;
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TestConnectionRequest {
     pub provider: String,
@@ -1143,5 +1601,192 @@ mod tests {
                 || provider == "compatible"
         );
         assert!(status.switch_cost_ms.unwrap_or(0) < 10_000);
+    }
+
+    #[test]
+    fn parse_openai_chat_sse_delta_reads_content_delta() {
+        let line = r#"data: {"choices":[{"delta":{"content":"你好"}}]}"#;
+        assert_eq!(
+            parse_openai_chat_sse_delta(line).unwrap(),
+            Some("你好".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_openai_chat_sse_delta_ignores_empty_and_done() {
+        assert_eq!(parse_openai_chat_sse_delta("data: [DONE]").unwrap(), None);
+        assert_eq!(parse_openai_chat_sse_delta("data:").unwrap(), None);
+        assert_eq!(parse_openai_chat_sse_delta("event: message").unwrap(), None);
+        assert_eq!(parse_openai_chat_sse_delta("id: chatcmpl-123").unwrap(), None);
+        assert_eq!(parse_openai_chat_sse_delta("retry: 1000").unwrap(), None);
+        assert_eq!(
+            parse_openai_chat_sse_delta(r#"data: {"choices":[{"delta":{}}]}"#).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_openai_chat_sse_delta_reports_invalid_json() {
+        assert!(parse_openai_chat_sse_delta("data: {not-json").is_err());
+    }
+
+    #[test]
+    fn commerce_oopii_chat_model_aliases_are_streamable() {
+        assert_eq!(normalize_commerce_oopii_chat_model("gpt-5.5"), "all-5.5");
+        assert_eq!(
+            normalize_commerce_oopii_chat_model("oopii/gpt-5.4"),
+            "all-5.4"
+        );
+        assert!(is_commerce_oopii_chat_model("all-5.4"));
+        assert!(is_commerce_oopii_chat_model("all-5.5"));
+        assert!(is_commerce_oopii_chat_model("gpt-5.5"));
+        assert!(is_commerce_oopii_chat_model("oopii/custom-text-model"));
+        assert!(!is_commerce_oopii_chat_model("deepseek-chat"));
+    }
+
+    #[test]
+    fn commerce_oopii_stream_injects_openai_chat_config_when_missing() {
+        let mut extra_params = None;
+        ensure_commerce_agent_stream_compatible_config("oopii", "gpt-5.5", &mut extra_params);
+        let config = extra_params
+            .as_ref()
+            .and_then(|params| params.get("compatible_config"))
+            .expect("compatible config should be injected");
+
+        assert_eq!(
+            config
+                .pointer("/api_format")
+                .and_then(serde_json::Value::as_str),
+            Some("openai-chat")
+        );
+        assert_eq!(
+            config
+                .pointer("/endpoint_url")
+                .and_then(serde_json::Value::as_str),
+            Some("https://www.oopii.cc/")
+        );
+        assert_eq!(
+            config
+                .pointer("/request_model")
+                .and_then(serde_json::Value::as_str),
+            Some("all-5.5")
+        );
+    }
+
+    #[test]
+    fn commerce_oopii_stream_preserves_existing_compatible_config() {
+        let mut extra_params = Some(HashMap::from([(
+            "compatible_config".to_string(),
+            json!({
+                "api_format": "openai-chat",
+                "endpoint_url": "https://example.test/v1",
+                "request_model": "custom",
+            }),
+        )]));
+
+        ensure_commerce_agent_stream_compatible_config("oopii", "all-5.5", &mut extra_params);
+        let config = extra_params
+            .as_ref()
+            .and_then(|params| params.get("compatible_config"))
+            .expect("compatible config should still exist");
+        assert_eq!(
+            config
+                .pointer("/endpoint_url")
+                .and_then(serde_json::Value::as_str),
+            Some("https://example.test/v1")
+        );
+        assert_eq!(
+            config
+                .pointer("/request_model")
+                .and_then(serde_json::Value::as_str),
+            Some("custom")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn commerce_oopii_live_sse_receives_delta() {
+        let api_key = std::env::var("OOPII_LIVE_TEST_KEY")
+            .expect("set OOPII_LIVE_TEST_KEY to run this live test");
+        let request = CommerceAdAgentStreamRequestDto {
+            prompt: "请只回复 OK 两个字母。".to_string(),
+            request_id: "commerce-oopii-live-test".to_string(),
+            model: "all-5.5".to_string(),
+            provider: "oopii".to_string(),
+            api_key,
+            temperature: Some(0.0),
+            max_tokens: Some(32),
+            reference_images: None,
+            extra_params: Some(HashMap::from([(
+                "compatible_config".to_string(),
+                json!({
+                    "api_format": "openai-chat",
+                    "endpoint_url": "https://www.oopii.cc/",
+                    "request_model": "all-5.5",
+                    "display_name": "all-5.5",
+                }),
+            )])),
+        };
+        let req = GenerateRequest {
+            prompt: request.prompt.clone(),
+            model: request.model.clone(),
+            size: String::new(),
+            aspect_ratio: String::new(),
+            reference_images: None,
+            extra_params: request.extra_params.clone(),
+        };
+        let config = CompatibleProvider::extract_config(&req).unwrap();
+        let endpoint = CompatibleProvider::resolve_openai_endpoint(
+            &config.endpoint_url,
+            CompatibleApiFormat::OpenAiChat,
+        );
+        let body = json!({
+            "model": CompatibleProvider::sanitize_model(&config.request_model),
+            "messages": [{
+                "role": "user",
+                "content": request.prompt
+            }],
+            "temperature": request.temperature.unwrap_or(0.35),
+            "max_tokens": request.max_tokens.unwrap_or(1200),
+            "stream": true,
+        });
+        let response = reqwest::Client::new()
+            .post(endpoint)
+            .version(reqwest::Version::HTTP_11)
+            .bearer_auth(request.api_key.trim())
+            .header("X-API-Key", request.api_key.trim())
+            .header("Accept", "text/event-stream")
+            .header("Content-Type", "application/json")
+            .header(
+                "User-Agent",
+                "Storyboard-Copilot/commerce-agent-stream-test",
+            )
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert!(
+            response.status().is_success(),
+            "status={} body={}",
+            response.status(),
+            response.text().await.unwrap_or_default()
+        );
+        let mut buffer = String::new();
+        let mut stream = response.bytes_stream();
+        use futures_util::StreamExt;
+        while let Some(item) = stream.next().await {
+            let bytes = item.unwrap();
+            buffer.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(newline_index) = buffer.find('\n') {
+                let line = buffer[..newline_index].to_string();
+                buffer = buffer[newline_index + 1..].to_string();
+                if let Some(delta) = parse_openai_chat_sse_delta(&line).unwrap() {
+                    if !delta.trim().is_empty() {
+                        return;
+                    }
+                }
+            }
+        }
+        panic!("live SSE completed without a text delta");
     }
 }

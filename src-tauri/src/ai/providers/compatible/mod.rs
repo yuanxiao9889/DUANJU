@@ -27,7 +27,7 @@ const CURL_JSON_TRANSPORT_TIMEOUT_SECONDS: u64 = 1_000;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Clone, Deserialize)]
-struct CompatibleConfigPayload {
+pub struct CompatibleConfigPayload {
     api_format: String,
     endpoint_url: String,
     request_model: String,
@@ -36,7 +36,7 @@ struct CompatibleConfigPayload {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CompatibleApiFormat {
+pub enum CompatibleApiFormat {
     OpenAiGenerations,
     OpenAiEdits,
     OpenAiChat,
@@ -44,11 +44,11 @@ enum CompatibleApiFormat {
 }
 
 #[derive(Debug, Clone)]
-struct CompatibleConfig {
-    api_format: CompatibleApiFormat,
-    endpoint_url: String,
-    request_model: String,
-    display_name: String,
+pub struct CompatibleConfig {
+    pub api_format: CompatibleApiFormat,
+    pub endpoint_url: String,
+    pub request_model: String,
+    pub display_name: String,
 }
 
 pub struct CompatibleProvider {
@@ -57,7 +57,7 @@ pub struct CompatibleProvider {
 }
 
 impl CompatibleApiFormat {
-    fn parse(input: &str) -> Result<Self, AIError> {
+    pub fn parse(input: &str) -> Result<Self, AIError> {
         match input.trim() {
             "openai-generations" => Ok(Self::OpenAiGenerations),
             "openai-edits" => Ok(Self::OpenAiEdits),
@@ -174,7 +174,7 @@ impl CompatibleProvider {
         }
     }
 
-    async fn source_to_data_url(source: &str) -> Result<String, AIError> {
+    pub async fn source_to_data_url(source: &str) -> Result<String, AIError> {
         let trimmed = source.trim();
         if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
             return Ok(trimmed.to_string());
@@ -193,7 +193,7 @@ impl CompatibleProvider {
         ))
     }
 
-    fn extract_config(request: &GenerateRequest) -> Result<CompatibleConfig, AIError> {
+    pub fn extract_config(request: &GenerateRequest) -> Result<CompatibleConfig, AIError> {
         let raw_value = request
             .extra_params
             .as_ref()
@@ -226,7 +226,7 @@ impl CompatibleProvider {
         })
     }
 
-    fn sanitize_model(model: &str) -> String {
+    pub fn sanitize_model(model: &str) -> String {
         model
             .split_once('/')
             .map(|(_, bare)| bare.to_string())
@@ -296,7 +296,7 @@ impl CompatibleProvider {
         Some(resolved.to_string())
     }
 
-    fn resolve_openai_endpoint(endpoint_url: &str, mode: CompatibleApiFormat) -> String {
+    pub fn resolve_openai_endpoint(endpoint_url: &str, mode: CompatibleApiFormat) -> String {
         let trimmed = endpoint_url.trim().trim_end_matches('/');
         let path = match mode {
             CompatibleApiFormat::OpenAiGenerations => "/images/generations",

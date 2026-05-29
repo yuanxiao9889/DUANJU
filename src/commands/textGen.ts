@@ -1,4 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   isScriptCompatibleProviderConfigured,
   SCRIPT_DEEPSEEK_PROVIDER_ID,
@@ -36,6 +37,60 @@ export interface TextGenerationResponse {
   text: string;
   model: string;
 }
+
+export const COMMERCE_AD_AGENT_STREAM_EVENT = 'commerce-ad-agent-stream';
+
+export interface StartCommerceAdAgentStreamInput extends TextGenerationRequest {
+  requestId: string;
+}
+
+export interface StartCommerceAdAgentStreamResponse {
+  requestId: string;
+}
+
+export type CommerceAdAgentStreamPhase =
+  | 'image_analysis'
+  | 'skill_work'
+  | 'questioning'
+  | 'finalizing';
+
+export type CommerceAdAgentStreamEvent =
+  | {
+      type: 'stream_started';
+      requestId: string;
+      message: string;
+    }
+  | {
+      type: 'phase_changed';
+      requestId: string;
+      phase: CommerceAdAgentStreamPhase;
+      message: string;
+    }
+  | {
+      type: 'text_delta';
+      requestId: string;
+      delta: string;
+    }
+  | {
+      type: 'message_completed';
+      requestId: string;
+      text: string;
+    }
+  | {
+      type: 'structured_result_completed';
+      requestId: string;
+      message: string;
+    }
+  | {
+      type: 'stream_failed';
+      requestId: string;
+      message: string;
+    }
+  | {
+      type: 'stream_cancelled';
+      requestId: string;
+      message: string;
+    };
 
 export interface ScriptExpandRequest {
   content: string;
@@ -2181,6 +2236,73 @@ function buildEmptyExtractedScriptAssets(): ExtractedScriptAssets {
     promptRows: [],
     worldview: null,
   };
+}
+
+export async function startCommerceAdAgentStream(
+  request: StartCommerceAdAgentStreamInput
+): Promise<StartCommerceAdAgentStreamResponse> {
+  const settings = useSettingsStore.getState();
+  const { provider, model } = resolveProviderAndModel(request);
+  const apiKey = (settings.scriptApiKeys[provider] || '').trim();
+  const extraParams = resolveTextGenerationExtraParams(provider, model, request);
+  const referenceImages = Array.isArray(request.referenceImages)
+    ? request.referenceImages
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter((item) => item.length > 0)
+    : [];
+
+  if (!isTauri()) {
+    throw new Error('当前不是 Tauri 容器环境，请使用 `npm run tauri dev` 启动');
+  }
+  if (!apiKey) {
+    return openProviderSettingsAndThrow(
+      `Please configure the API key for ${provider} in Settings first.`
+    );
+  }
+  if (!model) {
+    return openProviderSettingsAndThrow(
+      `Please add and select a model for ${provider} in Settings first.`
+    );
+  }
+  if (
+    provider === SCRIPT_COMPATIBLE_PROVIDER_ID
+    && !isScriptCompatibleProviderConfigured(settings.scriptCompatibleProviderConfig)
+  ) {
+    return openProviderSettingsAndThrow(
+      'Please configure the custom script API endpoint in Settings first.'
+    );
+  }
+
+  return invoke<StartCommerceAdAgentStreamResponse>('start_commerce_ad_agent_stream', {
+    request: {
+      prompt: request.prompt,
+      request_id: request.requestId,
+      model,
+      provider,
+      api_key: apiKey,
+      temperature: request.temperature || 0.35,
+      max_tokens: request.maxTokens || 1200,
+      reference_images: referenceImages.length > 0 ? referenceImages : undefined,
+      extra_params: extraParams,
+    },
+  });
+}
+
+export async function cancelCommerceAdAgentStream(requestId: string): Promise<void> {
+  if (!isTauri()) {
+    return;
+  }
+  await invoke('cancel_commerce_ad_agent_stream', { requestId });
+}
+
+export async function listenCommerceAdAgentStream(
+  handler: (event: CommerceAdAgentStreamEvent) => void
+): Promise<UnlistenFn> {
+  return listen<CommerceAdAgentStreamEvent>(COMMERCE_AD_AGENT_STREAM_EVENT, (event) => {
+    if (event.payload) {
+      handler(event.payload);
+    }
+  });
 }
 
 function stableJson(value: unknown): string {
