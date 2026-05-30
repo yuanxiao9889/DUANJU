@@ -7839,6 +7839,18 @@ export function Canvas() {
       connectedEnvironments: connectedDirectorStageEnvironments,
     };
   }, [activeDirectorStageNode, connectedDirectorStageEnvironments]);
+  const activeDirectorStageContextSyncKey = useMemo(() => {
+    if (!activeDirectorStageContext) {
+      return null;
+    }
+
+    try {
+      return JSON.stringify(activeDirectorStageContext);
+    } catch {
+      return `${activeDirectorStageContext.nodeId}:${activeDirectorStageContext.data.project.updatedAt}`;
+    }
+  }, [activeDirectorStageContext]);
+  const lastDirectorStageContextSyncKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!activeDirectorStageNodeId) {
@@ -7860,6 +7872,14 @@ export function Canvas() {
     if (!activeDirectorStageContext || !isTauri()) {
       return;
     }
+    if (
+      activeDirectorStageContextSyncKey &&
+      activeDirectorStageContextSyncKey === lastDirectorStageContextSyncKeyRef.current
+    ) {
+      return;
+    }
+
+    lastDirectorStageContextSyncKeyRef.current = activeDirectorStageContextSyncKey;
 
     void emitToDirectorStage(
       DIRECTOR_STAGE_CONTEXT_EVENT,
@@ -7867,7 +7887,7 @@ export function Canvas() {
     ).catch((error) => {
       console.warn("Failed to sync director stage context", error);
     });
-  }, [activeDirectorStageContext]);
+  }, [activeDirectorStageContext, activeDirectorStageContextSyncKey]);
 
   const activeDirectorStageContextRef = useRef<DirectorStageWindowContext | null>(null);
   const addDerivedExportNodeRef = useRef(addDerivedExportNode);
@@ -7913,6 +7933,7 @@ export function Canvas() {
             return;
           }
 
+          lastDirectorStageContextSyncKeyRef.current = null;
           void emitToDirectorStage(DIRECTOR_STAGE_CONTEXT_EVENT, context).catch(
             (error) => {
               console.warn("Failed to deliver director stage context", error);

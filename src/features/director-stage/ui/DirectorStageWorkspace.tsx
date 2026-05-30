@@ -764,6 +764,14 @@ function progressPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(value * 100)));
 }
 
+function createDirectorStageProjectSyncKey(project: DirectorStageProject): string {
+  try {
+    return JSON.stringify(project);
+  } catch {
+    return `${project.updatedAt}:${project.entities.length}:${project.crowdGroups.length}:${project.cameraShots.length}`;
+  }
+}
+
 function hasCameraShotViewChanged(
   current: DirectorStageCameraShot,
   next: DirectorStageCameraShot
@@ -1025,6 +1033,7 @@ export function DirectorStageWorkspace({
   const [cameraPathTimeline, setCameraPathTimeline] = useState<CameraPathTimelineState | null>(null);
   const [isCameraPathTimelineCollapsed, setIsCameraPathTimelineCollapsed] = useState(false);
   const [exportingCameraPathShotId, setExportingCameraPathShotId] = useState<string | null>(null);
+  const [isStageReady, setIsStageReady] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -1042,6 +1051,7 @@ export function DirectorStageWorkspace({
   const loadingCrowdGroupRenderKeysRef = useRef(new Map<string, string>());
   const lightObjectsRef = useRef(new Map<string, THREE.Object3D>());
   const loadingEntityIdsRef = useRef(new Set<string>());
+  const hasRequestedAssetHydrationRef = useRef(false);
   const lastPoseByEntityRef = useRef(new Map<string, string | null>());
   const pendingFrameEntityIdsRef = useRef(new Set<string>());
   const pendingFrameCrowdGroupIdsRef = useRef(new Set<string>());
@@ -1067,6 +1077,7 @@ export function DirectorStageWorkspace({
   } | null>(null);
   const isTransformDraggingRef = useRef(false);
   const pendingExternalProjectRef = useRef<DirectorStageProject | null>(null);
+  const lastLocalProjectSyncKeyRef = useRef(createDirectorStageProjectSyncKey(project));
   const syncedNodeIdRef = useRef(nodeId);
   const requestRenderRef = useRef<(durationMs?: number) => void>(() => undefined);
   const deferredProjectEditRef = useRef<DirectorStageDeferredProjectEdit | null>(null);
@@ -1082,14 +1093,33 @@ export function DirectorStageWorkspace({
   const commitActiveCameraShotFromViewRef = useRef<() => boolean>(() => false);
 
   useEffect(() => {
-    void hydrateAssets();
-  }, [hydrateAssets]);
+    if (hasRequestedAssetHydrationRef.current) {
+      return;
+    }
+    if (!isStageReady && activeTab !== 'library') {
+      return;
+    }
+
+    const delayMs = activeTab === 'library' ? 0 : 650;
+    const timer = window.setTimeout(() => {
+      hasRequestedAssetHydrationRef.current = true;
+      void hydrateAssets();
+    }, delayMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [activeTab, hydrateAssets, isStageReady]);
 
   useEffect(() => {
     const normalized = normalizeDirectorStageProject(data.project);
+    const incomingProjectSyncKey = createDirectorStageProjectSyncKey(normalized);
     const nodeChanged = syncedNodeIdRef.current !== nodeId;
+    if (!nodeChanged && incomingProjectSyncKey === lastLocalProjectSyncKeyRef.current) {
+      return;
+    }
     const current = projectRef.current;
-    if (!nodeChanged && current.updatedAt === normalized.updatedAt) {
+    if (!nodeChanged && createDirectorStageProjectSyncKey(current) === incomingProjectSyncKey) {
       return;
     }
     if (isTransformDraggingRef.current) {
@@ -1099,6 +1129,7 @@ export function DirectorStageWorkspace({
     syncedNodeIdRef.current = nodeId;
     pendingExternalProjectRef.current = null;
     deferredProjectEditRef.current = null;
+    lastLocalProjectSyncKeyRef.current = incomingProjectSyncKey;
     setProject(normalized);
     projectRef.current = normalized;
     requestRenderRef.current();
@@ -1255,6 +1286,7 @@ export function DirectorStageWorkspace({
     options: DirectorStageCommitOptions = {}
   ) => {
     const normalized = normalizeDirectorStageProject(nextProject);
+    lastLocalProjectSyncKeyRef.current = createDirectorStageProjectSyncKey(normalized);
     projectRef.current = normalized;
     setProject(normalized);
     const historyMode = options.history === 'skip' ? 'skip' : 'push';
@@ -1658,6 +1690,7 @@ export function DirectorStageWorkspace({
     let isDisposed = false;
     let pointerDownCameraShotId: string | null = null;
     let pointerDownPosition: { x: number; y: number } | null = null;
+    let readyTimer: number | null = null;
 
     camera.position.set(4, 2.4, 5);
     orbit.target.set(0, 1.2, 0);
@@ -2059,10 +2092,18 @@ export function DirectorStageWorkspace({
     observer.observe(container);
     resize();
     requestRender();
+    readyTimer = window.setTimeout(() => {
+      if (!isDisposed) {
+        setIsStageReady(true);
+      }
+    }, 180);
 
     return () => {
       isDisposed = true;
       window.cancelAnimationFrame(animationFrame);
+      if (readyTimer !== null) {
+        window.clearTimeout(readyTimer);
+      }
       observer.disconnect();
       if (cameraShotCommitTimer !== null) {
         window.clearTimeout(cameraShotCommitTimer);
@@ -2097,12 +2138,13 @@ export function DirectorStageWorkspace({
       lightGroupRef.current = null;
       cameraShotGroupRef.current = null;
       requestRenderRef.current = () => undefined;
+      setIsStageReady(false);
     };
   }, []);
 
   useEffect(() => {
     const entityGroup = entityGroupRef.current;
-    if (!entityGroup) {
+    if (!entityGroup || !isStageReady) {
       return;
     }
 
@@ -2422,6 +2464,7 @@ export function DirectorStageWorkspace({
     project.crowdGroups,
     project.entities,
     resolveEntityPosePreset,
+    isStageReady,
     t,
   ]);
 

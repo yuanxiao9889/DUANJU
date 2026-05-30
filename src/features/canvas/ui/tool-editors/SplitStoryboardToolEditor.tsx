@@ -11,8 +11,9 @@ const MAX_GRID_SIZE = 8;
 const DEFAULT_LINE_THICKNESS_PERCENT = 0.5;
 const MAX_LINE_THICKNESS_PERCENT = 20;
 const LEGACY_DEFAULT_LINE_THICKNESS_PX = 6;
-const PREVIEW_VIEWPORT_HEIGHT = 'h-[min(560px,60vh)]';
+const PREVIEW_VIEWPORT_HEIGHT = 'h-[min(500px,56vh)]';
 const PREVIEW_VIEWPORT_PADDING_PX = 24;
+const DEFAULT_PREVIEW_MAX_DISPLAY_SCALE = 0.45;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.25;
@@ -347,6 +348,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
   const { displaySource: stableSourceImageUrl } = useStableImageDisplaySource(sourceImageUrl);
   const displaySourceImageUrl = stableSourceImageUrl ?? '';
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const imageElementRef = useRef<HTMLImageElement | null>(null);
   
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -360,11 +362,31 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
     startRatio: number;
   } | null>(null);
 
+  const updateNaturalSizeFromImage = useCallback((image: HTMLImageElement | null) => {
+    if (!image || image.naturalWidth <= 0 || image.naturalHeight <= 0) {
+      return;
+    }
+
+    const nextNaturalSize = {
+      width: Math.max(1, image.naturalWidth),
+      height: Math.max(1, image.naturalHeight),
+    };
+    setNaturalSize((current) => (
+      current?.width === nextNaturalSize.width && current.height === nextNaturalSize.height
+        ? current
+        : nextNaturalSize
+    ));
+  }, []);
+
   useEffect(() => {
-    setNaturalSize(null);
     setZoom(1);
     setPan({ x: 0, y: 0 });
-  }, [displaySourceImageUrl]);
+    setIsPanning(false);
+    setDraggingLine(null);
+    window.requestAnimationFrame(() => {
+      updateNaturalSizeFromImage(imageElementRef.current);
+    });
+  }, [displaySourceImageUrl, updateNaturalSizeFromImage]);
 
   useEffect(() => {
     const element = previewContainerRef.current;
@@ -482,7 +504,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
     const fitScale = Math.min(
       maxWidth / naturalSize.width,
       maxHeight / naturalSize.height,
-      1
+      DEFAULT_PREVIEW_MAX_DISPLAY_SCALE
     );
 
     return {
@@ -497,7 +519,7 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
       return Math.round(zoom * 100);
     }
 
-    return Math.round(renderedImageSize.fitScale * zoom * 100);
+    return Math.max(1, Math.round(renderedImageSize.fitScale * zoom * 100));
   }, [renderedImageSize, zoom]);
 
   const maxZoom = useMemo(() => {
@@ -812,16 +834,15 @@ export function SplitStoryboardToolEditor({ sourceImageUrl, options, onOptionsCh
             }}
           >
             <img
+              key={displaySourceImageUrl}
+              ref={imageElementRef}
               src={displaySourceImageUrl}
               alt="split-preview"
               className="block max-h-full max-w-full rounded-lg border border-[rgba(255,255,255,0.08)] object-contain"
               style={renderedImageSize ? { width: '100%', height: '100%' } : undefined}
               onLoad={(event) => {
                 const target = event.currentTarget;
-                setNaturalSize({
-                  width: Math.max(1, target.naturalWidth),
-                  height: Math.max(1, target.naturalHeight),
-                });
+                updateNaturalSizeFromImage(target);
                 window.requestAnimationFrame(() => {
                   const rect = previewContainerRef.current?.getBoundingClientRect();
                   if (!rect) {

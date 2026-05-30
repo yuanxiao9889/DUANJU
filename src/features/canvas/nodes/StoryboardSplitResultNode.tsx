@@ -129,7 +129,6 @@ function sanitizeExportLabel(raw: string, maxLength = 50): string {
 function SplitResultFrameCard({
   frame,
   index,
-  frameAspectRatioCss,
   viewerImageList,
   label,
   editLabel,
@@ -137,7 +136,6 @@ function SplitResultFrameCard({
 }: {
   frame: StoryboardFrameItem;
   index: number;
-  frameAspectRatioCss: string;
   viewerImageList: string[];
   label: string;
   editLabel: string;
@@ -148,6 +146,7 @@ function SplitResultFrameCard({
     frame.previewImageUrl || frame.imageUrl || source || null;
   const viewerSource = source || null;
   const noteText = frame.note?.trim() || label;
+  const frameAspectRatioCss = toCssAspectRatio(frame.aspectRatio ?? "1:1");
 
   return (
     <div className="relative bg-bg-dark/85">
@@ -163,7 +162,7 @@ function SplitResultFrameCard({
             hoverSourceUrl={frame.imageUrl ?? null}
             viewerSourceUrl={viewerSource}
             viewerImageList={viewerImageList}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain"
             draggable={false}
           />
         ) : (
@@ -229,17 +228,13 @@ export const StoryboardSplitResultNode = memo(
       () => [...data.frames].sort((a, b) => a.order - b.order),
       [data.frames],
     );
-    const frameAspectRatio = useMemo(
-      () =>
-        data.frameAspectRatio ??
-        orderedFrames.find((frame) => typeof frame.aspectRatio === "string")
-          ?.aspectRatio ??
-        "1:1",
-      [data.frameAspectRatio, orderedFrames],
+    const fallbackFrameAspectRatio = useMemo(
+      () => data.frameAspectRatio ?? "1:1",
+      [data.frameAspectRatio],
     );
-    const frameAspectRatioCss = useMemo(
-      () => toCssAspectRatio(frameAspectRatio),
-      [frameAspectRatio],
+    const fallbackFrameAspectRatioCss = useMemo(
+      () => toCssAspectRatio(fallbackFrameAspectRatio),
+      [fallbackFrameAspectRatio],
     );
 
     const gridCols = Math.max(1, data.gridCols);
@@ -524,7 +519,6 @@ export const StoryboardSplitResultNode = memo(
                 key={frame.id}
                 frame={frame}
                 index={index}
-                frameAspectRatioCss={frameAspectRatioCss}
                 viewerImageList={viewerImageList}
                 label={t("node.storyboardNode.frameIndex", {
                   index: index + 1,
@@ -540,7 +534,7 @@ export const StoryboardSplitResultNode = memo(
               >
                 <div
                   className="flex items-center justify-center border border-dashed border-[rgba(255,255,255,0.14)] bg-[rgba(255,255,255,0.03)]"
-                  style={{ aspectRatio: frameAspectRatioCss }}
+                  style={{ aspectRatio: fallbackFrameAspectRatioCss }}
                 >
                   <span className="text-[10px] text-text-muted/65">
                     {t("node.storyboardNode.emptySlot")}

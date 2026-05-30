@@ -8,6 +8,7 @@ import {
   detectAspectRatio,
   loadImageElement,
   parseAspectRatio,
+  prepareNodeImage,
   persistImageLocally,
   resolveLocalFileSourcePath,
 } from './imageData';
@@ -37,11 +38,15 @@ export class CanvasToolProcessor implements ToolProcessor {
     options: Record<string, unknown>
   ): Promise<ToolProcessorResult> {
     if (toolType === NODE_TOOL_TYPES.splitStoryboard) {
-      const metadata = await this.readStoryboardMetadata(sourceImageUrl);
+      const splitSourceImageUrl =
+        typeof options.__splitSourceImageUrl === 'string' && options.__splitSourceImageUrl.trim()
+          ? options.__splitSourceImageUrl.trim()
+          : sourceImageUrl;
+      const metadata = await this.readStoryboardMetadata(splitSourceImageUrl);
       const colRatios = options.colRatios as number[] | undefined;
       const rowRatios = options.rowRatios as number[] | undefined;
       return await this.splitStoryboard(
-        sourceImageUrl,
+        splitSourceImageUrl,
         Number(options.rows ?? metadata?.gridRows ?? 3),
         Number(options.cols ?? metadata?.gridCols ?? 3),
         Number(options.lineThicknessPercent),
@@ -447,6 +452,8 @@ export class CanvasToolProcessor implements ToolProcessor {
 
     let outputs: string[];
     try {
+      outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness, colRatios, rowRatios);
+    } catch {
       outputs = await this.splitGateway.split(
         sourceImage,
         safeRows,
@@ -458,30 +465,30 @@ export class CanvasToolProcessor implements ToolProcessor {
       if (this.hasUnexpectedDuplicateSplitOutputs(outputs, safeRows * safeCols)) {
         outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness, colRatios, rowRatios);
       }
-    } catch {
-      outputs = await this.localSplit(sourceImage, safeRows, safeCols, safeLineThickness, colRatios, rowRatios);
     }
 
-    const persistedFrameImages = await Promise.all(
-      outputs.map(async (imageUrl) => await this.persistSplitOutput(imageUrl))
+    const preparedFrameImages = await Promise.all(
+      outputs.map(async (imageUrl) => await this.prepareSplitOutput(imageUrl))
     );
 
     let frameAspectRatio: string | undefined;
-    const firstFrameImage = persistedFrameImages[0];
+    const firstFrameImage = preparedFrameImages[0];
     if (firstFrameImage) {
       try {
-        frameAspectRatio = await detectAspectRatio(firstFrameImage);
+        frameAspectRatio = firstFrameImage.aspectRatio || await detectAspectRatio(firstFrameImage.imageUrl);
       } catch {
         frameAspectRatio = undefined;
       }
     }
 
     const resolvedFrameAspectRatio = frameAspectRatio ?? `${safeCols}:${safeRows}`;
-    const frames: StoryboardFrameItem[] = persistedFrameImages.map((imageUrl, index) => ({
+    const frames: StoryboardFrameItem[] = preparedFrameImages.map((prepared, index) => ({
       id: this.idGenerator.next(),
-      imageUrl,
-      previewImageUrl: imageUrl,
-      aspectRatio: resolvedFrameAspectRatio,
+      imageUrl: prepared.imageUrl,
+      previewImageUrl: prepared.previewImageUrl,
+      thumbnailUrl: prepared.thumbnailImageUrl,
+      thumbnailMaxDimension: prepared.thumbnailMaxDimension,
+      aspectRatio: prepared.aspectRatio || resolvedFrameAspectRatio,
       note: typeof frameNotes?.[index] === 'string' ? frameNotes[index].trim() : '',
       order: index,
     }));
@@ -518,6 +525,17 @@ export class CanvasToolProcessor implements ToolProcessor {
     }
 
     return await persistImageLocally(normalizedImageUrl);
+  }
+
+  private async prepareSplitOutput(imageUrl: string): Promise<{
+    imageUrl: string;
+    previewImageUrl: string;
+    thumbnailImageUrl: string;
+    thumbnailMaxDimension: number;
+    aspectRatio: string;
+  }> {
+    const persistedImageUrl = await this.persistSplitOutput(imageUrl);
+    return await prepareNodeImage(persistedImageUrl);
   }
 
   private resolveMaxAllowedLineThickness(
