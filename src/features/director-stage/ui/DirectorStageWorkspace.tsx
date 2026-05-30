@@ -4119,6 +4119,9 @@ export function DirectorStageWorkspace({
         console.warn('Failed to ask main window to add director stage snapshot node', error);
       });
       setStatusText(t('directorStage.status.snapshotSent'));
+    } catch (error) {
+      console.error('Failed to capture director stage snapshot to canvas', error);
+      setStatusText(t('directorStage.status.snapshotFailed'));
     } finally {
       setIsCapturing(false);
     }

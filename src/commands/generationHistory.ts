@@ -20,39 +20,59 @@ export interface GenerationHistoryItemRecord {
   snapshotJson: string;
 }
 
-export interface GenerationHistoryProjectGroup {
+export interface GenerationHistoryProjectOption {
   projectId: string;
   projectName: string;
+  count: number;
   updatedAt: number;
-  items: GenerationHistoryItemRecord[];
 }
 
-export interface GenerationHistorySnapshot {
-  groups: GenerationHistoryProjectGroup[];
+export interface GenerationHistoryListPagePayload {
+  projectId?: string | null;
+  mediaType?: GenerationHistoryMediaType | 'all' | null;
+  search?: string | null;
+  limit?: number;
+  offset?: number;
+}
+
+export interface GenerationHistoryListPageResult {
+  items: GenerationHistoryItemRecord[];
+  projects: GenerationHistoryProjectOption[];
   totalCount: number;
+  limit: number;
+  offset: number;
   indexedAt: number;
 }
 
-export interface GenerationHistoryScanResult {
-  scannedCount: number;
-  removedCount: number;
-  snapshot: GenerationHistorySnapshot;
+export interface RecordGenerationOutputPayload {
+  projectId: string;
+  projectName: string;
+  mediaType: GenerationHistoryMediaType;
+  sourcePath: string;
+  previewPath?: string | null;
+  fileName: string;
+  mimeType?: string | null;
+  durationMs?: number | null;
+  aspectRatio?: string | null;
+  snapshotJson?: string | null;
 }
 
-export async function listGenerationHistory(
-  projectId?: string | null
-): Promise<GenerationHistorySnapshot> {
-  return await invoke<GenerationHistorySnapshot>('list_generation_history', {
-    projectId: projectId ?? null,
+export async function listGenerationHistoryPage(
+  payload: GenerationHistoryListPagePayload
+): Promise<GenerationHistoryListPageResult> {
+  return await invoke<GenerationHistoryListPageResult>('list_generation_history_page', {
+    payload,
   });
 }
 
-export async function scanGenerationHistory(
-  projectId?: string | null
-): Promise<GenerationHistoryScanResult> {
-  return await invoke<GenerationHistoryScanResult>('scan_generation_history', {
-    projectId: projectId ?? null,
-  });
+export async function getGenerationHistoryCount(): Promise<number> {
+  return await invoke<number>('get_generation_history_count');
+}
+
+export async function recordGenerationOutput(
+  payload: RecordGenerationOutputPayload
+): Promise<GenerationHistoryItemRecord> {
+  return await invoke<GenerationHistoryItemRecord>('record_generation_output', { payload });
 }
 
 export async function openGenerationHistoryItemInFolder(itemId: string): Promise<void> {

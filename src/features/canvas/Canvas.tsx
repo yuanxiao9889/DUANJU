@@ -58,6 +58,7 @@ import {
 } from "@/features/generation-history/domain/types";
 import { GenerationHistoryDialog } from "@/features/generation-history/GenerationHistoryDialog";
 import { useGenerationHistoryStore } from "@/features/generation-history/store";
+import { recordGenerationOutput } from "@/commands/generationHistory";
 import { ASSET_PANEL_INSERT_EVENT } from "@/features/assets/application/assetPanelBridge";
 import {
   subscribeAssetItemDeleted,
@@ -1393,6 +1394,10 @@ function resolveClipboardSourceFileName(sourcePath: string): string | null {
   return fileName || null;
 }
 
+function resolveGenerationHistoryFileName(sourcePath: string): string {
+  return resolveClipboardSourceFileName(sourcePath) ?? "generation-output";
+}
+
 function resolveClipboardFileKind(
   sourcePath: string,
 ): ClipboardSourceKind | null {
@@ -1821,12 +1826,6 @@ export function Canvas() {
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
   const openGenerationHistory = useGenerationHistoryStore((state) => state.open);
-  const generationHistoryTotalCount = useGenerationHistoryStore(
-    (state) => state.snapshot.totalCount,
-  );
-  const isGenerationHistoryScanning = useGenerationHistoryStore(
-    (state) => state.isScanning,
-  );
   const [isExportingSelectedImages, setIsExportingSelectedImages] =
     useState(false);
   const [isPreparingSelectedAssets, setIsPreparingSelectedAssets] =
@@ -3224,6 +3223,30 @@ export function Canvas() {
           prepared.previewImageUrl === prepared.imageUrl
             ? imageWithMetadata
             : prepared.previewImageUrl;
+        const activeProject = useProjectStore.getState().currentProject;
+        const activeProjectId =
+          activeProject?.id ?? useProjectStore.getState().currentProjectId;
+        if (activeProjectId) {
+          void recordGenerationOutput({
+            projectId: activeProjectId,
+            projectName: activeProject?.name?.trim() || activeProjectId,
+            mediaType: "image",
+            sourcePath: imageWithMetadata,
+            previewPath: previewWithMetadata,
+            fileName: resolveGenerationHistoryFileName(imageWithMetadata),
+            aspectRatio: prepared.aspectRatio,
+            snapshotJson: JSON.stringify({
+              source: "canvasImageGeneration",
+              nodeId,
+              originalResultSource: resultSource,
+            }),
+          }).catch((error) => {
+            console.warn("[GenerationHistory] failed to record image output", {
+              nodeId,
+              error,
+            });
+          });
+        }
         const generationSummary = normalizeExportImageGenerationSummary(
           currentData.generationSummary,
         );
@@ -7927,9 +7950,15 @@ export function Canvas() {
           (event) => {
             const payload = event.payload;
             if (!payload?.sourceNodeId) {
+              console.warn("Ignored director stage snapshot node event without source node id", payload);
               return;
             }
 
+            console.debug("Adding director stage snapshot node from detached window", {
+              sourceNodeId: payload.sourceNodeId,
+              imageUrl: payload.imageUrl,
+              previewImageUrl: payload.previewImageUrl,
+            });
             addDerivedExportNodeRef.current(
               payload.sourceNodeId,
               payload.imageUrl,
@@ -8566,7 +8595,7 @@ export function Canvas() {
                   ) : null}
                 </button>
 
-                {/* 小地图开关 */}
+                {/* Generation history */}
                 <button
                   onClick={(event) => {
                     event.stopPropagation();
@@ -8581,15 +8610,6 @@ export function Canvas() {
                   title={t("generationHistory.toolbarTitle")}
                 >
                   <History style={{ width: "16px", height: "16px" }} />
-                  {isGenerationHistoryScanning ? (
-                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent" />
-                  ) : generationHistoryTotalCount > 0 ? (
-                    <span className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">
-                      {generationHistoryTotalCount > 99
-                        ? "99+"
-                        : generationHistoryTotalCount}
-                    </span>
-                  ) : null}
                 </button>
 
                 <button

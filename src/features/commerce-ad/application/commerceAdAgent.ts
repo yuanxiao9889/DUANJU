@@ -576,25 +576,51 @@ function buildFallbackGuidance(
   };
 }
 
-function mergeGuidance(
+function hasGuidanceChoices(guidance: CommerceAdAgentGuidance | undefined): boolean {
+  return Boolean(
+    guidance
+    && (
+      guidance.questions.length > 0
+      || guidance.designDirections.length > 0
+      || guidance.quickReplies.length > 0
+    )
+  );
+}
+
+function normalizeFallbackGuidanceForNoSkill(guidance: CommerceAdAgentGuidance): CommerceAdAgentGuidance {
+  return {
+    ...guidance,
+    questions: [],
+    designDirections: [],
+    quickReplies: [],
+    readinessHint: guidance.readinessHint || '补充这些信息后，我会基于当前图片继续给出定制推荐。',
+  };
+}
+
+function mergeNoSkillGuidance(
   guidance: CommerceAdAgentGuidance | undefined,
   fallback: CommerceAdAgentGuidance
 ): CommerceAdAgentGuidance {
+  const safeFallback = normalizeFallbackGuidanceForNoSkill(fallback);
   if (!guidance) {
-    return fallback;
+    return safeFallback;
   }
 
   return {
-    stage: guidance.stage || fallback.stage,
-    panelTitle: guidance.panelTitle || fallback.panelTitle,
-    guidanceKind: guidance.guidanceKind || fallback.guidanceKind,
-    summary: guidance.summary || fallback.summary,
-    confirmedFacts: guidance.confirmedFacts.length > 0 ? guidance.confirmedFacts : fallback.confirmedFacts,
-    missingFields: guidance.missingFields.length > 0 ? guidance.missingFields : fallback.missingFields,
-    questions: guidance.questions.length > 0 ? guidance.questions : fallback.questions,
-    designDirections: guidance.designDirections.length > 0 ? guidance.designDirections : fallback.designDirections,
-    quickReplies: guidance.quickReplies.length > 0 ? guidance.quickReplies : fallback.quickReplies,
-    readinessHint: guidance.readinessHint || fallback.readinessHint,
+    stage: guidance.stage || safeFallback.stage,
+    panelTitle: guidance.panelTitle || safeFallback.panelTitle,
+    guidanceKind: guidance.guidanceKind || safeFallback.guidanceKind,
+    summary: guidance.summary || safeFallback.summary,
+    confirmedFacts: guidance.confirmedFacts.length > 0 ? guidance.confirmedFacts : safeFallback.confirmedFacts,
+    missingFields: guidance.missingFields.length > 0 ? guidance.missingFields : safeFallback.missingFields,
+    questions: guidance.questions,
+    designDirections: guidance.designDirections,
+    quickReplies: guidance.quickReplies,
+    readinessHint: guidance.readinessHint || (
+      hasGuidanceChoices(guidance)
+        ? safeFallback.readinessHint
+        : '我还需要这些信息才能给出定制推荐；补充后会继续基于当前图片判断。'
+    ),
   };
 }
 
@@ -859,7 +885,7 @@ export async function runCommerceAdAgentTurn(
     const assistantMessage = createMessage(
       'assistant',
       '我已经收到商品图，但当前文本模型看起来不支持视觉理解。你可以切换到多模态 LLM 后再反推，或先手动补充商品名称、卖点、目标人群，我会继续帮你完善出图 Brief。',
-      selectedSkill ? undefined : buildFallbackGuidance(input.product, input.brief, 'infer')
+      selectedSkill ? undefined : normalizeFallbackGuidanceForNoSkill(buildFallbackGuidance(input.product, input.brief, 'infer'))
     );
     actions.push({
       type: 'upsertProduct',
@@ -1051,6 +1077,12 @@ export async function runCommerceAdAgentTurn(
         'Default agent runtime rules:',
         '- Even when no skill is selected, act like a design consultant, not a one-shot executor.',
         '- If platform, audience, selling point, usage scenario, style, CTA/copy, or output format is unclear, put the missing items in guidance.missingFields and ask 1-2 useful guidance.questions with clickable options.',
+        '- No-skill guidance must be custom to this exact product, image evidence, and user text. Do not return generic platform templates.',
+        '- For no-skill first/second turns, always provide either 2-3 product-specific guidance.designDirections or 1-2 guidance.questions with product-specific options, unless the user explicitly says to generate immediately.',
+        '- Option labels and values must mention concrete product facts or inferred positioning, for example capacity, visible material, usage scene, target user, visual tone, or copy angle. Never output raw internal slot names like platform, usage, audience, sellingPoints, style, cta, lockedDocumentInfo as visible option text.',
+        '- If you need platform or audience, phrase options as tailored choices for this product, not generic choices. Example pattern: "小红书：单人精致早餐场景", "详情页：1L大容量卖点首屏", "宿舍/租房人群：小巧不占地".',
+        '- guidance.missingFields must be short user-facing Chinese labels such as "投放场景", "目标人群", "主卖点", "视觉风格", "画面文案"; never output internal field keys.',
+        '- If you cannot infer enough custom choices from image/text, ask one concise question with 2-3 product-specific options instead of returning empty guidance.',
         '- Provide multi-round design guidance by default when useful: round 1 guidanceKind=recommendation/panelTitle=推荐方向, round 2 guidanceKind=optimization/panelTitle=优化建议, and round 3 guidanceKind=final_suggestion/panelTitle=成稿建议 only when the brief is still vague or final craft choices matter.',
         '- Do not stop after one direction round if the user is still shaping the brief. Continue with optimization suggestions unless the user asks to generate directly.',
         '- If the user gives enough information, move toward nextAction=ready or plan and keep remaining questions minimal.',
@@ -1097,9 +1129,10 @@ export async function runCommerceAdAgentTurn(
     '- If Current thread state already has imageAnalysis and this turn has no new reference image, do not redo or restate full image analysis; reuse it silently.',
     '- Never list confirmedSlots as missingFields. Only ask for slots that are still missing after applying the current user message.',
     '- If a selected skill has requiredSlots still missing, set nextAction to ask and keep missing information in guidance.missingFields/questions. Do not bury missing facts inside the canvas plan.',
-    '- If no skill is selected, still surface unclear brief information in guidance.missingFields/questions: platform/usage, audience, selling point, visual style, CTA/copy, and output format.',
+    '- If no skill is selected, still surface unclear brief information in guidance.missingFields/questions: platform/usage, audience, selling point, visual style, CTA/copy, and output format. These must be user-facing Chinese labels, not raw keys.',
+    '- If no skill is selected, guidance choices must be LLM-customized from the current product/image/user text. Do not output generic fallback options. If nextAction is ready/plan/generate but the default guidance loop is still in an early recommendation/optimization round, keep guidance.designDirections with 2-3 custom choices.',
     '- If all required selected-skill slots are known, or the no-skill brief is clear enough, set nextAction to ready or plan and produce the concrete output instead of asking more setup questions.',
-    '- If nextAction is ready, plan, or generate, set guidance.questions = [] and guidance.quickReplies = [] unless the user explicitly asks for more refinement. Keep guidance.designDirections only for the default creative guidance rounds or explicit user refinement requests.',
+    '- If nextAction is ready, plan, or generate, set guidance.questions = [] and guidance.quickReplies = [] unless the user explicitly asks for more refinement or no-skill guidance still needs one custom decision. Keep guidance.designDirections only for the default creative guidance rounds or explicit user refinement requests.',
     '- threadStatePatch should include only the updated phase, confirmedSlots, missingSlots, lastAskedFields, and planVersion needed after this turn.',
     '- For creative skills, use guidance.panelTitle and guidance.guidanceKind to label the design guidance: 推荐方向/recommendation first, 优化建议/optimization second, 成稿建议/final_suggestion only when useful. Do not repeat the same guidanceKind on consecutive turns unless the user asks for more.',
     '- Include 2-3 concrete Chinese designDirections when a creative guidance round is appropriate. Round 1 should compare big creative routes; round 2 should refine composition, color, scene, copy hierarchy, and platform fit; round 3 should decide final craft details before generation.',
@@ -1385,7 +1418,7 @@ export async function runCommerceAdAgentTurn(
     };
     const guidance = selectedSkill
       ? normalizeGuidance(readGuidance(parsed))
-      : mergeGuidance(
+      : mergeNoSkillGuidance(
           readGuidance(parsed),
           buildFallbackGuidance(
             guidanceProduct,
@@ -1445,7 +1478,7 @@ export async function runCommerceAdAgentTurn(
     );
     const guidance = selectedSkill
       ? undefined
-      : buildFallbackGuidance(input.product, fallbackBrief, 'brief');
+      : normalizeFallbackGuidanceForNoSkill(buildFallbackGuidance(input.product, fallbackBrief, 'brief'));
     actions.push({ type: 'upsertBrief', data: fallbackBrief });
     actions.push({ type: 'upsertVisualPreference', data: fallbackVisualPreference });
     actions.push({

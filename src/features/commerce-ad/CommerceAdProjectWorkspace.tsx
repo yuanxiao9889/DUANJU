@@ -400,7 +400,12 @@ function isAgentReadyForSkillWork(
   skill: CommerceAgentSkill | null
 ): boolean {
   if (!skill) {
-    return Boolean(state.imageAnalysis) || Object.keys(state.confirmedSlots).length > 0 || state.planVersion > 0;
+    return state.planVersion > 0
+      || hasSlotValue(state.confirmedSlots.platform)
+      || hasSlotValue(state.confirmedSlots.usage)
+      || hasSlotValue(state.confirmedSlots.visualDirection)
+      || hasSlotValue(state.confirmedSlots.style)
+      || hasSlotValue(state.confirmedSlots.outputFormat);
   }
   return computeMissingAgentSlots(state, skill).length === 0
     && (Boolean(state.imageAnalysis) || Object.keys(state.confirmedSlots).length > 0);
@@ -485,6 +490,53 @@ function buildMoreCreativeGuidanceFallback(userMessage: string): Pick<CommerceAd
     ],
     quickReplies: ['选择高级单品主视觉', '选择生活方式场景', '选择卖点层级海报'],
     readinessHint: '可以点选一个方向，我会继续把它细化成可出图的方案。',
+  };
+}
+
+const GENERIC_GUIDANCE_FIELD_LABELS: Record<string, string> = {
+  platform: '平台/投放场景',
+  usage: '用途',
+  audience: '目标人群',
+  sellingPoints: '核心卖点',
+  style: '画面风格',
+  cta: '行动号召/CTA',
+  lockedDocumentInfo: '必须保留的原文信息',
+  copy: '画面文案',
+  outputFormat: '输出格式',
+};
+
+function normalizeGenericMissingField(field: string): string {
+  const normalized = normalizeGuidanceToken(field);
+  const matchedKey = Object.keys(GENERIC_GUIDANCE_FIELD_LABELS).find((key) => (
+    normalized === normalizeGuidanceToken(key)
+    || normalized.includes(normalizeGuidanceToken(key))
+  ));
+  return matchedKey ? GENERIC_GUIDANCE_FIELD_LABELS[matchedKey] : field;
+}
+
+function enhanceGenericGuidance(guidance: CommerceAdAgentGuidance, shouldKeepOpen: boolean): CommerceAdAgentGuidance {
+  if (!shouldKeepOpen) {
+    return guidance;
+  }
+
+  const missingFields = (guidance.missingFields.length > 0
+    ? guidance.missingFields
+    : ['平台/投放场景', '目标人群', '核心卖点', '画面风格']
+  ).map(normalizeGenericMissingField);
+
+  return {
+    ...guidance,
+    panelTitle: guidance.panelTitle || '需要补充',
+    guidanceKind: guidance.guidanceKind || 'missing_info',
+    missingFields,
+    questions: guidance.questions.slice(0, 2),
+    designDirections: guidance.designDirections.slice(0, 3),
+    quickReplies: guidance.quickReplies.slice(0, 3),
+    readinessHint: guidance.readinessHint || (
+      guidance.questions.length > 0 || guidance.designDirections.length > 0 || guidance.quickReplies.length > 0
+        ? '点选后会回填到输入框，你可以再编辑后发送。'
+        : '我还需要这些信息才能给出定制推荐；补充后会继续基于当前图片判断。'
+    ),
   };
 }
 
@@ -630,18 +682,25 @@ function normalizeAgentGuidanceForState(
   if (!guidance) {
     return undefined;
   }
+  const isGenericMode = !skill;
   const missingSlots = computeMissingAgentSlots(state, skill);
   const isReady = nextAction === 'plan'
     || nextAction === 'ready'
     || nextAction === 'generate'
     || isAgentReadyForSkillWork(state, skill);
+  const genericNeedsGuidance = isGenericMode && (
+    guidance.missingFields.length > 0
+    || guidance.questions.length > 0
+    || state.guidanceRound < COMMERCE_AGENT_MIN_CREATIVE_GUIDANCE_ROUNDS
+  );
+  const shouldTreatAsReadyForGuidance = isReady && !genericNeedsGuidance;
   const confirmedSlotLabels = Object.keys(state.confirmedSlots)
     .filter((slotKey) => hasSlotValue(state.confirmedSlots[slotKey]))
     .map((slotKey) => normalizeGuidanceToken(getSkillSlotLabel(skill, slotKey)))
     .filter(Boolean);
   const missingSlotLabels = missingSlots.map((slotKey) => getSkillSlotLabel(skill, slotKey));
   const normalizedMissingSlotLabels = missingSlotLabels.map(normalizeGuidanceToken);
-  const filteredMissingFields = isReady
+  const filteredMissingFields = shouldTreatAsReadyForGuidance
     ? []
     : guidance.missingFields.filter((field) => {
         const normalizedField = normalizeGuidanceToken(field);
@@ -654,7 +713,7 @@ function normalizeAgentGuidanceForState(
         return normalizedMissingSlotLabels.length === 0
           || normalizedMissingSlotLabels.some((label) => label && normalizedField.includes(label));
       });
-  const filteredQuestions = isReady
+  const filteredQuestions = shouldTreatAsReadyForGuidance
     ? []
     : guidance.questions
         .filter((question) => !isGuidanceQuestionAnswered(question, state, skill))
@@ -695,15 +754,18 @@ function normalizeAgentGuidanceForState(
   )
     ? buildMoreCreativeGuidanceFallback(userMessage)
     : null;
+  const baseGuidance: CommerceAdAgentGuidance = isGenericMode
+    ? enhanceGenericGuidance(guidance, genericNeedsGuidance)
+    : guidance;
   const nextGuidance: CommerceAdAgentGuidance = {
-    ...guidance,
-    panelTitle: moreOptionsFallback?.panelTitle || guidance.panelTitle || (usesCreativeGuidanceLoop ? resolveCreativeGuidancePanelTitle(creativeGuidanceKind) : undefined),
+    ...baseGuidance,
+    panelTitle: moreOptionsFallback?.panelTitle || baseGuidance.panelTitle || (usesCreativeGuidanceLoop ? resolveCreativeGuidancePanelTitle(creativeGuidanceKind) : undefined),
     guidanceKind: moreOptionsFallback?.guidanceKind || (usesCreativeGuidanceLoop ? creativeGuidanceKind : guidance.guidanceKind),
-    missingFields: filteredMissingFields.length > 0 ? filteredMissingFields : (skill && !isReady ? missingSlotLabels : guidance.missingFields),
-    questions: filteredQuestions,
-    designDirections: moreOptionsFallback?.designDirections ?? (shouldShowDesignDirections ? guidance.designDirections.slice(0, 3) : []),
-    quickReplies: moreOptionsFallback?.quickReplies ?? (isReady && !shouldShowDesignDirections ? [] : guidance.quickReplies.slice(0, 3)),
-    readinessHint: moreOptionsFallback?.readinessHint || guidance.readinessHint,
+    missingFields: filteredMissingFields.length > 0 ? filteredMissingFields : (skill && !shouldTreatAsReadyForGuidance ? missingSlotLabels : baseGuidance.missingFields),
+    questions: filteredQuestions.length > 0 ? filteredQuestions : (isGenericMode && !shouldTreatAsReadyForGuidance ? baseGuidance.questions.slice(0, 2) : filteredQuestions),
+    designDirections: moreOptionsFallback?.designDirections ?? (shouldShowDesignDirections ? baseGuidance.designDirections.slice(0, 3) : []),
+    quickReplies: moreOptionsFallback?.quickReplies ?? (shouldTreatAsReadyForGuidance && !shouldShowDesignDirections ? [] : baseGuidance.quickReplies.slice(0, 3)),
+    readinessHint: moreOptionsFallback?.readinessHint || baseGuidance.readinessHint,
   };
   return hasGuidanceContent(nextGuidance) ? nextGuidance : undefined;
 }

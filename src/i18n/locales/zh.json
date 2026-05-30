@@ -5324,6 +5324,7 @@
     "status": {
       "saved": "项目已保存",
       "snapshotSent": "截图已发送到画布",
+      "snapshotFailed": "截图失败，请重新打开导演台后再试",
       "modelLoadFailed": "模型加载失败"
     },
     "planeSurface": {
@@ -5444,7 +5445,9 @@
     "title": "生成历史",
     "toolbarTitle": "生成历史",
     "refresh": "刷新",
-    "loading": "正在扫描生成历史...",
+    "loadMore": "加载更多",
+    "loadingMore": "加载中",
+    "loading": "正在加载生成历史...",
     "searchPlaceholder": "搜索文件名、项目或路径...",
     "mediaTypeFilter": "媒体类型筛选",
     "projectFilter": "项目筛选",
@@ -5453,10 +5456,11 @@
     "openFolder": "打开所在文件夹",
     "totalCount": "共 {{count}} 个资源",
     "groupCount": "{{count}} 个",
+    "loadFailed": "生成历史加载失败，请稍后重试。",
     "scanFailed": "生成历史扫描失败，已保留上次索引结果。",
-    "emptyAfterError": "扫描失败，暂无可显示的历史资源。",
+    "emptyAfterError": "加载失败，暂无可显示的历史资源。",
     "emptyFiltered": "没有匹配当前筛选的历史资源。",
-    "empty": "暂无生成历史资源。",
+    "empty": "暂无生成历史资源。之后新生成的图片、视频或音频会自动记录在这里。",
     "mediaTypes": {
       "image": "图片",
       "video": "视频",

@@ -1,21 +1,27 @@
 import { create } from 'zustand';
 
 import {
-  listGenerationHistory,
-  scanGenerationHistory,
+  listGenerationHistoryPage,
+  type GenerationHistoryItemRecord,
   type GenerationHistoryMediaType,
-  type GenerationHistorySnapshot,
+  type GenerationHistoryProjectOption,
 } from '@/commands/generationHistory';
 import { isTauriRuntime } from '@/lib/tauriRuntime';
 
 type MediaTypeFilter = GenerationHistoryMediaType | 'all';
 
+const PAGE_SIZE = 50;
+
 interface GenerationHistoryState {
   isOpen: boolean;
   isLoading: boolean;
-  isScanning: boolean;
+  isLoadingMore: boolean;
   error: string | null;
-  snapshot: GenerationHistorySnapshot;
+  items: GenerationHistoryItemRecord[];
+  projects: GenerationHistoryProjectOption[];
+  totalCount: number;
+  offset: number;
+  hasMore: boolean;
   searchQuery: string;
   mediaTypeFilter: MediaTypeFilter;
   projectFilter: string;
@@ -24,22 +30,28 @@ interface GenerationHistoryState {
   setSearchQuery: (value: string) => void;
   setMediaTypeFilter: (value: MediaTypeFilter) => void;
   setProjectFilter: (value: string) => void;
-  load: (projectId?: string | null) => Promise<void>;
-  scan: (projectId?: string | null) => Promise<void>;
+  resetAndLoad: () => Promise<void>;
+  loadMore: () => Promise<void>;
 }
 
-const EMPTY_SNAPSHOT: GenerationHistorySnapshot = {
-  groups: [],
-  totalCount: 0,
-  indexedAt: 0,
-};
+function toProjectId(value: string): string | null {
+  return value && value !== 'all' ? value : null;
+}
+
+function toMediaType(value: MediaTypeFilter): GenerationHistoryMediaType | 'all' {
+  return value;
+}
 
 export const useGenerationHistoryStore = create<GenerationHistoryState>((set, get) => ({
   isOpen: false,
   isLoading: false,
-  isScanning: false,
+  isLoadingMore: false,
   error: null,
-  snapshot: EMPTY_SNAPSHOT,
+  items: [],
+  projects: [],
+  totalCount: 0,
+  offset: 0,
+  hasMore: false,
   searchQuery: '',
   mediaTypeFilter: 'all',
   projectFilter: 'all',
@@ -50,18 +62,40 @@ export const useGenerationHistoryStore = create<GenerationHistoryState>((set, ge
   setMediaTypeFilter: (value) => set({ mediaTypeFilter: value }),
   setProjectFilter: (value) => set({ projectFilter: value }),
 
-  load: async (projectId) => {
+  resetAndLoad: async () => {
     if (!isTauriRuntime()) {
-      set({ snapshot: EMPTY_SNAPSHOT, isLoading: false, error: null });
+      set({
+        items: [],
+        projects: [],
+        totalCount: 0,
+        offset: 0,
+        hasMore: false,
+        isLoading: false,
+        error: null,
+      });
       return;
     }
 
-    set({ isLoading: true, error: null });
+    const state = get();
+    set({ isLoading: true, error: null, offset: 0 });
     try {
-      const snapshot = await listGenerationHistory(projectId);
-      set({ snapshot, isLoading: false });
+      const page = await listGenerationHistoryPage({
+        projectId: toProjectId(state.projectFilter),
+        mediaType: toMediaType(state.mediaTypeFilter),
+        search: state.searchQuery,
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
+      set({
+        items: page.items,
+        projects: page.projects,
+        totalCount: page.totalCount,
+        offset: page.items.length,
+        hasMore: page.items.length < page.totalCount,
+        isLoading: false,
+      });
     } catch (error) {
-      console.error('Failed to load generation history', error);
+      console.error('Failed to load generation history page', error);
       set({
         isLoading: false,
         error: error instanceof Error ? error.message : String(error),
@@ -69,25 +103,38 @@ export const useGenerationHistoryStore = create<GenerationHistoryState>((set, ge
     }
   },
 
-  scan: async (projectId) => {
-    if (!isTauriRuntime()) {
-      set({ snapshot: EMPTY_SNAPSHOT, isScanning: false, error: null });
+  loadMore: async () => {
+    const state = get();
+    if (!isTauriRuntime() || state.isLoading || state.isLoadingMore || !state.hasMore) {
       return;
     }
 
-    set({ isScanning: true, error: null });
+    set({ isLoadingMore: true, error: null });
     try {
-      const result = await scanGenerationHistory(projectId);
-      set({ snapshot: result.snapshot, isScanning: false });
+      const page = await listGenerationHistoryPage({
+        projectId: toProjectId(state.projectFilter),
+        mediaType: toMediaType(state.mediaTypeFilter),
+        search: state.searchQuery,
+        limit: PAGE_SIZE,
+        offset: state.offset,
+      });
+      set((current) => {
+        const nextItems = [...current.items, ...page.items];
+        return {
+          items: nextItems,
+          projects: page.projects,
+          totalCount: page.totalCount,
+          offset: nextItems.length,
+          hasMore: nextItems.length < page.totalCount,
+          isLoadingMore: false,
+        };
+      });
     } catch (error) {
-      console.error('Failed to scan generation history', error);
+      console.error('Failed to load more generation history', error);
       set({
-        isScanning: false,
+        isLoadingMore: false,
         error: error instanceof Error ? error.message : String(error),
       });
-      if (get().snapshot.indexedAt === 0) {
-        await get().load(projectId);
-      }
     }
   },
 }));

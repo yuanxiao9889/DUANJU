@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { AudioLines, ExternalLink, FileImage, Film, RefreshCw, Search, X } from 'lucide-react';
+import { AudioLines, ExternalLink, FileImage, Film, Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { UiButton, UiIconButton, UiInput, UiSelect } from '@/components/ui';
@@ -7,10 +7,9 @@ import {
   openGenerationHistoryItemInFolder,
   type GenerationHistoryItemRecord,
   type GenerationHistoryMediaType,
-  type GenerationHistoryProjectGroup,
+  type GenerationHistoryProjectOption,
 } from '@/commands/generationHistory';
 import { resolveImageDisplayUrl } from '@/features/canvas/application/imageData';
-import { formatAudioDuration } from '@/features/canvas/application/audioData';
 import {
   GENERATION_HISTORY_DRAG_MIME_TYPE,
   serializeGenerationHistoryDragPayload,
@@ -24,17 +23,11 @@ interface GenerationHistoryDialogProps {
 
 type MediaTypeFilter = GenerationHistoryMediaType | 'all';
 
-function formatFileSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '';
-  }
-  if (bytes < 1024) {
-    return `${bytes} B`;
-  }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`;
-  }
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+interface GenerationHistoryDisplayGroup {
+  projectId: string;
+  projectName: string;
+  updatedAt: number;
+  items: GenerationHistoryItemRecord[];
 }
 
 function formatDateTime(value: number): string {
@@ -47,6 +40,10 @@ function formatDateTime(value: number): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function resolveHistoryTime(item: GenerationHistoryItemRecord): number {
+  return item.indexedAt || item.modifiedAt || item.createdAt;
 }
 
 function getItemPreviewSource(item: GenerationHistoryItemRecord): string | null {
@@ -66,14 +63,17 @@ function mediaIcon(mediaType: GenerationHistoryMediaType) {
   return <FileImage className="h-5 w-5" />;
 }
 
-function GenerationHistoryCard({ item }: { item: GenerationHistoryItemRecord }) {
+function resolveItemTitle(item: GenerationHistoryItemRecord): string {
+  const fileStem = item.fileName.replace(/\.[^.]+$/, '').trim();
+  return fileStem || item.fileName || item.sourcePath;
+}
+
+function GenerationHistoryRow({ item }: { item: GenerationHistoryItemRecord }) {
   const { t } = useTranslation();
   const previewSource = getItemPreviewSource(item);
   const metaParts = [
     t(`generationHistory.mediaTypes.${item.mediaType}`),
-    item.durationMs ? formatAudioDuration(item.durationMs / 1000) : null,
-    formatFileSize(item.fileSize),
-    formatDateTime(item.modifiedAt),
+    formatDateTime(resolveHistoryTime(item)),
   ].filter(Boolean);
 
   const handleOpenFolder = () => {
@@ -93,10 +93,10 @@ function GenerationHistoryCard({ item }: { item: GenerationHistoryItemRecord }) 
         );
         event.dataTransfer.setData('text/plain', item.sourcePath);
       }}
-      className="group overflow-hidden rounded-md border border-[rgba(255,255,255,0.09)] bg-[rgba(255,255,255,0.035)] text-left transition-[border-color,background-color,transform] hover:-translate-y-0.5 hover:border-[rgba(255,255,255,0.18)] hover:bg-[rgba(255,255,255,0.055)]"
+      className="group flex min-h-[58px] items-center gap-3 rounded-md border border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.03)] px-2.5 py-2 text-left transition-[border-color,background-color] hover:border-[rgba(255,255,255,0.16)] hover:bg-[rgba(255,255,255,0.055)]"
       title={item.fileName}
     >
-      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-bg-dark/80">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded border border-[rgba(255,255,255,0.08)] bg-bg-dark/80 text-text-muted">
         {previewSource ? (
           <img
             src={resolveImageDisplayUrl(previewSource)}
@@ -105,69 +105,71 @@ function GenerationHistoryCard({ item }: { item: GenerationHistoryItemRecord }) 
             loading="lazy"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center text-text-muted">
-            {mediaIcon(item.mediaType)}
-          </div>
+          mediaIcon(item.mediaType)
         )}
-        <div className="absolute left-2 top-2 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white">
-          {t(`generationHistory.mediaTypes.${item.mediaType}`)}
-        </div>
       </div>
-      <div className="space-y-1 px-2.5 py-2">
-        <div className="truncate text-xs font-medium text-text-dark">{item.fileName}</div>
-        <div className="truncate text-[11px] text-text-muted">{item.projectName}</div>
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0 truncate text-[11px] text-text-muted">{metaParts.join(' · ')}</div>
-          <button
-            type="button"
-            className="shrink-0 rounded p-1 text-text-muted opacity-0 transition-opacity hover:bg-white/10 hover:text-text-dark group-hover:opacity-100"
-            title={t('generationHistory.openFolder')}
-            onClick={handleOpenFolder}
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-          </button>
-        </div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-xs font-medium text-text-dark">{resolveItemTitle(item)}</div>
+        <div className="mt-0.5 truncate text-[11px] text-text-muted">{metaParts.join(' / ')}</div>
       </div>
+      <button
+        type="button"
+        className="shrink-0 rounded p-1.5 text-text-muted opacity-70 transition-[opacity,background-color,color] hover:bg-white/10 hover:text-text-dark group-hover:opacity-100"
+        title={t('generationHistory.openFolder')}
+        onClick={handleOpenFolder}
+      >
+        <ExternalLink className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }
 
-function filterGroups(
-  groups: GenerationHistoryProjectGroup[],
-  searchQuery: string,
-  mediaTypeFilter: MediaTypeFilter,
-  projectFilter: string,
+function sortProjectOptions(
+  projects: GenerationHistoryProjectOption[],
   currentProjectId: string | null
-): GenerationHistoryProjectGroup[] {
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const sortedGroups = [...groups].sort((left, right) => {
+): GenerationHistoryProjectOption[] {
+  return [...projects].sort((left, right) => {
     if (currentProjectId) {
       if (left.projectId === currentProjectId && right.projectId !== currentProjectId) return -1;
       if (right.projectId === currentProjectId && left.projectId !== currentProjectId) return 1;
     }
     return right.updatedAt - left.updatedAt;
   });
+}
 
-  return sortedGroups
-    .filter((group) => projectFilter === 'all' || group.projectId === projectFilter)
-    .map((group) => ({
-      ...group,
-      items: group.items.filter((item) => {
-        if (mediaTypeFilter !== 'all' && item.mediaType !== mediaTypeFilter) {
-          return false;
-        }
-        if (!normalizedQuery) {
-          return true;
-        }
-        return [
-          item.fileName,
-          item.projectName,
-          item.mediaType,
-          item.sourcePath,
-        ].some((value) => value.toLowerCase().includes(normalizedQuery));
-      }),
-    }))
-    .filter((group) => group.items.length > 0);
+function groupPageItems(
+  items: GenerationHistoryItemRecord[],
+  projects: GenerationHistoryProjectOption[],
+  currentProjectId: string | null
+): GenerationHistoryDisplayGroup[] {
+  const projectMeta = new Map(projects.map((project) => [project.projectId, project]));
+  const groups = new Map<string, GenerationHistoryDisplayGroup>();
+
+  for (const item of items) {
+    const meta = projectMeta.get(item.projectId);
+    const itemTime = resolveHistoryTime(item);
+    const group = groups.get(item.projectId) ?? {
+      projectId: item.projectId,
+      projectName: meta?.projectName ?? item.projectName,
+      updatedAt: Math.max(meta?.updatedAt ?? 0, itemTime),
+      items: [],
+    };
+    group.updatedAt = Math.max(group.updatedAt, itemTime);
+    group.items.push(item);
+    groups.set(item.projectId, group);
+  }
+
+  for (const group of groups.values()) {
+    group.items.sort((left, right) => resolveHistoryTime(right) - resolveHistoryTime(left));
+  }
+
+  return [...groups.values()].sort((left, right) => {
+    if (currentProjectId) {
+      if (left.projectId === currentProjectId && right.projectId !== currentProjectId) return -1;
+      if (right.projectId === currentProjectId && left.projectId !== currentProjectId) return 1;
+    }
+    return right.updatedAt - left.updatedAt;
+  });
 }
 
 export function GenerationHistoryDialog({ currentProjectId }: GenerationHistoryDialogProps) {
@@ -176,9 +178,12 @@ export function GenerationHistoryDialog({ currentProjectId }: GenerationHistoryD
   const {
     isOpen,
     isLoading,
-    isScanning,
+    isLoadingMore,
     error,
-    snapshot,
+    items,
+    projects,
+    totalCount,
+    hasMore,
     searchQuery,
     mediaTypeFilter,
     projectFilter,
@@ -186,8 +191,8 @@ export function GenerationHistoryDialog({ currentProjectId }: GenerationHistoryD
     setSearchQuery,
     setMediaTypeFilter,
     setProjectFilter,
-    load,
-    scan,
+    resetAndLoad,
+    loadMore,
   } = useGenerationHistoryStore();
 
   useEffect(() => {
@@ -220,32 +225,23 @@ export function GenerationHistoryDialog({ currentProjectId }: GenerationHistoryD
     if (!isOpen) {
       return;
     }
-    void scan(null);
-  }, [isOpen, scan]);
+    const timer = window.setTimeout(() => {
+      void resetAndLoad();
+    }, searchQuery.trim() ? 180 : 0);
+    return () => window.clearTimeout(timer);
+  }, [isOpen, mediaTypeFilter, projectFilter, resetAndLoad, searchQuery]);
 
-  useEffect(() => {
-    if (!isOpen || snapshot.indexedAt > 0) {
-      return;
-    }
-    void load(null);
-  }, [isOpen, load, snapshot.indexedAt]);
-
-  const filteredGroups = useMemo(
-    () => filterGroups(snapshot.groups, searchQuery, mediaTypeFilter, projectFilter, currentProjectId),
-    [currentProjectId, mediaTypeFilter, projectFilter, searchQuery, snapshot.groups]
+  const displayGroups = useMemo(
+    () => groupPageItems(items, projects, currentProjectId),
+    [currentProjectId, items, projects]
   );
-  const projectOptions = useMemo(() => {
-    return [...snapshot.groups].sort((left, right) => {
-      if (currentProjectId) {
-        if (left.projectId === currentProjectId && right.projectId !== currentProjectId) return -1;
-        if (right.projectId === currentProjectId && left.projectId !== currentProjectId) return 1;
-      }
-      return right.updatedAt - left.updatedAt;
-    });
-  }, [currentProjectId, snapshot.groups]);
+  const projectOptions = useMemo(
+    () => sortProjectOptions(projects, currentProjectId),
+    [currentProjectId, projects]
+  );
   const hasFilters =
     searchQuery.trim().length > 0 || mediaTypeFilter !== 'all' || projectFilter !== 'all';
-  const isBusy = isLoading || isScanning;
+  const isInitialLoading = isLoading && items.length === 0;
 
   if (!isOpen) {
     return null;
@@ -254,20 +250,16 @@ export function GenerationHistoryDialog({ currentProjectId }: GenerationHistoryD
   return (
     <div
       ref={panelRef}
-      className="absolute bottom-[62px] right-4 z-[10020] flex max-h-[min(680px,calc(100vh-92px))] w-[min(760px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-md"
+      className="absolute bottom-[62px] right-4 z-[10020] flex max-h-[min(680px,calc(100vh-92px))] w-[min(560px,calc(100vw-32px))] flex-col overflow-hidden rounded-lg border border-border-dark bg-surface-dark shadow-[0_24px_70px_rgba(0,0,0,0.42)] backdrop-blur-md"
     >
       <div className="flex shrink-0 items-center justify-between border-b border-[rgba(255,255,255,0.08)] px-3.5 py-2.5">
         <div className="min-w-0">
           <h2 className="truncate text-sm font-medium text-text-dark">{t('generationHistory.title')}</h2>
           <div className="text-[11px] text-text-muted">
-            {t('generationHistory.totalCount', { count: snapshot.totalCount })}
+            {t('generationHistory.totalCount', { count: totalCount })}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <UiButton size="sm" variant="muted" onClick={() => void scan(null)} disabled={isScanning}>
-            <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isScanning ? 'animate-spin' : ''}`} />
-            {t('generationHistory.refresh')}
-          </UiButton>
           <UiIconButton className="h-8 w-8" onClick={close} title={t('common.close')}>
             <X className="h-4 w-4" />
           </UiIconButton>
@@ -311,27 +303,29 @@ export function GenerationHistoryDialog({ currentProjectId }: GenerationHistoryD
           </div>
           {error ? (
             <div className="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-              {t('generationHistory.scanFailed')}
+              {t('generationHistory.loadFailed')}
             </div>
           ) : null}
         </div>
 
         <div className="ui-scrollbar min-h-0 flex-1 overflow-y-auto px-3.5 py-3.5">
-          {isBusy && snapshot.totalCount === 0 ? (
+          {isInitialLoading ? (
             <div className="flex h-56 items-center justify-center text-sm text-text-muted">
               {t('generationHistory.loading')}
             </div>
-          ) : filteredGroups.length === 0 ? (
-            <div className="flex h-56 items-center justify-center rounded-md border border-dashed border-[rgba(255,255,255,0.12)] text-sm text-text-muted">
-              {error
-                ? t('generationHistory.emptyAfterError')
-                : hasFilters
-                  ? t('generationHistory.emptyFiltered')
-                  : t('generationHistory.empty')}
+          ) : displayGroups.length === 0 ? (
+            <div className="flex h-56 flex-col items-center justify-center gap-2 rounded-md border border-dashed border-[rgba(255,255,255,0.12)] px-6 text-center text-sm text-text-muted">
+              <div>
+                {error
+                  ? t('generationHistory.emptyAfterError')
+                  : hasFilters
+                    ? t('generationHistory.emptyFiltered')
+                    : t('generationHistory.empty')}
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredGroups.map((group) => (
+              {displayGroups.map((group) => (
                 <section key={group.projectId} className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <h3 className="truncate text-sm font-medium text-text-dark">
@@ -341,13 +335,20 @@ export function GenerationHistoryDialog({ currentProjectId }: GenerationHistoryD
                       {t('generationHistory.groupCount', { count: group.items.length })}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4">
+                  <div className="space-y-2">
                     {group.items.map((item) => (
-                      <GenerationHistoryCard key={item.id} item={item} />
+                      <GenerationHistoryRow key={item.id} item={item} />
                     ))}
                   </div>
                 </section>
               ))}
+              {hasMore ? (
+                <div className="flex justify-center pt-1">
+                  <UiButton size="sm" variant="muted" onClick={() => void loadMore()} disabled={isLoadingMore}>
+                    {isLoadingMore ? t('generationHistory.loadingMore') : t('generationHistory.loadMore')}
+                  </UiButton>
+                </div>
+              ) : null}
             </div>
           )}
         </div>

@@ -5451,6 +5451,7 @@
     "status": {
       "saved": "Project saved",
       "snapshotSent": "Snapshot sent to canvas",
+      "snapshotFailed": "Snapshot failed. Reopen the director stage and try again.",
       "modelLoadFailed": "Model failed to load"
     },
     "planeSurface": {
@@ -5571,7 +5572,9 @@
     "title": "Generation History",
     "toolbarTitle": "Generation History",
     "refresh": "Refresh",
-    "loading": "Scanning generation history...",
+    "loadMore": "Load more",
+    "loadingMore": "Loading",
+    "loading": "Loading generation history...",
     "searchPlaceholder": "Search file, project, or path...",
     "mediaTypeFilter": "Media type filter",
     "projectFilter": "Project filter",
@@ -5580,10 +5583,11 @@
     "openFolder": "Open folder",
     "totalCount": "{{count}} resources",
     "groupCount": "{{count}} items",
+    "loadFailed": "Failed to load generation history. Please try again.",
     "scanFailed": "Generation history scan failed. Showing the last indexed result.",
-    "emptyAfterError": "Scan failed and no indexed resources are available.",
+    "emptyAfterError": "Loading failed and no history resources are available.",
     "emptyFiltered": "No history resources match the current filters.",
-    "empty": "No generation history resources yet.",
+    "empty": "No generation history resources yet. Newly generated images, videos, and audio will appear here automatically.",
     "mediaTypes": {
       "image": "Image",
       "video": "Video",

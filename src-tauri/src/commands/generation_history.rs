@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,10 +9,7 @@ use serde_json::json;
 use tauri::AppHandle;
 use uuid::Uuid;
 
-use super::{
-    project_state::{open_db, ProjectSummaryRecord},
-    storage,
-};
+use super::{project_state::open_db, storage};
 
 const GENERATION_HISTORY_TABLE: &str = "generation_history_items";
 
@@ -36,36 +33,59 @@ pub struct GenerationHistoryItemRecord {
     pub snapshot_json: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenerationHistoryProjectGroup {
-    pub project_id: String,
-    pub project_name: String,
-    pub updated_at: i64,
-    pub items: Vec<GenerationHistoryItemRecord>,
+pub struct GenerationHistoryListPagePayload {
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub media_type: Option<String>,
+    #[serde(default)]
+    pub search: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenerationHistorySnapshot {
-    pub groups: Vec<GenerationHistoryProjectGroup>,
-    pub total_count: usize,
+pub struct GenerationHistoryProjectOption {
+    pub project_id: String,
+    pub project_name: String,
+    pub count: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationHistoryListPageResult {
+    pub items: Vec<GenerationHistoryItemRecord>,
+    pub projects: Vec<GenerationHistoryProjectOption>,
+    pub total_count: i64,
+    pub limit: i64,
+    pub offset: i64,
     pub indexed_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GenerationHistoryScanResult {
-    pub scanned_count: usize,
-    pub removed_count: usize,
-    pub snapshot: GenerationHistorySnapshot,
-}
-
-#[derive(Debug, Clone)]
-struct ProjectScanTarget {
-    project_id: String,
-    project_name: String,
-    root: PathBuf,
+pub struct RecordGenerationOutputPayload {
+    pub project_id: String,
+    pub project_name: String,
+    pub media_type: String,
+    pub source_path: String,
+    #[serde(default)]
+    pub preview_path: Option<String>,
+    pub file_name: String,
+    #[serde(default)]
+    pub mime_type: Option<String>,
+    #[serde(default)]
+    pub duration_ms: Option<i64>,
+    #[serde(default)]
+    pub aspect_ratio: Option<String>,
+    #[serde(default)]
+    pub snapshot_json: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,15 +119,29 @@ fn system_time_to_ms(value: SystemTime) -> i64 {
         .as_millis() as i64
 }
 
-fn normalize_optional_project_id(project_id: Option<String>) -> Option<String> {
-    project_id.and_then(|value| {
+fn normalize_optional_filter(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
         let trimmed = value.trim();
-        if trimmed.is_empty() {
+        if trimmed.is_empty() || trimmed == "all" {
             None
         } else {
             Some(trimmed.to_string())
         }
     })
+}
+
+fn normalize_media_type_filter(value: Option<String>) -> Option<String> {
+    normalize_optional_filter(value).filter(|value| {
+        matches!(value.as_str(), "image" | "video" | "audio")
+    })
+}
+
+fn clamp_page_limit(value: Option<i64>) -> i64 {
+    value.unwrap_or(50).clamp(1, 100)
+}
+
+fn normalize_page_offset(value: Option<i64>) -> i64 {
+    value.unwrap_or(0).max(0)
 }
 
 fn read_table_columns(conn: &Connection, table_name: &str) -> Result<HashSet<String>, String> {
@@ -142,6 +176,19 @@ fn ensure_table_column(
         format!("ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}");
     conn.execute(&statement, [])
         .map_err(|e| format!("Failed to add {table_name}.{column_name} column: {}", e))?;
+    Ok(())
+}
+
+fn purge_legacy_generation_history_items(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        r#"
+        DELETE FROM generation_history_items
+        WHERE snapshot_json NOT LIKE '%canvasImageGeneration%'
+          AND snapshot_json NOT LIKE '%generationOutputRecord%'
+        "#,
+        [],
+    )
+    .map_err(|e| format!("Failed to purge legacy generation history items: {}", e))?;
     Ok(())
 }
 
@@ -198,559 +245,212 @@ fn ensure_generation_history_table(conn: &Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| format!("Failed to ensure generation history indexes: {}", e))?;
+    purge_legacy_generation_history_items(conn)?;
     Ok(())
 }
 
-fn load_project_summaries(conn: &Connection) -> Result<Vec<ProjectSummaryRecord>, String> {
+fn upsert_generation_history_item(
+    app: &AppHandle,
+    conn: &mut Connection,
+    item: &ScannedMediaItem,
+    now: i64,
+) -> Result<(), String> {
+    ensure_generation_history_table(conn)?;
+    let persisted_source_path = storage::encode_storage_media_ref(app, &item.source_path);
+    let persisted_preview_path = item
+        .preview_path
+        .as_deref()
+        .map(|value| storage::encode_storage_media_ref(app, value));
+    let existing_id = conn
+        .query_row(
+            "SELECT id FROM generation_history_items WHERE source_path = ?1 LIMIT 1",
+            params![persisted_source_path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(|e| format!("Failed to find existing generation history item: {}", e))?;
+
+    if let Some(existing_id) = existing_id {
+        conn.execute(
+            r#"
+            UPDATE generation_history_items
+            SET
+              project_id = ?2,
+              project_name = ?3,
+              media_type = ?4,
+              source_path = ?5,
+              preview_path = ?6,
+              file_name = ?7,
+              file_size = ?8,
+              mime_type = ?9,
+              duration_ms = ?10,
+              aspect_ratio = ?11,
+              created_at = ?12,
+              modified_at = ?13,
+              indexed_at = ?14,
+              snapshot_json = ?15
+            WHERE id = ?1
+            "#,
+            params![
+                existing_id,
+                item.project_id,
+                item.project_name,
+                item.media_type,
+                persisted_source_path,
+                persisted_preview_path,
+                item.file_name,
+                item.file_size,
+                item.mime_type,
+                item.duration_ms,
+                item.aspect_ratio,
+                item.created_at,
+                item.modified_at,
+                now,
+                item.snapshot_json,
+            ],
+        )
+        .map_err(|e| format!("Failed to update generation history item: {}", e))?;
+    } else {
+        conn.execute(
+            r#"
+            INSERT INTO generation_history_items (
+              id,
+              project_id,
+              project_name,
+              media_type,
+              source_path,
+              preview_path,
+              file_name,
+              file_size,
+              mime_type,
+              duration_ms,
+              aspect_ratio,
+              created_at,
+              modified_at,
+              indexed_at,
+              snapshot_json
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+            "#,
+            params![
+                Uuid::new_v4().to_string(),
+                item.project_id,
+                item.project_name,
+                item.media_type,
+                persisted_source_path,
+                persisted_preview_path,
+                item.file_name,
+                item.file_size,
+                item.mime_type,
+                item.duration_ms,
+                item.aspect_ratio,
+                item.created_at,
+                item.modified_at,
+                now,
+                item.snapshot_json,
+            ],
+        )
+        .map_err(|e| format!("Failed to insert generation history item: {}", e))?;
+    }
+
+    Ok(())
+}
+
+fn decode_generation_history_item(app: &AppHandle, item: &mut GenerationHistoryItemRecord) {
+    item.source_path = storage::decode_storage_media_ref(app, &item.source_path);
+    item.preview_path = item
+        .preview_path
+        .as_deref()
+        .map(|value| storage::decode_storage_media_ref(app, value));
+}
+
+fn read_generation_history_projects(
+    conn: &Connection,
+) -> Result<Vec<GenerationHistoryProjectOption>, String> {
+    ensure_generation_history_table(conn)?;
     let mut stmt = conn
         .prepare(
             r#"
             SELECT
-              id,
-              name,
-              project_type,
-              asset_library_id,
-              clip_library_id,
-              clip_last_folder_id,
-              linked_script_project_id,
-              linked_ad_project_id,
-              created_at,
-              updated_at,
-              node_count
-            FROM projects
-            ORDER BY updated_at DESC
+              project_id,
+              COALESCE(NULLIF(project_name, ''), project_id) AS project_name,
+              COUNT(*) AS item_count,
+              MAX(modified_at) AS updated_at
+            FROM generation_history_items
+            WHERE (
+              snapshot_json LIKE '%canvasImageGeneration%'
+              OR snapshot_json LIKE '%generationOutputRecord%'
+            )
+            GROUP BY project_id, project_name
+            HAVING item_count > 0
+            ORDER BY MAX(indexed_at) DESC, updated_at DESC
             "#,
         )
-        .map_err(|e| format!("Failed to prepare project summary query: {}", e))?;
+        .map_err(|e| format!("Failed to prepare generation history project query: {}", e))?;
     let rows = stmt
         .query_map([], |row| {
-            Ok(ProjectSummaryRecord {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                project_type: row.get(2)?,
-                asset_library_id: row.get(3)?,
-                clip_library_id: row.get(4)?,
-                clip_last_folder_id: row.get(5)?,
-                linked_script_project_id: row.get(6)?,
-                linked_ad_project_id: row.get(7)?,
-                created_at: row.get(8)?,
-                updated_at: row.get(9)?,
-                node_count: row.get(10)?,
+            Ok(GenerationHistoryProjectOption {
+                project_id: row.get(0)?,
+                project_name: row.get(1)?,
+                count: row.get(2)?,
+                updated_at: row.get(3)?,
             })
         })
-        .map_err(|e| format!("Failed to query project summaries: {}", e))?;
-
+        .map_err(|e| format!("Failed to query generation history projects: {}", e))?;
     let mut projects = Vec::new();
     for row in rows {
-        projects.push(row.map_err(|e| format!("Failed to read project summary: {}", e))?);
+        projects.push(
+            row.map_err(|e| format!("Failed to read generation history project row: {}", e))?,
+        );
     }
     Ok(projects)
 }
 
-fn resolve_project_media_dir_name(project_id: &str, project_name: &str) -> Vec<String> {
-    let mut candidates = Vec::new();
-    let project_id_part = project_id
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
-        .collect::<String>();
-    if !project_id_part.is_empty() {
-        candidates.push(project_id_part.clone());
-    }
-
-    let short_id = project_id
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .take(8)
-        .collect::<String>();
-    let mut name_part = String::new();
-    let mut previous_separator = false;
-    for ch in project_name.trim().chars() {
-        let next = match ch {
-            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
-            ch if ch.is_control() || ch.is_whitespace() => '-',
-            ch => ch,
-        };
-        if next == '-' || next == '_' || next == '.' {
-            if previous_separator {
-                continue;
-            }
-            previous_separator = true;
-        } else {
-            previous_separator = false;
-        }
-        name_part.push(next);
-    }
-    let name_part = name_part
-        .trim_matches(|ch| ch == '-' || ch == '_' || ch == '.' || ch == ' ')
-        .chars()
-        .take(48)
-        .collect::<String>();
-    if !name_part.is_empty() && !short_id.is_empty() {
-        candidates.push(format!("{name_part}-{short_id}"));
-    } else if !name_part.is_empty() {
-        candidates.push(name_part);
-    }
-
-    let mut seen = HashSet::new();
-    candidates
-        .into_iter()
-        .filter(|candidate| seen.insert(candidate.to_ascii_lowercase()))
-        .collect()
-}
-
-fn resolve_project_scan_targets(
-    app: &AppHandle,
+fn count_generation_history_items(
     conn: &Connection,
     project_id: Option<&str>,
-) -> Result<Vec<ProjectScanTarget>, String> {
-    let base_path = storage::resolve_storage_base_path(app)?;
-    let projects_root = base_path.join("projects");
-    let projects = load_project_summaries(conn)?;
-    let project_dirs = fs::read_dir(&projects_root)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    let mut targets = Vec::new();
-    let mut matched_roots = HashSet::new();
-
-    for project in projects {
-        if project_id.is_some_and(|target_id| target_id != project.id) {
-            continue;
-        }
-
-        let candidate_names = resolve_project_media_dir_name(&project.id, &project.name)
-            .into_iter()
-            .map(|value| value.to_ascii_lowercase())
-            .collect::<HashSet<_>>();
-        let short_id = project
-            .id
-            .chars()
-            .filter(|ch| ch.is_ascii_alphanumeric())
-            .take(8)
-            .collect::<String>()
-            .to_ascii_lowercase();
-        let matched_root = project_dirs.iter().find(|root| {
-            let name = root
-                .file_name()
-                .and_then(|value| value.to_str())
-                .unwrap_or_default()
-                .to_ascii_lowercase();
-            candidate_names.contains(&name)
-                || (!short_id.is_empty() && name.ends_with(&format!("-{short_id}")))
-        });
-
-        if let Some(root) = matched_root {
-            matched_roots.insert(root.to_string_lossy().replace('\\', "/").to_ascii_lowercase());
-            targets.push(ProjectScanTarget {
-                project_id: project.id.clone(),
-                project_name: project.name.clone(),
-                root: root.clone(),
-            });
-        }
-    }
-
-    if project_id.is_none() {
-        for root in project_dirs {
-            let compare_key = root.to_string_lossy().replace('\\', "/").to_ascii_lowercase();
-            if matched_roots.contains(&compare_key) {
-                continue;
-            }
-            let Some(dir_name) = root.file_name().and_then(|value| value.to_str()) else {
-                continue;
-            };
-            targets.push(ProjectScanTarget {
-                project_id: format!("__dir__:{dir_name}"),
-                project_name: dir_name.to_string(),
-                root,
-            });
-        }
-    }
-
-    Ok(targets)
-}
-
-fn is_hidden_or_temp_file(path: &Path) -> bool {
-    let Some(name) = path.file_name().and_then(|value| value.to_str()) else {
-        return true;
-    };
-    let lower = name.to_ascii_lowercase();
-    name.starts_with('.')
-        || lower.ends_with(".tmp")
-        || lower.ends_with(".temp")
-        || lower.ends_with(".part")
-        || lower.ends_with(".download")
-}
-
-fn is_supported_media_file(path: &Path, media_type: &str) -> bool {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-
-    match media_type {
-        "video" => matches!(
-            extension.as_str(),
-            "mp4" | "webm" | "ogv" | "mov" | "avi" | "mkv"
-        ),
-        "audio" => matches!(
-            extension.as_str(),
-            "mp3" | "wav" | "ogg" | "oga" | "m4a" | "aac" | "flac" | "webm"
-        ),
-        _ => matches!(
-            extension.as_str(),
-            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tif" | "tiff" | "avif"
-        ),
-    }
-}
-
-fn infer_mime_type(path: &Path, media_type: &str) -> Option<String> {
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let mime = match extension.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "webp" => "image/webp",
-        "gif" => "image/gif",
-        "bmp" => "image/bmp",
-        "tif" | "tiff" => "image/tiff",
-        "avif" => "image/avif",
-        "mp4" if media_type == "video" => "video/mp4",
-        "webm" if media_type == "video" => "video/webm",
-        "ogv" => "video/ogg",
-        "mov" => "video/quicktime",
-        "avi" => "video/x-msvideo",
-        "mkv" => "video/x-matroska",
-        "mp3" => "audio/mpeg",
-        "wav" => "audio/wav",
-        "ogg" | "oga" => "audio/ogg",
-        "webm" if media_type == "audio" => "audio/webm",
-        "m4a" => "audio/mp4",
-        "aac" => "audio/aac",
-        "flac" => "audio/flac",
-        _ => return None,
-    };
-    Some(mime.to_string())
-}
-
-fn image_dimensions(path: &Path) -> Option<(u32, u32)> {
-    image::image_dimensions(path).ok()
-}
-
-fn reduce_aspect_ratio(width: u32, height: u32) -> String {
-    fn gcd(mut a: u32, mut b: u32) -> u32 {
-        while b != 0 {
-            let next = a % b;
-            a = b;
-            b = next;
-        }
-        a.max(1)
-    }
-
-    if width == 0 || height == 0 {
-        return "1:1".to_string();
-    }
-    let divisor = gcd(width, height);
-    format!("{}:{}", width / divisor, height / divisor)
-}
-
-fn find_preview_for_video(project_root: &Path, source_path: &Path) -> Option<String> {
-    let stem = source_path.file_stem().and_then(|value| value.to_str())?;
-    let preview_dir = project_root.join("images").join("previews");
-    if !preview_dir.is_dir() {
-        return None;
-    }
-
-    for extension in ["jpg", "jpeg", "png", "webp"] {
-        let candidate = preview_dir.join(format!("{stem}.{extension}"));
-        if candidate.is_file() {
-            return Some(candidate.to_string_lossy().to_string());
-        }
-    }
-    None
-}
-
-fn scan_media_dir(
-    target: &ProjectScanTarget,
-    dir: &Path,
-    media_type: &str,
-    now: i64,
-) -> Result<Vec<ScannedMediaItem>, String> {
-    let mut results = Vec::new();
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Ok(results);
-    };
-
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("Failed to read generation history dir: {}", e))?;
-        let path = entry.path();
-        if path.is_dir() {
-            if path
-                .file_name()
-                .and_then(|value| value.to_str())
-                .is_some_and(|name| name.starts_with('.') || name.eq_ignore_ascii_case("thumbnail"))
-            {
-                continue;
-            }
-            results.extend(scan_media_dir(target, &path, media_type, now)?);
-            continue;
-        }
-
-        if is_hidden_or_temp_file(&path) || !is_supported_media_file(&path, media_type) {
-            continue;
-        }
-
-        let metadata = fs::metadata(&path)
-            .map_err(|e| format!("Failed to inspect media file {}: {}", path.display(), e))?;
-        if !metadata.is_file() || metadata.len() == 0 {
-            continue;
-        }
-
-        let file_name = path
-            .file_name()
-            .and_then(|value| value.to_str())
-            .unwrap_or("media")
-            .to_string();
-        let modified_at = metadata.modified().map(system_time_to_ms).unwrap_or(now);
-        let created_at = metadata
-            .created()
-            .map(system_time_to_ms)
-            .unwrap_or(modified_at);
-        let source_path = path.to_string_lossy().to_string();
-        let preview_path = if media_type == "video" {
-            find_preview_for_video(&target.root, &path)
-        } else {
-            None
-        };
-        let aspect_ratio = if media_type == "image" {
-            image_dimensions(&path)
-                .map(|(width, height)| reduce_aspect_ratio(width, height))
-                .unwrap_or_else(|| "1:1".to_string())
-        } else {
-            String::new()
-        };
-        let snapshot_json = json!({
-            "source": "projectMediaScan",
-            "projectId": target.project_id,
-            "mediaType": media_type,
-            "sourcePath": source_path,
-            "previewPath": preview_path,
-        })
-        .to_string();
-
-        results.push(ScannedMediaItem {
-            project_id: target.project_id.clone(),
-            project_name: target.project_name.clone(),
-            media_type: media_type.to_string(),
-            source_path,
-            preview_path,
-            file_name,
-            file_size: metadata.len() as i64,
-            mime_type: infer_mime_type(&path, media_type),
-            duration_ms: None,
-            aspect_ratio,
-            created_at,
-            modified_at,
-            snapshot_json,
-        });
-    }
-
-    Ok(results)
-}
-
-fn scan_project_target(
-    target: &ProjectScanTarget,
-    now: i64,
-) -> Result<Vec<ScannedMediaItem>, String> {
-    let mut results = Vec::new();
-    results.extend(scan_media_dir(
-        target,
-        &target.root.join("images").join("originals"),
-        "image",
-        now,
-    )?);
-    results.extend(scan_media_dir(target, &target.root.join("videos"), "video", now)?);
-    results.extend(scan_media_dir(target, &target.root.join("audio"), "audio", now)?);
-    Ok(results)
-}
-
-fn upsert_scanned_items(
-    app: &AppHandle,
-    conn: &mut Connection,
-    targets: &[ProjectScanTarget],
-    items: &[ScannedMediaItem],
-    now: i64,
-) -> Result<usize, String> {
+    media_type: Option<&str>,
+    search: Option<&str>,
+) -> Result<i64, String> {
     ensure_generation_history_table(conn)?;
-    let target_project_ids = targets
-        .iter()
-        .map(|target| target.project_id.clone())
-        .collect::<HashSet<_>>();
-    let target_source_paths = items
-        .iter()
-        .map(|item| storage::encode_storage_media_ref(app, &item.source_path))
-        .collect::<HashSet<_>>();
-
-    let existing_rows: Vec<(String, String, String)> = if target_project_ids.is_empty() {
-        Vec::new()
-    } else {
-        let mut stmt = conn
-            .prepare("SELECT id, project_id, source_path FROM generation_history_items")
-            .map_err(|e| format!("Failed to prepare generation history cleanup query: {}", e))?;
-        let rows = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            })
-            .map_err(|e| format!("Failed to query generation history cleanup rows: {}", e))?;
-        let mut collected = Vec::new();
-        for row in rows {
-            let row = row.map_err(|e| format!("Failed to read generation history cleanup row: {}", e))?;
-            collected.push(row);
-        }
-        collected
-    };
-
-    let tx = conn
-        .transaction()
-        .map_err(|e| format!("Failed to begin generation history transaction: {}", e))?;
-    for item in items {
-        let persisted_source_path = storage::encode_storage_media_ref(app, &item.source_path);
-        let persisted_preview_path = item
-            .preview_path
-            .as_deref()
-            .map(|value| storage::encode_storage_media_ref(app, value));
-        let existing_id = tx
-            .query_row(
-                "SELECT id FROM generation_history_items WHERE source_path = ?1 LIMIT 1",
-                params![persisted_source_path],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|e| format!("Failed to find existing generation history item: {}", e))?;
-
-        if let Some(existing_id) = existing_id {
-            tx.execute(
-                r#"
-                UPDATE generation_history_items
-                SET
-                  project_id = ?2,
-                  project_name = ?3,
-                  media_type = ?4,
-                  source_path = ?5,
-                  preview_path = ?6,
-                  file_name = ?7,
-                  file_size = ?8,
-                  mime_type = ?9,
-                  duration_ms = ?10,
-                  aspect_ratio = ?11,
-                  created_at = ?12,
-                  modified_at = ?13,
-                  indexed_at = ?14,
-                  snapshot_json = ?15
-                WHERE id = ?1
-                "#,
-                params![
-                    existing_id,
-                    item.project_id,
-                    item.project_name,
-                    item.media_type,
-                    persisted_source_path,
-                    persisted_preview_path,
-                    item.file_name,
-                    item.file_size,
-                    item.mime_type,
-                    item.duration_ms,
-                    item.aspect_ratio,
-                    item.created_at,
-                    item.modified_at,
-                    now,
-                    item.snapshot_json,
-                ],
-            )
-            .map_err(|e| format!("Failed to update generation history item: {}", e))?;
-        } else {
-            tx.execute(
-                r#"
-                INSERT INTO generation_history_items (
-                  id,
-                  project_id,
-                  project_name,
-                  media_type,
-                  source_path,
-                  preview_path,
-                  file_name,
-                  file_size,
-                  mime_type,
-                  duration_ms,
-                  aspect_ratio,
-                  created_at,
-                  modified_at,
-                  indexed_at,
-                  snapshot_json
-                )
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
-                "#,
-                params![
-                    Uuid::new_v4().to_string(),
-                    item.project_id,
-                    item.project_name,
-                    item.media_type,
-                    persisted_source_path,
-                    persisted_preview_path,
-                    item.file_name,
-                    item.file_size,
-                    item.mime_type,
-                    item.duration_ms,
-                    item.aspect_ratio,
-                    item.created_at,
-                    item.modified_at,
-                    now,
-                    item.snapshot_json,
-                ],
-            )
-            .map_err(|e| format!("Failed to insert generation history item: {}", e))?;
-        }
+    let mut sql = String::from(
+        "SELECT COUNT(*) FROM generation_history_items WHERE (snapshot_json LIKE '%canvasImageGeneration%' OR snapshot_json LIKE '%generationOutputRecord%')",
+    );
+    let mut params: Vec<String> = Vec::new();
+    if let Some(project_id) = project_id {
+        sql.push_str(" AND project_id = ?");
+        params.push(project_id.to_string());
+    }
+    if let Some(media_type) = media_type {
+        sql.push_str(" AND media_type = ?");
+        params.push(media_type.to_string());
+    }
+    if let Some(search) = search {
+        sql.push_str(
+            " AND (LOWER(file_name) LIKE ? OR LOWER(project_name) LIKE ? OR LOWER(source_path) LIKE ?)",
+        );
+        let pattern = format!("%{}%", search.to_ascii_lowercase());
+        params.push(pattern.clone());
+        params.push(pattern.clone());
+        params.push(pattern);
     }
 
-    let mut removed_count = 0;
-    for (item_id, row_project_id, source_path) in existing_rows {
-        if !target_project_ids.contains(&row_project_id) {
-            continue;
-        }
-        if target_source_paths.contains(&source_path) {
-            continue;
-        }
-        tx.execute(
-            "DELETE FROM generation_history_items WHERE id = ?1",
-            params![item_id],
-        )
-        .map_err(|e| format!("Failed to remove stale generation history item: {}", e))?;
-        removed_count += 1;
-    }
-
-    tx.commit()
-        .map_err(|e| format!("Failed to commit generation history transaction: {}", e))?;
-    Ok(removed_count)
+    let refs = params.iter().map(|value| value as &dyn rusqlite::ToSql).collect::<Vec<_>>();
+    conn.query_row(&sql, refs.as_slice(), |row| row.get(0))
+        .map_err(|e| format!("Failed to count generation history items: {}", e))
 }
 
-fn read_generation_history_items(
+fn list_generation_history_page_items(
     conn: &Connection,
     app: &AppHandle,
     project_id: Option<&str>,
+    media_type: Option<&str>,
+    search: Option<&str>,
+    limit: i64,
+    offset: i64,
 ) -> Result<Vec<GenerationHistoryItemRecord>, String> {
     ensure_generation_history_table(conn)?;
-
-    let sql = if project_id.is_some() {
+    let mut sql = String::from(
         r#"
         SELECT
           id,
@@ -769,114 +469,67 @@ fn read_generation_history_items(
           indexed_at,
           snapshot_json
         FROM generation_history_items
-        WHERE project_id = ?1
-        ORDER BY modified_at DESC, indexed_at DESC
-        "#
-    } else {
-        r#"
-        SELECT
-          id,
-          project_id,
-          project_name,
-          media_type,
-          source_path,
-          preview_path,
-          file_name,
-          file_size,
-          mime_type,
-          duration_ms,
-          aspect_ratio,
-          created_at,
-          modified_at,
-          indexed_at,
-          snapshot_json
-        FROM generation_history_items
-        ORDER BY modified_at DESC, indexed_at DESC
-        "#
-    };
+        WHERE (
+          snapshot_json LIKE '%canvasImageGeneration%'
+          OR snapshot_json LIKE '%generationOutputRecord%'
+        )
+        "#,
+    );
+    let mut params: Vec<String> = Vec::new();
+    if let Some(project_id) = project_id {
+        sql.push_str(" AND project_id = ?");
+        params.push(project_id.to_string());
+    }
+    if let Some(media_type) = media_type {
+        sql.push_str(" AND media_type = ?");
+        params.push(media_type.to_string());
+    }
+    if let Some(search) = search {
+        sql.push_str(
+            " AND (LOWER(file_name) LIKE ? OR LOWER(project_name) LIKE ? OR LOWER(source_path) LIKE ?)",
+        );
+        let pattern = format!("%{}%", search.to_ascii_lowercase());
+        params.push(pattern.clone());
+        params.push(pattern.clone());
+        params.push(pattern);
+    }
+    sql.push_str(" ORDER BY indexed_at DESC, modified_at DESC, created_at DESC LIMIT ? OFFSET ?");
+    params.push(limit.to_string());
+    params.push(offset.to_string());
 
+    let refs = params.iter().map(|value| value as &dyn rusqlite::ToSql).collect::<Vec<_>>();
     let mut stmt = conn
-        .prepare(sql)
-        .map_err(|e| format!("Failed to prepare generation history list query: {}", e))?;
-    let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<GenerationHistoryItemRecord> {
-        Ok(GenerationHistoryItemRecord {
-            id: row.get(0)?,
-            project_id: row.get(1)?,
-            project_name: row.get(2)?,
-            media_type: row.get(3)?,
-            source_path: row.get(4)?,
-            preview_path: row.get(5)?,
-            file_name: row.get(6)?,
-            file_size: row.get(7)?,
-            mime_type: row.get(8)?,
-            duration_ms: row.get(9)?,
-            aspect_ratio: row.get(10)?,
-            created_at: row.get(11)?,
-            modified_at: row.get(12)?,
-            indexed_at: row.get(13)?,
-            snapshot_json: row.get(14)?,
+        .prepare(&sql)
+        .map_err(|e| format!("Failed to prepare generation history page query: {}", e))?;
+    let rows = stmt
+        .query_map(refs.as_slice(), |row| {
+            Ok(GenerationHistoryItemRecord {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                project_name: row.get(2)?,
+                media_type: row.get(3)?,
+                source_path: row.get(4)?,
+                preview_path: row.get(5)?,
+                file_name: row.get(6)?,
+                file_size: row.get(7)?,
+                mime_type: row.get(8)?,
+                duration_ms: row.get(9)?,
+                aspect_ratio: row.get(10)?,
+                created_at: row.get(11)?,
+                modified_at: row.get(12)?,
+                indexed_at: row.get(13)?,
+                snapshot_json: row.get(14)?,
+            })
         })
-    };
-
-    let rows = if let Some(project_id) = project_id {
-        stmt.query_map(params![project_id], map_row)
-            .map_err(|e| format!("Failed to query generation history: {}", e))?
-    } else {
-        stmt.query_map([], map_row)
-            .map_err(|e| format!("Failed to query generation history: {}", e))?
-    };
+        .map_err(|e| format!("Failed to query generation history page: {}", e))?;
 
     let mut items = Vec::new();
     for row in rows {
         let mut item = row.map_err(|e| format!("Failed to read generation history row: {}", e))?;
-        item.source_path = storage::decode_storage_media_ref(app, &item.source_path);
-        item.preview_path = item
-            .preview_path
-            .as_deref()
-            .map(|value| storage::decode_storage_media_ref(app, value));
+        decode_generation_history_item(app, &mut item);
         items.push(item);
     }
     Ok(items)
-}
-
-fn build_generation_history_snapshot(
-    conn: &Connection,
-    app: &AppHandle,
-    project_id: Option<&str>,
-) -> Result<GenerationHistorySnapshot, String> {
-    let items = read_generation_history_items(conn, app, project_id)?;
-    let projects = load_project_summaries(conn)?
-        .into_iter()
-        .map(|project| (project.id.clone(), project.updated_at))
-        .collect::<HashMap<_, _>>();
-    let total_count = items.len();
-    let mut groups_by_project = HashMap::<String, GenerationHistoryProjectGroup>::new();
-
-    for item in items {
-        let updated_at = projects
-            .get(&item.project_id)
-            .copied()
-            .unwrap_or(item.modified_at);
-        let group = groups_by_project
-            .entry(item.project_id.clone())
-            .or_insert_with(|| GenerationHistoryProjectGroup {
-                project_id: item.project_id.clone(),
-                project_name: item.project_name.clone(),
-                updated_at,
-                items: Vec::new(),
-            });
-        group.updated_at = group.updated_at.max(item.modified_at).max(updated_at);
-        group.items.push(item);
-    }
-
-    let mut groups = groups_by_project.into_values().collect::<Vec<_>>();
-    groups.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
-
-    Ok(GenerationHistorySnapshot {
-        groups,
-        total_count,
-        indexed_at: current_timestamp_ms(),
-    })
 }
 
 fn open_directory_in_file_manager(path: &Path) -> Result<(), String> {
@@ -908,39 +561,141 @@ fn open_directory_in_file_manager(path: &Path) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn list_generation_history(
+pub fn list_generation_history_page(
     app: AppHandle,
-    project_id: Option<String>,
-) -> Result<GenerationHistorySnapshot, String> {
+    payload: GenerationHistoryListPagePayload,
+) -> Result<GenerationHistoryListPageResult, String> {
     let conn = open_db(&app)?;
-    let project_id = normalize_optional_project_id(project_id);
-    build_generation_history_snapshot(&conn, &app, project_id.as_deref())
+    let project_id = normalize_optional_filter(payload.project_id);
+    let media_type = normalize_media_type_filter(payload.media_type);
+    let search = normalize_optional_filter(payload.search);
+    let limit = clamp_page_limit(payload.limit);
+    let offset = normalize_page_offset(payload.offset);
+    let total_count = count_generation_history_items(
+        &conn,
+        project_id.as_deref(),
+        media_type.as_deref(),
+        search.as_deref(),
+    )?;
+    let items = list_generation_history_page_items(
+        &conn,
+        &app,
+        project_id.as_deref(),
+        media_type.as_deref(),
+        search.as_deref(),
+        limit,
+        offset,
+    )?;
+    let projects = read_generation_history_projects(&conn)?;
+
+    Ok(GenerationHistoryListPageResult {
+        items,
+        projects,
+        total_count,
+        limit,
+        offset,
+        indexed_at: current_timestamp_ms(),
+    })
 }
 
 #[tauri::command]
-pub fn scan_generation_history(
+pub fn get_generation_history_count(app: AppHandle) -> Result<i64, String> {
+    let conn = open_db(&app)?;
+    count_generation_history_items(&conn, None, None, None)
+}
+
+#[tauri::command]
+pub fn record_generation_output(
     app: AppHandle,
-    project_id: Option<String>,
-) -> Result<GenerationHistoryScanResult, String> {
+    payload: RecordGenerationOutputPayload,
+) -> Result<GenerationHistoryItemRecord, String> {
     let mut conn = open_db(&app)?;
-    ensure_generation_history_table(&conn)?;
-    let project_id = normalize_optional_project_id(project_id);
     let now = current_timestamp_ms();
-    let targets = resolve_project_scan_targets(&app, &conn, project_id.as_deref())?;
-    let mut scanned_items = Vec::new();
-
-    for target in &targets {
-        scanned_items.extend(scan_project_target(target, now)?);
+    let normalized_source_path = storage::decode_storage_media_ref(&app, payload.source_path.trim());
+    if normalized_source_path.trim().is_empty() {
+        return Err("Generation output source path is required".to_string());
     }
+    let source_path = PathBuf::from(&normalized_source_path);
+    let metadata = fs::metadata(&source_path).ok();
+    let file_size = metadata.as_ref().map(|value| value.len() as i64).unwrap_or(0);
+    let modified_at = metadata
+        .as_ref()
+        .and_then(|value| value.modified().ok())
+        .map(system_time_to_ms)
+        .unwrap_or(now);
+    let created_at = metadata
+        .as_ref()
+        .and_then(|value| value.created().ok())
+        .map(system_time_to_ms)
+        .unwrap_or(modified_at);
+    let file_name = if payload.file_name.trim().is_empty() {
+        source_path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("generation-output")
+            .to_string()
+    } else {
+        payload.file_name.trim().to_string()
+    };
+    let media_type = match payload.media_type.trim() {
+        "video" => "video",
+        "audio" => "audio",
+        _ => "image",
+    };
+    let aspect_ratio = payload
+        .aspect_ratio
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(if media_type == "video" { "16:9" } else { "1:1" })
+        .to_string();
+    let preview_path = payload
+        .preview_path
+        .map(|value| storage::decode_storage_media_ref(&app, value.trim()));
+    let snapshot_project_id = payload.project_id.clone();
+    let snapshot_source_path = normalized_source_path.clone();
+    let snapshot_preview_path = preview_path.clone();
+    let snapshot_json = payload.snapshot_json.unwrap_or_else(|| {
+        json!({
+            "source": "generationOutputRecord",
+            "projectId": snapshot_project_id,
+            "mediaType": media_type,
+            "sourcePath": snapshot_source_path,
+            "previewPath": snapshot_preview_path,
+        })
+        .to_string()
+    });
 
-    let removed_count = upsert_scanned_items(&app, &mut conn, &targets, &scanned_items, now)?;
-    let snapshot = build_generation_history_snapshot(&conn, &app, project_id.as_deref())?;
+    let item = ScannedMediaItem {
+        project_id: payload.project_id.trim().to_string(),
+        project_name: payload.project_name.trim().to_string(),
+        media_type: media_type.to_string(),
+        source_path: normalized_source_path,
+        preview_path,
+        file_name,
+        file_size,
+        mime_type: payload.mime_type,
+        duration_ms: payload.duration_ms,
+        aspect_ratio,
+        created_at,
+        modified_at,
+        snapshot_json,
+    };
 
-    Ok(GenerationHistoryScanResult {
-        scanned_count: scanned_items.len(),
-        removed_count,
-        snapshot,
-    })
+    upsert_generation_history_item(&app, &mut conn, &item, now)?;
+    let saved = list_generation_history_page_items(
+        &conn,
+        &app,
+        Some(&item.project_id),
+        Some(&item.media_type),
+        Some(&item.file_name),
+        1,
+        0,
+    )?
+    .into_iter()
+    .next()
+    .ok_or_else(|| "Failed to reload generation history item".to_string())?;
+    Ok(saved)
 }
 
 #[tauri::command]
