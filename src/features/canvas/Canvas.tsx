@@ -7846,6 +7846,28 @@ export function Canvas() {
     });
   }, [activeDirectorStageContext]);
 
+  const activeDirectorStageContextRef = useRef<DirectorStageWindowContext | null>(null);
+  const addDerivedExportNodeRef = useRef(addDerivedExportNode);
+  const addDerivedVideoNodeRef = useRef(addDerivedVideoNode);
+  const closeDirectorStageRef = useRef(closeDirectorStage);
+  const updateNodeDataRef = useRef(updateNodeData);
+
+  useEffect(() => {
+    activeDirectorStageContextRef.current = activeDirectorStageContext;
+  }, [activeDirectorStageContext]);
+
+  useEffect(() => {
+    addDerivedExportNodeRef.current = addDerivedExportNode;
+    addDerivedVideoNodeRef.current = addDerivedVideoNode;
+    closeDirectorStageRef.current = closeDirectorStage;
+    updateNodeDataRef.current = updateNodeData;
+  }, [
+    addDerivedExportNode,
+    addDerivedVideoNode,
+    closeDirectorStage,
+    updateNodeData,
+  ]);
+
   useEffect(() => {
     if (!isTauri()) {
       return;
@@ -7863,7 +7885,7 @@ export function Canvas() {
       const nextUnlistenReady = await appWindow.listen(
         DIRECTOR_STAGE_READY_EVENT,
         () => {
-          const context = activeDirectorStageContext;
+          const context = activeDirectorStageContextRef.current;
           if (!context) {
             return;
           }
@@ -7888,7 +7910,7 @@ export function Canvas() {
             return;
           }
 
-          updateNodeData(event.payload.nodeId, event.payload.data, {
+          updateNodeDataRef.current(event.payload.nodeId, event.payload.data, {
             historyMode: event.payload.historyMode ?? "push",
           });
         },
@@ -7908,7 +7930,7 @@ export function Canvas() {
               return;
             }
 
-            addDerivedExportNode(
+            addDerivedExportNodeRef.current(
               payload.sourceNodeId,
               payload.imageUrl,
               payload.aspectRatio,
@@ -7932,7 +7954,7 @@ export function Canvas() {
               return;
             }
 
-            addDerivedVideoNode(
+            addDerivedVideoNodeRef.current(
               payload.sourceNodeId,
               payload.videoUrl,
               payload.previewImageUrl,
@@ -7951,7 +7973,7 @@ export function Canvas() {
       const nextUnlistenClosed = await appWindow.listen(
         DIRECTOR_STAGE_CLOSED_EVENT,
         () => {
-          closeDirectorStage();
+          closeDirectorStageRef.current();
         },
       );
       if (disposed) {
@@ -7973,13 +7995,7 @@ export function Canvas() {
       unlistenAddVideoNode?.();
       unlistenClosed?.();
     };
-  }, [
-    activeDirectorStageContext,
-    addDerivedExportNode,
-    addDerivedVideoNode,
-    closeDirectorStage,
-    updateNodeData,
-  ]);
+  }, []);
 
   useEffect(() => {
     if (!isTauri()) {

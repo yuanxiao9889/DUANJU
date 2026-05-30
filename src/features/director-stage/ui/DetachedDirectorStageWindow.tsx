@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Maximize2, Minus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -9,6 +8,7 @@ import {
   DIRECTOR_STAGE_READY_EVENT,
   emitToMainWindow,
   focusMainWindow,
+  getStableCurrentWindow,
   persistCurrentDirectorStageBounds,
   requestDirectorStageCloseFromMainWindow,
   type DirectorStageWindowContext,
@@ -17,7 +17,7 @@ import { DirectorStageWorkspace } from './DirectorStageWorkspace';
 
 export function DetachedDirectorStageWindow() {
   const { t } = useTranslation();
-  const appWindow = getCurrentWindow();
+  const appWindow = getStableCurrentWindow();
   const [context, setContext] = useState<DirectorStageWindowContext | null>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   const persistBoundsTimerRef = useRef<number | null>(null);
@@ -57,32 +57,19 @@ export function DetachedDirectorStageWindow() {
 
     isClosingWindowRef.current = true;
     requestDirectorStageCloseFromMainWindow();
-    void persistBounds();
-    void emitToMainWindow(DIRECTOR_STAGE_CLOSED_EVENT).catch((error) => {
+    await persistBounds();
+    await emitToMainWindow(DIRECTOR_STAGE_CLOSED_EVENT).catch((error) => {
       console.warn('Failed to notify main window that director stage closed', error);
     });
     void focusMainWindow().catch((error) => {
       console.warn('Failed to focus main window after closing director stage', error);
     });
 
-    const destroyFallbackTimer = window.setTimeout(() => {
-      void appWindow.destroy().catch((error) => {
-        console.warn('Failed to destroy director stage window after close timeout', error);
-      });
-    }, 800);
-
     try {
-      await appWindow.close();
-      window.clearTimeout(destroyFallbackTimer);
-    } catch (closeError) {
-      window.clearTimeout(destroyFallbackTimer);
-      console.warn('Failed to close director stage window, trying destroy', closeError);
-      try {
-        await appWindow.destroy();
-      } catch (destroyError) {
-        isClosingWindowRef.current = false;
-        console.warn('Failed to destroy director stage window', destroyError);
-      }
+      await appWindow.destroy();
+    } catch (destroyError) {
+      isClosingWindowRef.current = false;
+      console.warn('Failed to destroy director stage window', destroyError);
     }
   }, [appWindow, persistBounds]);
 

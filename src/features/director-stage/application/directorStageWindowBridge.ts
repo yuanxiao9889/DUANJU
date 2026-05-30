@@ -22,6 +22,7 @@ const DEFAULT_DIRECTOR_STAGE_WIDTH = 1480;
 const DEFAULT_DIRECTOR_STAGE_HEIGHT = 920;
 const MIN_DIRECTOR_STAGE_WIDTH = 980;
 const MIN_DIRECTOR_STAGE_HEIGHT = 680;
+let currentWindowHandle: ReturnType<typeof getCurrentWindow> | null = null;
 
 export interface DirectorStageWindowContext {
   nodeId: string;
@@ -152,12 +153,17 @@ export async function emitToDirectorStage<T>(event: string, payload?: T): Promis
     return false;
   }
 
-  await getCurrentWindow().emitTo(DIRECTOR_STAGE_WINDOW_LABEL, event, payload);
+  await getStableCurrentWindow().emitTo(DIRECTOR_STAGE_WINDOW_LABEL, event, payload);
   return true;
 }
 
 export async function emitToMainWindow<T>(event: string, payload?: T) {
-  await getCurrentWindow().emitTo(MAIN_WINDOW_LABEL, event, payload);
+  await getStableCurrentWindow().emitTo(MAIN_WINDOW_LABEL, event, payload);
+}
+
+export function getStableCurrentWindow() {
+  currentWindowHandle ??= getCurrentWindow();
+  return currentWindowHandle;
 }
 
 export async function focusMainWindow() {
@@ -200,7 +206,7 @@ export async function closeDirectorStageWindowHandle() {
 }
 
 export async function persistCurrentDirectorStageBounds() {
-  const currentWindow = getCurrentWindow();
+  const currentWindow = getStableCurrentWindow();
   const [position, size, scaleFactor] = await Promise.all([
     currentWindow.outerPosition(),
     currentWindow.outerSize(),

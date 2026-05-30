@@ -374,6 +374,18 @@ function isDefaultAgentThreadState(state: CommerceAdAgentThreadState): boolean {
   );
 }
 
+function isEmptyCommerceAgentDraftThread(input: {
+  messages: CommerceAdAgentMessage[];
+  draft: string;
+  chatImages: CommerceAdProductImage[];
+  state: CommerceAdAgentThreadState;
+}): boolean {
+  return input.messages.length === 0
+    && input.draft.trim().length === 0
+    && input.chatImages.length === 0
+    && isDefaultAgentThreadState(input.state);
+}
+
 function computeMissingAgentSlots(
   state: CommerceAdAgentThreadState,
   skill: CommerceAgentSkill | null
@@ -2646,6 +2658,7 @@ function CommerceAdWorkspaceInner() {
   const [agentThreadState, setAgentThreadState] = useState<CommerceAdAgentThreadState>(createDefaultAgentThreadState);
   const [thinkingPreviewByMessageId, setThinkingPreviewByMessageId] = useState<Record<string, string>>({});
   const [structuredProgressByMessageId, setStructuredProgressByMessageId] = useState<Record<string, string[]>>({});
+  const [newThreadAnimationKey, setNewThreadAnimationKey] = useState(0);
   const [agentPanelWidth, setAgentPanelWidth] = useState(readCommerceAgentPanelWidth);
   const [isChatDragActive, setIsChatDragActive] = useState(false);
   const [detailInputMode, setDetailInputMode] = useState<CommerceAdProductState['detailInputMode']>('auto');
@@ -3254,6 +3267,17 @@ function CommerceAdWorkspaceInner() {
     if (isThinking || !currentProjectId) {
       return;
     }
+    if (isEmptyCommerceAgentDraftThread({
+      messages,
+      draft,
+      chatImages,
+      state: agentThreadState,
+    })) {
+      setIsThreadHistoryOpen(false);
+      setThreadSearchQuery('');
+      setNewThreadAnimationKey((key) => key + 1);
+      return;
+    }
     persistActiveThreadSnapshot();
     const now = Date.now();
     const threadId = createCommerceAgentThreadId();
@@ -3269,6 +3293,7 @@ function CommerceAdWorkspaceInner() {
     clearMessageTypewriter();
     setThinkingPreviewByMessageId({});
     setStructuredProgressByMessageId({});
+    setNewThreadAnimationKey((key) => key + 1);
     setIsThreadHistoryOpen(false);
     setThreadSearchQuery('');
     setThreadSummaries((items) => {
@@ -3289,7 +3314,17 @@ function CommerceAdWorkspaceInner() {
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, COMMERCE_AGENT_THREAD_LIMIT);
     });
-  }, [currentProjectId, isThinking, persistActiveThreadSnapshot, selectedSkill, t]);
+  }, [
+    agentThreadState,
+    chatImages,
+    currentProjectId,
+    draft,
+    isThinking,
+    messages,
+    persistActiveThreadSnapshot,
+    selectedSkill,
+    t,
+  ]);
 
   const handleSelectThread = useCallback((threadId: string) => {
     if (isThinking || !currentProjectId || threadId === activeThreadId) {
@@ -5387,7 +5422,10 @@ function CommerceAdWorkspaceInner() {
         </div>
 
         <div className="ui-scrollbar flex-1 overflow-y-auto px-4 pb-4">
-          <section className="space-y-2 pt-4">
+          <section
+            key={newThreadAnimationKey}
+            className="animate-in fade-in slide-in-from-bottom-1 duration-200 space-y-2 pt-4"
+          >
             {visibleMessages.map((message) => (
               <div
                 key={message.id}
