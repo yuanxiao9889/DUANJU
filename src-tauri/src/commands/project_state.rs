@@ -3640,6 +3640,14 @@ pub(crate) fn normalize_storage_media_refs_in_connection(
 
     let generation_rows: Vec<(String, String, Option<String>, String)> =
         if table_exists(conn, "generation_history_items")? {
+            let generation_history_columns =
+                read_table_columns(conn, "generation_history_items")?;
+            if !generation_history_columns.contains("source_path")
+                || !generation_history_columns.contains("preview_path")
+                || !generation_history_columns.contains("snapshot_json")
+            {
+                Vec::new()
+            } else {
             let mut stmt = conn
             .prepare(
                 "SELECT id, source_path, preview_path, snapshot_json FROM generation_history_items",
@@ -3675,6 +3683,7 @@ pub(crate) fn normalize_storage_media_refs_in_connection(
                 })?);
             }
             collected
+            }
         } else {
             Vec::new()
         };

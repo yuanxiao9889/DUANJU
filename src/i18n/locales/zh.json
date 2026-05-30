@@ -3662,7 +3662,8 @@
       "imageAnalysis": {
         "title": "图片分析",
         "observations": "观察到的内容",
-        "uncertainties": "不确定信息"
+        "uncertainties": "不确定信息",
+        "pending": "等待创意方案生成中"
       },
       "emptyConversation": "上传图片、选择技能，或直接输入你的设计需求。",
       "chatPlaceholder": "告诉我平台、风格、人群、文案方向，或直接说“换成小红书风格”...",
@@ -3881,6 +3882,11 @@
       "productUnderstanding": "商品理解",
       "creativeDirection": "创意方向",
       "prompt": "核心 Prompt",
+      "details": "方案细节",
+      "promptReady": "Prompt 已就绪",
+      "imageCountSummary": "{{count}} 张",
+      "referenceImageCount": "{{count}} 张参考图",
+      "riskCount": "{{count}} 条待确认",
       "referenceImages": "参考图",
       "noReferenceImageNotes": "暂无参考图说明",
       "productionSettings": "制作参数",
@@ -3889,6 +3895,14 @@
       "needPrompt": "请先补充核心 Prompt 再开始制作。",
       "imageOnlyPrompt": "我先发一些图片，请你分析并生成方案。",
       "statusThinking": "Agent 正在分析需求并整理方案...",
+      "thinkingPreviewImage": "正在看图里的主体和可见卖点...",
+      "thinkingPreviewSkill": "正在结合已选技能判断方向...",
+      "thinkingPreviewStructure": "正在整理结论和下一步...",
+      "structuredProgressImage": "正在整理图片分析结果",
+      "structuredProgressConfirmed": "正在提取已确认信息",
+      "structuredProgressDirections": "正在生成推荐方向",
+      "structuredProgressPlan": "正在更新可执行方案",
+      "structuredProgressOptions": "正在准备可点击补充项",
       "thinkingStepUnderstanding": "我正在读取商品信息和你刚补充的需求...",
       "thinkingStepEvidence": "我正在把上传图片和商品证据对应起来...",
       "thinkingStepPlan": "我正在更新画布上的制作方案节点...",
@@ -5422,6 +5436,29 @@
       "completed": "已完成",
       "error": "失败",
       "cancelled": "已取消"
+    }
+  },
+  "generationHistory": {
+    "title": "生成历史",
+    "toolbarTitle": "生成历史",
+    "refresh": "刷新",
+    "loading": "正在扫描生成历史...",
+    "searchPlaceholder": "搜索文件名、项目或路径...",
+    "mediaTypeFilter": "媒体类型筛选",
+    "projectFilter": "项目筛选",
+    "allMediaTypes": "全部类型",
+    "allProjects": "全部项目",
+    "openFolder": "打开所在文件夹",
+    "totalCount": "共 {{count}} 个资源",
+    "groupCount": "{{count}} 个",
+    "scanFailed": "生成历史扫描失败，已保留上次索引结果。",
+    "emptyAfterError": "扫描失败，暂无可显示的历史资源。",
+    "emptyFiltered": "没有匹配当前筛选的历史资源。",
+    "empty": "暂无生成历史资源。",
+    "mediaTypes": {
+      "image": "图片",
+      "video": "视频",
+      "audio": "音频"
     }
   }
 }

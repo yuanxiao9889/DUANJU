@@ -45,6 +45,7 @@ export interface GenerateImagePayload {
   aspectRatio: string;
   referenceImages?: string[];
   extraParams?: Record<string, unknown>;
+  submissionSource?: 'commerceBatchGenerate';
 }
 
 export interface ReferenceImageOptimizationItem {

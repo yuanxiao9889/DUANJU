@@ -42,6 +42,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  History,
 } from "lucide-react";
 import "@xyflow/react/dist/style.css";
 
@@ -50,6 +51,13 @@ import {
   type CanvasAssetDragPayload,
   parseAssetDragPayload,
 } from "@/features/assets/domain/types";
+import {
+  GENERATION_HISTORY_DRAG_MIME_TYPE,
+  parseGenerationHistoryDragPayload,
+  type GenerationHistoryDragPayload,
+} from "@/features/generation-history/domain/types";
+import { GenerationHistoryDialog } from "@/features/generation-history/GenerationHistoryDialog";
+import { useGenerationHistoryStore } from "@/features/generation-history/store";
 import { ASSET_PANEL_INSERT_EVENT } from "@/features/assets/application/assetPanelBridge";
 import {
   subscribeAssetItemDeleted,
@@ -223,6 +231,12 @@ import {
   type CanvasSemanticColor,
 } from "./domain/semanticColors";
 import {
+  CANVAS_MAX_ZOOM,
+  CANVAS_MIN_ZOOM,
+  DEFAULT_CANVAS_VIEWPORT,
+  sanitizeCanvasViewport,
+} from "./domain/viewport";
+import {
   buildBatchAssetDraftsFromSelectedNodes,
   isBatchAssetAddableNode,
   type BatchAssetSourceResolution,
@@ -253,7 +267,7 @@ const ImageViewerModal = lazy(async () => {
   return { default: module.ImageViewerModal };
 });
 
-const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, zoom: 1 };
+const DEFAULT_VIEWPORT: Viewport = DEFAULT_CANVAS_VIEWPORT;
 
 interface PendingConnectStart {
   nodeId: string;
@@ -1806,6 +1820,13 @@ export function Canvas() {
   } | null>(null);
   const [showBatchMenu, setShowBatchMenu] = useState(false);
   const [showJimengQueuePanel, setShowJimengQueuePanel] = useState(false);
+  const openGenerationHistory = useGenerationHistoryStore((state) => state.open);
+  const generationHistoryTotalCount = useGenerationHistoryStore(
+    (state) => state.snapshot.totalCount,
+  );
+  const isGenerationHistoryScanning = useGenerationHistoryStore(
+    (state) => state.isScanning,
+  );
   const [isExportingSelectedImages, setIsExportingSelectedImages] =
     useState(false);
   const [isPreparingSelectedAssets, setIsPreparingSelectedAssets] =
@@ -2108,25 +2129,27 @@ export function Canvas() {
 
   const syncViewportState = useCallback(
     (viewport: Viewport) => {
-      viewportStoreRef.current = viewport;
-      viewportImagePreloadViewportRef.current = viewport;
-      setViewportState(viewport);
+      const safeViewport = sanitizeCanvasViewport(viewport);
+      viewportStoreRef.current = safeViewport;
+      viewportImagePreloadViewportRef.current = safeViewport;
+      setViewportState(safeViewport);
     },
     [setViewportState],
   );
 
   const syncViewportStateOnZoomChange = useCallback(
     (viewport: Viewport) => {
+      const safeViewport = sanitizeCanvasViewport(viewport);
       if (
-        Math.abs(viewportStoreRef.current.zoom - viewport.zoom) <
+        Math.abs(viewportStoreRef.current.zoom - safeViewport.zoom) <
         VIEWPORT_ZOOM_SYNC_EPSILON
       ) {
         return;
       }
 
-      viewportStoreRef.current = viewport;
-      viewportImagePreloadViewportRef.current = viewport;
-      setViewportState(viewport);
+      viewportStoreRef.current = safeViewport;
+      viewportImagePreloadViewportRef.current = safeViewport;
+      setViewportState(safeViewport);
     },
     [setViewportState],
   );
@@ -2767,7 +2790,10 @@ export function Canvas() {
     const currentNodes = useCanvasStore.getState().nodes;
     const currentEdges = useCanvasStore.getState().edges;
     const currentHistory = useCanvasStore.getState().history;
-    const currentViewport = reactFlowInstance.getViewport();
+    const currentViewport = sanitizeCanvasViewport(
+      reactFlowInstance.getViewport(),
+      currentProject.viewport ?? DEFAULT_VIEWPORT,
+    );
     const contentChanged =
       !areCanvasHistoriesEquivalentForAutoPersist(
         currentProject.history,
@@ -3594,7 +3620,11 @@ export function Canvas() {
         performance.now() - canvasRenderStartedAtRef.current,
       ),
     });
-    syncViewportState(activeProject.viewport ?? DEFAULT_VIEWPORT);
+    const restoredViewport = sanitizeCanvasViewport(
+      activeProject.viewport,
+      DEFAULT_VIEWPORT,
+    );
+    syncViewportState(restoredViewport);
     requestAnimationFrame(() => {
       logCanvasPerf("[canvas-perf] restore rAF before setViewport", {
         elapsedSinceCanvasRenderMs: Math.round(
@@ -3603,7 +3633,7 @@ export function Canvas() {
         elapsedSinceRestoreMs: Math.round(performance.now() - restoreStartedAt),
       });
       reactFlowInstance.setViewport(
-        activeProject.viewport ?? DEFAULT_VIEWPORT,
+        restoredViewport,
         { duration: 0 },
       );
     });
@@ -4215,12 +4245,13 @@ export function Canvas() {
     (_event: unknown, viewport: Viewport) => {
       clearViewportInteractionChromeTimer();
       setIsViewportInteracting(false);
-      syncViewportState(viewport);
+      const safeViewport = sanitizeCanvasViewport(viewport);
+      syncViewportState(safeViewport);
       const project = getCurrentProject();
       if (!project || isRestoringCanvasRef.current) {
         return;
       }
-      saveCurrentProjectViewport(viewport);
+      saveCurrentProjectViewport(safeViewport);
     },
     [
       clearViewportInteractionChromeTimer,
@@ -4232,7 +4263,7 @@ export function Canvas() {
 
   const handleMove = useCallback(
     (_event: unknown, viewport: Viewport) => {
-      viewportImagePreloadViewportRef.current = viewport;
+      viewportImagePreloadViewportRef.current = sanitizeCanvasViewport(viewport);
       if (viewportImagePreloadTimerRef.current === null) {
         scheduleViewportImagePreload();
       }
@@ -4513,7 +4544,7 @@ export function Canvas() {
         return;
       }
 
-      const viewport = reactFlowInstance.getViewport();
+      const viewport = sanitizeCanvasViewport(reactFlowInstance.getViewport());
       edgePanGestureRef.current = {
         active: true,
         pointerId: event.pointerId,
@@ -4550,11 +4581,11 @@ export function Canvas() {
 
       suppressNextEdgeClickRef.current = true;
       reactFlowInstance.setViewport(
-        {
+        sanitizeCanvasViewport({
           x: gesture.startViewportX + deltaX,
           y: gesture.startViewportY + deltaY,
           zoom: gesture.zoom,
-        },
+        }),
         { duration: 0 },
       );
     };
@@ -4571,7 +4602,7 @@ export function Canvas() {
         return;
       }
 
-      const viewport = reactFlowInstance.getViewport();
+      const viewport = sanitizeCanvasViewport(reactFlowInstance.getViewport());
       syncViewportState(viewport);
       const project = getCurrentProject();
       if (!project || isRestoringCanvasRef.current) {
@@ -4931,7 +4962,7 @@ export function Canvas() {
             y: containerRect.top + containerRect.height / 2,
           })
         : (() => {
-            const viewport = reactFlowInstance.getViewport();
+            const viewport = sanitizeCanvasViewport(reactFlowInstance.getViewport());
             const { canvasViewportSize } = useCanvasStore.getState();
             return {
               x: (canvasViewportSize.width / 2 - viewport.x) / viewport.zoom,
@@ -5199,12 +5230,12 @@ export function Canvas() {
         return;
       }
 
-      const viewport = reactFlowInstance.getViewport();
-      const nextViewport = {
+      const viewport = sanitizeCanvasViewport(reactFlowInstance.getViewport());
+      const nextViewport = sanitizeCanvasViewport({
         x: viewport.x + (currentPosition.x - previousPosition.x),
         y: viewport.y + (currentPosition.y - previousPosition.y),
         zoom: viewport.zoom,
-      };
+      });
 
       connectionSpacePanMovedRef.current = true;
       setIsViewportInteracting(true);
@@ -5242,7 +5273,7 @@ export function Canvas() {
     }
 
     connectionSpacePanMovedRef.current = false;
-    const viewport = reactFlowInstance.getViewport();
+    const viewport = sanitizeCanvasViewport(reactFlowInstance.getViewport());
     syncViewportState(viewport);
     const currentProject = getCurrentProject();
     if (!currentProject || isRestoringCanvasRef.current) {
@@ -5609,7 +5640,8 @@ export function Canvas() {
         event.dataTransfer.types.includes("Files") ||
         event.dataTransfer.types.includes("text/uri-list");
       const hasAssetPayload =
-        event.dataTransfer.types.includes(ASSET_DRAG_MIME_TYPE);
+        event.dataTransfer.types.includes(ASSET_DRAG_MIME_TYPE) ||
+        event.dataTransfer.types.includes(GENERATION_HISTORY_DRAG_MIME_TYPE);
       if (hasFiles || hasAssetPayload) {
         event.dataTransfer.dropEffect = "copy";
       }
@@ -5725,6 +5757,61 @@ export function Canvas() {
     ],
   );
 
+  const insertGenerationHistoryPayloadNode = useCallback(
+    async (
+      payload: GenerationHistoryDragPayload,
+      position: { x: number; y: number },
+    ): Promise<string> => {
+      if (payload.mediaType === "video") {
+        const videoData = await prepareNodeVideoFromSource(payload.sourcePath);
+        return addNode(CANVAS_NODE_TYPES.video, position, {
+          displayName: payload.fileName,
+          videoUrl: videoData.videoUrl,
+          previewImageUrl: videoData.previewImageUrl ?? payload.previewPath,
+          videoFileName: payload.fileName,
+          aspectRatio: videoData.aspectRatio || payload.aspectRatio || "16:9",
+          duration: videoData.duration,
+        });
+      }
+
+      if (payload.mediaType === "audio") {
+        const audioData = await prepareNodeAudio(payload.sourcePath, {
+          duration:
+            payload.durationMs != null ? payload.durationMs / 1000 : undefined,
+          mimeType: payload.mimeType,
+        });
+        return addNode(CANVAS_NODE_TYPES.audio, position, {
+          displayName: payload.fileName,
+          audioUrl: audioData.audioUrl,
+          audioFileName: payload.fileName,
+          previewImageUrl: audioData.previewImageUrl,
+          duration: audioData.duration,
+          mimeType: audioData.mimeType,
+        });
+      }
+
+      const imageData = await prepareNodeImage(
+        payload.sourcePath,
+        undefined,
+        undefined,
+        canvasOverviewThumbnailMaxDimension,
+      );
+      return addNode(CANVAS_NODE_TYPES.upload, position, {
+        displayName: payload.fileName,
+        sourceFileName: payload.fileName,
+        imageUrl: imageData.imageUrl,
+        previewImageUrl: imageData.previewImageUrl,
+        thumbnailUrl: imageData.thumbnailImageUrl,
+        thumbnailMaxDimension: imageData.thumbnailMaxDimension,
+        aspectRatio: imageData.aspectRatio || payload.aspectRatio || "1:1",
+      });
+    },
+    [
+      addNode,
+      canvasOverviewThumbnailMaxDimension,
+    ],
+  );
+
   useEffect(() => {
     const currentWindow = getCurrentWindow();
     let unlistenInsertAsset: (() => void) | null = null;
@@ -5772,6 +5859,27 @@ export function Canvas() {
         const newNodeId = insertAssetPayloadNode(assetPayload, position);
         setSelectedNode(newNodeId);
         scheduleCanvasPersist(0);
+        return;
+      }
+
+      const generationHistoryPayload = parseGenerationHistoryDragPayload(
+        event.dataTransfer.getData(GENERATION_HISTORY_DRAG_MIME_TYPE),
+      );
+      if (generationHistoryPayload) {
+        const position = reactFlowInstance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        try {
+          const newNodeId = await insertGenerationHistoryPayloadNode(
+            generationHistoryPayload,
+            position,
+          );
+          setSelectedNode(newNodeId);
+          scheduleCanvasPersist(0);
+        } catch (error) {
+          console.error("Failed to insert generation history item:", error);
+        }
         return;
       }
 
@@ -5900,6 +6008,7 @@ export function Canvas() {
       addNode,
       clearDragOverlay,
       insertAssetPayloadNode,
+      insertGenerationHistoryPayloadNode,
       canvasOverviewThumbnailMaxDimension,
       reactFlowInstance,
       scheduleCanvasPersist,
@@ -8141,6 +8250,7 @@ export function Canvas() {
             resolution={batchAddToAssetsResolution}
             onClose={() => setBatchAddToAssetsResolution(null)}
           />
+          <GenerationHistoryDialog currentProjectId={currentProjectId} />
           <div ref={reactFlowWrapperRef} className="relative min-w-0 flex-1">
             {!isImageViewerOpen && !shouldHideSelectionChrome && (
               <CanvasColorLegend
@@ -8219,8 +8329,8 @@ export function Canvas() {
               edgeTypes={effectiveEdgeTypes}
               defaultEdgeOptions={{ type: "disconnectableEdge" }}
               defaultViewport={DEFAULT_VIEWPORT}
-              minZoom={0.1}
-              maxZoom={5}
+              minZoom={CANVAS_MIN_ZOOM}
+              maxZoom={CANVAS_MAX_ZOOM}
               selectionOnDrag={isCanvasSelectionKeyPressed}
               selectionMode={SelectionMode.Partial}
               multiSelectionKeyCode={["Control", "Meta"]}
@@ -8441,6 +8551,31 @@ export function Canvas() {
                 </button>
 
                 {/* 小地图开关 */}
+                <button
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openGenerationHistory();
+                  }}
+                  style={{
+                    color: "rgb(var(--text-muted-rgb))",
+                    padding: "6px",
+                    borderRadius: "4px",
+                    position: "relative",
+                  }}
+                  title={t("generationHistory.toolbarTitle")}
+                >
+                  <History style={{ width: "16px", height: "16px" }} />
+                  {isGenerationHistoryScanning ? (
+                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent" />
+                  ) : generationHistoryTotalCount > 0 ? (
+                    <span className="absolute -right-1 -top-1 inline-flex min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-white">
+                      {generationHistoryTotalCount > 99
+                        ? "99+"
+                        : generationHistoryTotalCount}
+                    </span>
+                  ) : null}
+                </button>
+
                 <button
                   onClick={() => setShowMiniMap(!showMiniMap)}
                   style={{

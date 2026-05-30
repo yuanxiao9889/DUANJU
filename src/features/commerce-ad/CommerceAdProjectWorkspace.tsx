@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent as ReactClipboardEvent, type DragEvent as ReactDragEvent, type MutableRefObject } from 'react';
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import {
   AlertTriangle,
@@ -125,17 +125,27 @@ const COMMERCE_AGENT_DEFAULT_THREAD_ID = 'default';
 const COMMERCE_AGENT_PANEL_MIN_WIDTH = 340;
 const COMMERCE_AGENT_PANEL_MAX_WIDTH = 620;
 const COMMERCE_AGENT_THINKING_PREVIEW_MAX_CHARS = 86;
+const COMMERCE_AGENT_TYPEWRITER_INTERVAL_MS = 18;
 const COMMERCE_START_IMAGE_GENERATION_EVENT = 'commerce-ad:start-image-generation';
 const COMMERCE_START_AGENT_PLAN_GENERATION_EVENT = 'commerce-ad:start-agent-plan-generation';
 const COMMERCE_RETRY_IMAGE_GENERATION_EVENT = 'commerce-ad:retry-image-generation';
 const COMMERCE_SYNC_DOWNSTREAM_EVENT = 'commerce-ad:sync-downstream';
 const COMMERCE_INFER_PRODUCT_EVENT = 'commerce-ad:infer-product';
 const COMMERCE_UPLOAD_PRODUCT_IMAGE_EVENT = 'commerce-ad:upload-product-image';
+const COMMERCE_RESULT_IMAGE_COLUMNS = 4;
+const COMMERCE_RESULT_IMAGE_GAP_X = 28;
+const COMMERCE_RESULT_IMAGE_GAP_Y = 36;
+const COMMERCE_RESULT_IMAGE_NODE_WIDTH = 168;
+const COMMERCE_RESULT_IMAGE_NODE_HEIGHT = 220;
+const COMMERCE_RESULT_GROUP_TO_IMAGE_GAP = 48;
 const DEFAULT_AGENT_MESSAGES: CommerceAdAgentMessage[] = [];
 const COMMERCE_DEFAULT_IMAGE_MODEL_ID = STORYBOARD_OOPII_MODEL_ID;
 const COMMERCE_DEFAULT_RESOLUTION = '2K';
 const COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT = 5;
-const AD_AGENT_REQUIRED_SLOT_KEYS = ['platforms', 'objective', 'visualDirection'] as const;
+const DEFAULT_SKILL_REQUIRED_SLOT_KEYS = ['platforms', 'objective', 'visualDirection'];
+const COMMERCE_PLATFORM_RATIO_LIMIT = 4;
+const COMMERCE_AGENT_MIN_CREATIVE_GUIDANCE_ROUNDS = 2;
+const COMMERCE_AGENT_MAX_DEFAULT_CREATIVE_GUIDANCE_ROUNDS = 3;
 const COMMERCE_AGENT_MODULES = [
   { id: 'detailPage', icon: PackageCheck },
   { id: 'productImageOptimize', icon: Sparkles },
@@ -217,6 +227,8 @@ function hasGuidanceContent(guidance: CommerceAdAgentGuidance): boolean {
   );
 }
 
+type CommerceAgentNextAction = 'ask' | 'plan' | 'ready' | 'generate';
+
 function GuidancePillList({
   items,
   tone = 'neutral',
@@ -233,10 +245,10 @@ function GuidancePillList({
       {items.map((item) => (
         <span
           key={item}
-          className={`rounded-full border px-2 py-1 text-[11px] ${
+          className={`rounded-full px-2 py-1 text-[13px] transition-colors ${
             tone === 'warning'
-              ? 'border-amber-300/25 bg-amber-400/10 text-amber-100'
-              : 'border-border-dark/70 bg-surface-dark/70 text-text-dark/85'
+              ? 'bg-amber-400/10 text-amber-100'
+              : 'bg-text-dark/[0.05] text-text-dark/80'
           }`}
         >
           {item}
@@ -246,22 +258,24 @@ function GuidancePillList({
   );
 }
 
-function createDefaultAgentThreadState(): CommerceAdAgentThreadState {
+function getSkillRequiredSlots(skill: CommerceAgentSkill | null): string[] {
+  return skill?.requiredSlots?.length
+    ? skill.requiredSlots
+    : DEFAULT_SKILL_REQUIRED_SLOT_KEYS;
+}
+
+function createDefaultAgentThreadState(skill: CommerceAgentSkill | null = null): CommerceAdAgentThreadState {
+  const requiredSlots = getSkillRequiredSlots(skill);
   return {
     phase: 'collecting',
-    confirmedSlots: {
-      platforms: [],
-      objective: '',
-      audience: '',
-      sellingPoint: '',
-      visualDirection: '',
-      cta: '',
-      brandInfo: '',
-      outputFormat: '',
-    },
-    missingSlots: ['platforms', 'objective', 'visualDirection'],
+    skillId: skill?.id ?? '',
+    confirmedSlots: {},
+    missingSlots: requiredSlots,
     lastAskedFields: [],
     planVersion: 0,
+    guidanceRound: 0,
+    shownGuidanceKinds: [],
+    lastGuidanceAtPlanVersion: null,
   };
 }
 
@@ -274,18 +288,28 @@ function normalizeStringList(value: unknown): string[] {
   )).filter(Boolean)));
 }
 
-function parseAgentThreadState(stateJson?: string | null): CommerceAdAgentThreadState {
+function normalizeSlotValue(value: unknown): string | string[] {
+  if (Array.isArray(value)) {
+    return normalizeStringList(value);
+  }
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function parseAgentThreadState(
+  stateJson?: string | null,
+  skill: CommerceAgentSkill | null = null
+): CommerceAdAgentThreadState {
   if (!stateJson?.trim()) {
-    return createDefaultAgentThreadState();
+    return createDefaultAgentThreadState(skill);
   }
   try {
     const parsed = JSON.parse(stateJson) as Partial<CommerceAdAgentThreadState> | null;
     if (!parsed || typeof parsed !== 'object') {
-      return createDefaultAgentThreadState();
+      return createDefaultAgentThreadState(skill);
     }
-    const defaults = createDefaultAgentThreadState();
+    const defaults = createDefaultAgentThreadState(skill);
     const confirmed = parsed.confirmedSlots && typeof parsed.confirmedSlots === 'object'
-      ? parsed.confirmedSlots as Partial<CommerceAdAgentThreadState['confirmedSlots']>
+      ? parsed.confirmedSlots as Record<string, unknown>
       : {};
     const imageAnalysis = parsed.imageAnalysis
       && typeof parsed.imageAnalysis === 'object'
@@ -305,58 +329,294 @@ function parseAgentThreadState(stateJson?: string | null): CommerceAdAgentThread
       phase: ['collecting', 'planning', 'ready', 'refining', 'generating'].includes(parsed.phase ?? '')
         ? parsed.phase as CommerceAdAgentThreadState['phase']
         : defaults.phase,
-      confirmedSlots: {
-        platforms: normalizeStringList(confirmed.platforms),
-        objective: typeof confirmed.objective === 'string' ? confirmed.objective.trim() : '',
-        audience: typeof confirmed.audience === 'string' ? confirmed.audience.trim() : '',
-        sellingPoint: typeof confirmed.sellingPoint === 'string' ? confirmed.sellingPoint.trim() : '',
-        visualDirection: typeof confirmed.visualDirection === 'string' ? confirmed.visualDirection.trim() : '',
-        cta: typeof confirmed.cta === 'string' ? confirmed.cta.trim() : '',
-        brandInfo: typeof confirmed.brandInfo === 'string' ? confirmed.brandInfo.trim() : '',
-        outputFormat: typeof confirmed.outputFormat === 'string' ? confirmed.outputFormat.trim() : '',
-      },
-      missingSlots: normalizeStringList(parsed.missingSlots),
+      skillId: typeof parsed.skillId === 'string' ? parsed.skillId : defaults.skillId,
+      confirmedSlots: Object.fromEntries(
+        Object.entries(confirmed)
+          .map(([key, value]) => [key, normalizeSlotValue(value)])
+          .filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value))
+      ),
+      missingSlots: normalizeStringList(parsed.missingSlots).length > 0
+        ? normalizeStringList(parsed.missingSlots)
+        : defaults.missingSlots,
       imageAnalysis,
       lastAskedFields: normalizeStringList(parsed.lastAskedFields),
       planVersion: Number.isFinite(parsed.planVersion) ? Math.max(0, Number(parsed.planVersion)) : 0,
+      guidanceRound: Number.isFinite(parsed.guidanceRound) ? Math.max(0, Number(parsed.guidanceRound)) : 0,
+      shownGuidanceKinds: normalizeStringList(parsed.shownGuidanceKinds),
+      lastGuidanceAtPlanVersion: Number.isFinite(parsed.lastGuidanceAtPlanVersion)
+        ? Math.max(0, Number(parsed.lastGuidanceAtPlanVersion))
+        : null,
     };
   } catch {
-    return createDefaultAgentThreadState();
+    return createDefaultAgentThreadState(skill);
   }
 }
 
-function hasMinimumExecutableAdState(state: CommerceAdAgentThreadState): boolean {
-  return Boolean(
-    state.imageAnalysis
-    && state.confirmedSlots.platforms.length > 0
-    && state.confirmedSlots.objective
-    && state.confirmedSlots.visualDirection
-  );
+function hasSlotValue(value: string | string[] | undefined): boolean {
+  return Array.isArray(value) ? value.length > 0 : Boolean(value?.trim());
+}
+
+function hasMinimumExecutableAdState(
+  state: CommerceAdAgentThreadState,
+  skill: CommerceAgentSkill | null
+): boolean {
+  return Boolean(state.imageAnalysis) && getSkillRequiredSlots(skill)
+    .every((slotKey) => hasSlotValue(state.confirmedSlots[slotKey]));
 }
 
 function isDefaultAgentThreadState(state: CommerceAdAgentThreadState): boolean {
   return (
     state.phase === 'collecting'
-    && state.confirmedSlots.platforms.length === 0
-    && !state.confirmedSlots.objective
-    && !state.confirmedSlots.audience
-    && !state.confirmedSlots.sellingPoint
-    && !state.confirmedSlots.visualDirection
-    && !state.confirmedSlots.cta
-    && !state.confirmedSlots.brandInfo
-    && !state.confirmedSlots.outputFormat
+    && Object.keys(state.confirmedSlots).length === 0
     && !state.imageAnalysis
     && state.planVersion === 0
+    && state.guidanceRound === 0
   );
 }
 
-function computeMissingAgentSlots(state: CommerceAdAgentThreadState): string[] {
-  return AD_AGENT_REQUIRED_SLOT_KEYS.filter((key) => {
-    if (key === 'platforms') {
-      return state.confirmedSlots.platforms.length === 0;
+function computeMissingAgentSlots(
+  state: CommerceAdAgentThreadState,
+  skill: CommerceAgentSkill | null
+): string[] {
+  return getSkillRequiredSlots(skill).filter((key) => !hasSlotValue(state.confirmedSlots[key]));
+}
+
+function isAgentReadyForSkillWork(
+  state: CommerceAdAgentThreadState,
+  skill: CommerceAgentSkill | null
+): boolean {
+  return computeMissingAgentSlots(state, skill).length === 0
+    && (Boolean(state.imageAnalysis) || Object.keys(state.confirmedSlots).length > 0);
+}
+
+function getSkillSlotLabel(skill: CommerceAgentSkill | null, slotKey: string): string {
+  return skill?.slotLabels?.[slotKey] ?? slotKey;
+}
+
+function normalizeGuidanceToken(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[：:，,；;。.!！?？、\-_/|()[\]{}"'`]/g, '')
+    .trim();
+}
+
+function isUserRequestingMoreCreativeGuidance(text: string): boolean {
+  return /再|继续|优化|建议|方向|换|改|更高级|更时尚|more|another|again|refine|optimi[sz]e|direction/i.test(text);
+}
+
+function resolveCreativeGuidanceKind(input: {
+  guidance: CommerceAdAgentGuidance;
+  state: CommerceAdAgentThreadState;
+  skill: CommerceAgentSkill | null;
+  nextAction?: CommerceAgentNextAction;
+  userMessage: string;
+}): NonNullable<CommerceAdAgentGuidance['guidanceKind']> {
+  const explicitKind = input.guidance.guidanceKind;
+  const wantsMore = isUserRequestingMoreCreativeGuidance(input.userMessage);
+  const lastKind = input.state.shownGuidanceKinds.slice(-1)[0];
+  if (explicitKind && (explicitKind !== lastKind || wantsMore)) {
+    return explicitKind;
+  }
+  if (input.guidance.missingFields.length > 0 || input.guidance.questions.length > 0) {
+    return 'missing_info';
+  }
+  if (input.nextAction === 'plan' || input.nextAction === 'ready' || input.nextAction === 'generate') {
+    if (input.state.guidanceRound <= 0) {
+      return 'recommendation';
     }
-    return !state.confirmedSlots[key];
+    if (input.state.guidanceRound === 1) {
+      return 'optimization';
+    }
+    if (
+      input.state.guidanceRound === 2
+      && (
+        computeMissingAgentSlots(input.state, input.skill).length > 0
+        || isUserRequestingMoreCreativeGuidance(input.userMessage)
+      )
+    ) {
+      return 'final_suggestion';
+    }
+    return 'ready';
+  }
+  if (input.state.guidanceRound <= 0) {
+    return 'recommendation';
+  }
+  if (input.state.guidanceRound === 1) {
+    return 'optimization';
+  }
+  return 'final_suggestion';
+}
+
+function resolveCreativeGuidancePanelTitle(kind: CommerceAdAgentGuidance['guidanceKind']): string {
+  if (kind === 'optimization') {
+    return '优化建议';
+  }
+  if (kind === 'final_suggestion') {
+    return '成稿建议';
+  }
+  if (kind === 'missing_info') {
+    return '需要补充';
+  }
+  if (kind === 'ready') {
+    return '方案已就绪';
+  }
+  return '推荐方向';
+}
+
+function shouldShowCreativeDirections(input: {
+  guidance: CommerceAdAgentGuidance;
+  guidanceKind: NonNullable<CommerceAdAgentGuidance['guidanceKind']>;
+  state: CommerceAdAgentThreadState;
+  skill: CommerceAgentSkill | null;
+  nextAction?: CommerceAgentNextAction;
+  userMessage: string;
+}): boolean {
+  if (input.guidance.designDirections.length === 0) {
+    return false;
+  }
+  if (input.guidanceKind === 'ready' || input.guidanceKind === 'missing_info') {
+    return false;
+  }
+  const wantsMore = isUserRequestingMoreCreativeGuidance(input.userMessage);
+  const repeatedKind = input.state.shownGuidanceKinds.slice(-1)[0] === input.guidanceKind;
+  if (repeatedKind && !wantsMore) {
+    return false;
+  }
+  if (input.state.guidanceRound < COMMERCE_AGENT_MIN_CREATIVE_GUIDANCE_ROUNDS) {
+    return true;
+  }
+  if (input.state.guidanceRound < COMMERCE_AGENT_MAX_DEFAULT_CREATIVE_GUIDANCE_ROUNDS) {
+    return input.guidanceKind === 'final_suggestion'
+      || !isAgentReadyForSkillWork(input.state, input.skill)
+      || wantsMore;
+  }
+  return wantsMore;
+}
+
+function findSlotKeyInGuidanceText(
+  text: string,
+  skill: CommerceAgentSkill | null
+): string | null {
+  const normalizedText = normalizeGuidanceToken(text);
+  if (!normalizedText) {
+    return null;
+  }
+  const slotEntries = [
+    ...getSkillRequiredSlots(skill),
+    ...(skill?.optionalSlots ?? []),
+  ].map((slotKey) => ({
+    slotKey,
+    names: [
+      slotKey,
+      getSkillSlotLabel(skill, slotKey),
+      ...(skill?.slotAliases?.[slotKey] ?? []),
+    ],
+  }));
+  const matched = slotEntries.find(({ names }) => names.some((name) => {
+    const normalizedName = normalizeGuidanceToken(name);
+    return normalizedName && normalizedText.includes(normalizedName);
+  }));
+  return matched?.slotKey ?? null;
+}
+
+function isGuidanceQuestionAnswered(
+  question: CommerceAdAgentGuidance['questions'][number],
+  state: CommerceAdAgentThreadState,
+  skill: CommerceAgentSkill | null
+): boolean {
+  const slotKey = findSlotKeyInGuidanceText(`${question.id} ${question.label}`, skill);
+  return Boolean(slotKey && hasSlotValue(state.confirmedSlots[slotKey]));
+}
+
+function normalizeAgentGuidanceForState(
+  guidance: CommerceAdAgentGuidance | undefined,
+  state: CommerceAdAgentThreadState,
+  skill: CommerceAgentSkill | null,
+  nextAction?: CommerceAgentNextAction,
+  userMessage = ''
+): CommerceAdAgentGuidance | undefined {
+  if (!guidance) {
+    return undefined;
+  }
+  const missingSlots = computeMissingAgentSlots(state, skill);
+  const isReady = nextAction === 'plan'
+    || nextAction === 'ready'
+    || nextAction === 'generate'
+    || isAgentReadyForSkillWork(state, skill);
+  const confirmedSlotLabels = Object.keys(state.confirmedSlots)
+    .filter((slotKey) => hasSlotValue(state.confirmedSlots[slotKey]))
+    .map((slotKey) => normalizeGuidanceToken(getSkillSlotLabel(skill, slotKey)))
+    .filter(Boolean);
+  const missingSlotLabels = missingSlots.map((slotKey) => getSkillSlotLabel(skill, slotKey));
+  const normalizedMissingSlotLabels = missingSlotLabels.map(normalizeGuidanceToken);
+  const filteredMissingFields = isReady
+    ? []
+    : guidance.missingFields.filter((field) => {
+        const normalizedField = normalizeGuidanceToken(field);
+        if (!normalizedField) {
+          return false;
+        }
+        if (confirmedSlotLabels.some((label) => label && normalizedField.includes(label))) {
+          return false;
+        }
+        return normalizedMissingSlotLabels.length === 0
+          || normalizedMissingSlotLabels.some((label) => label && normalizedField.includes(label));
+      });
+  const filteredQuestions = isReady
+    ? []
+    : guidance.questions
+        .filter((question) => !isGuidanceQuestionAnswered(question, state, skill))
+        .filter((question) => {
+          const slotKey = findSlotKeyInGuidanceText(`${question.id} ${question.label}`, skill);
+          return !slotKey || missingSlots.includes(slotKey);
+        })
+        .slice(0, 2);
+  const isAdCreativeSkill = skill?.id === 'ad-creative';
+  const hasConfirmedDirection = hasSlotValue(state.confirmedSlots.visualDirection)
+    || hasSlotValue(state.confirmedSlots.outputFormat);
+  const creativeGuidanceKind = resolveCreativeGuidanceKind({
+    guidance,
+    state,
+    skill,
+    nextAction,
+    userMessage,
   });
+  const shouldShowDesignDirections = isAdCreativeSkill
+    ? shouldShowCreativeDirections({
+        guidance,
+        guidanceKind: creativeGuidanceKind,
+        state,
+        skill,
+        nextAction,
+        userMessage,
+      })
+    : !isReady
+      && !hasConfirmedDirection
+      && state.planVersion === 0
+      && guidance.designDirections.length > 0;
+  const nextGuidance: CommerceAdAgentGuidance = {
+    ...guidance,
+    panelTitle: guidance.panelTitle || (isAdCreativeSkill ? resolveCreativeGuidancePanelTitle(creativeGuidanceKind) : undefined),
+    guidanceKind: isAdCreativeSkill ? creativeGuidanceKind : guidance.guidanceKind,
+    missingFields: filteredMissingFields.length > 0 ? filteredMissingFields : (isReady ? [] : missingSlotLabels),
+    questions: filteredQuestions,
+    designDirections: shouldShowDesignDirections ? guidance.designDirections.slice(0, 3) : [],
+    quickReplies: isReady && !shouldShowDesignDirections ? [] : guidance.quickReplies.slice(0, 3),
+    readinessHint: isReady ? guidance.readinessHint : guidance.readinessHint,
+  };
+  return hasGuidanceContent(nextGuidance) ? nextGuidance : undefined;
+}
+
+function resolveAgentNextAction(
+  requestedAction: CommerceAgentNextAction | undefined,
+  state: CommerceAdAgentThreadState,
+  skill: CommerceAgentSkill | null
+): CommerceAgentNextAction | undefined {
+  if (isAgentReadyForSkillWork(state, skill)) {
+    return requestedAction === 'generate' ? 'generate' : requestedAction === 'plan' ? 'plan' : 'ready';
+  }
+  return requestedAction;
 }
 
 function inferAdAgentTurnIntent(input: {
@@ -380,9 +640,13 @@ function inferAdAgentTurnIntent(input: {
   return 'initial';
 }
 
-function extractConfirmedSlotsFromText(text: string): Partial<CommerceAdAgentThreadState['confirmedSlots']> {
+function extractConfirmedSlotsFromText(
+  text: string,
+  skill: CommerceAgentSkill | null
+): Partial<CommerceAdAgentThreadState['confirmedSlots']> {
   const normalized = text.trim();
   const lower = normalized.toLowerCase();
+  const patch: Partial<CommerceAdAgentThreadState['confirmedSlots']> = {};
   const platforms = [
     ['instagram', 'Instagram Feed'],
     ['facebook', 'Facebook Feed'],
@@ -395,6 +659,9 @@ function extractConfirmedSlotsFromText(text: string): Partial<CommerceAdAgentThr
   ]
     .filter(([needle]) => lower.includes(needle.toLowerCase()))
     .map(([, label]) => label);
+  if (platforms.length > 0) {
+    patch.platforms = platforms;
+  }
   const objective = (() => {
     if (/品牌曝光|曝光|认知|awareness/i.test(normalized)) return '品牌曝光';
     if (/转化|下单|购买|conversion/i.test(normalized)) return '转化下单';
@@ -430,42 +697,67 @@ function extractConfirmedSlotsFromText(text: string): Partial<CommerceAdAgentThr
     if (/短视频|reels|story|竖版/.test(lower)) return '短视频/竖版版位';
     return '';
   })();
-  return {
-    ...(platforms.length > 0 ? { platforms } : {}),
-    ...(objective ? { objective } : {}),
-    ...(visualDirection ? { visualDirection } : {}),
-    ...(cta ? { cta } : {}),
-    ...(brandInfo ? { brandInfo } : {}),
-    ...(audience ? { audience } : {}),
-    ...(sellingPoint ? { sellingPoint } : {}),
-    ...(outputFormat ? { outputFormat } : {}),
-  };
+  if (objective) patch.objective = objective;
+  if (visualDirection) patch.visualDirection = visualDirection;
+  if (cta) patch.cta = cta;
+  if (brandInfo) patch.brandInfo = brandInfo;
+  if (audience) patch.audience = audience;
+  if (sellingPoint) patch.sellingPoint = sellingPoint;
+  if (outputFormat) patch.outputFormat = outputFormat;
+
+  Object.entries(skill?.slotAliases ?? {}).forEach(([slotKey, aliases]) => {
+    if (patch[slotKey]) {
+      return;
+    }
+    for (const alias of aliases) {
+      const match = normalized.match(new RegExp(`${alias}[：: ]?([^；;\\n]+)`));
+      if (match?.[1]?.trim()) {
+        patch[slotKey] = match[1].trim();
+        break;
+      }
+    }
+  });
+
+  return patch;
 }
 
 function mergeAgentThreadState(
   current: CommerceAdAgentThreadState,
   patch: Omit<Partial<CommerceAdAgentThreadState>, 'confirmedSlots'> & {
     confirmedSlots?: Partial<CommerceAdAgentThreadState['confirmedSlots']>;
-  }
+  },
+  skill: CommerceAgentSkill | null = null
 ): CommerceAdAgentThreadState {
   const confirmedPatch = patch.confirmedSlots ?? {};
   const imageAnalysis = patch.imageAnalysis ?? current.imageAnalysis;
+  const mergedConfirmedSlots = Object.fromEntries(
+    Object.entries({
+      ...current.confirmedSlots,
+      ...confirmedPatch,
+    }).filter(([, value]) => value !== undefined)
+  ) as CommerceAdAgentThreadState['confirmedSlots'];
   const next: CommerceAdAgentThreadState = {
     ...current,
     ...patch,
     ...(imageAnalysis ? { imageAnalysis } : {}),
-    confirmedSlots: {
-      ...current.confirmedSlots,
-      ...confirmedPatch,
-      platforms: confirmedPatch.platforms?.length
-        ? Array.from(new Set(confirmedPatch.platforms))
-        : current.confirmedSlots.platforms,
-    },
+    skillId: patch.skillId ?? current.skillId ?? skill?.id ?? '',
+    confirmedSlots: mergedConfirmedSlots,
     lastAskedFields: patch.lastAskedFields ?? current.lastAskedFields,
     missingSlots: patch.missingSlots ?? current.missingSlots,
+    guidanceRound: Math.max(0, Math.round(Number(patch.guidanceRound ?? current.guidanceRound) || 0)),
+    shownGuidanceKinds: Array.from(new Set([
+      ...current.shownGuidanceKinds,
+      ...(patch.shownGuidanceKinds ?? []),
+    ].filter(Boolean))),
+    lastGuidanceAtPlanVersion: patch.lastGuidanceAtPlanVersion ?? current.lastGuidanceAtPlanVersion ?? null,
   };
-  next.missingSlots = computeMissingAgentSlots(next);
-  next.phase = hasMinimumExecutableAdState(next)
+  next.confirmedSlots = Object.fromEntries(
+    Object.entries(next.confirmedSlots)
+      .map(([key, value]) => [key, Array.isArray(value) ? Array.from(new Set(value)) : value])
+      .filter(([, value]) => hasSlotValue(value))
+  );
+  next.missingSlots = computeMissingAgentSlots(next, skill);
+  next.phase = hasMinimumExecutableAdState(next, skill)
     ? (patch.phase === 'refining' ? 'refining' : 'ready')
     : (patch.phase ?? next.phase);
   return next;
@@ -494,6 +786,71 @@ function buildThinkingPreviewText(text: string): string {
   return `${recentSentences.slice(-COMMERCE_AGENT_THINKING_PREVIEW_MAX_CHARS).trimStart()}...`;
 }
 
+function appendNextTypewriterChar(queueRef: MutableRefObject<string>, update: (value: string) => void): boolean {
+  const nextChar = queueRef.current.slice(0, 1);
+  if (!nextChar) {
+    return false;
+  }
+  queueRef.current = queueRef.current.slice(1);
+  update(nextChar);
+  return true;
+}
+
+function ThinkingPreviewBubble({
+  text,
+  fallback,
+}: {
+  text?: string;
+  fallback: string;
+}) {
+  return (
+    <div className="rounded-lg bg-text-dark/[0.04] px-3 py-2">
+      <div className="flex items-start gap-2 text-sm leading-6 text-text-muted">
+        <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
+        <div className="min-w-0">
+          <div className="line-clamp-2 text-text-dark/85">
+            {text || fallback}
+          </div>
+          <div className="mt-1 h-0.5 w-20 overflow-hidden rounded-full bg-text-dark/10">
+            <div className="h-full w-1/2 animate-pulse rounded-full bg-text-dark/35" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StructuredAnalysisProgress({
+  steps,
+}: {
+  steps: string[];
+}) {
+  if (steps.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-4 space-y-2 text-sm leading-6 text-text-muted">
+      {steps.map((step, index) => (
+        <div key={`${step}-${index}`} className="flex items-center gap-2">
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+          <span>{step}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PendingImageAnalysisDisclosure() {
+  const { t } = useTranslation();
+  return (
+    <div className="mt-4 flex items-center gap-2 rounded-xl bg-text-dark/[0.06] px-3 py-3 text-sm leading-6 text-text-muted">
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+        <span>{t('commerceAd.agent.imageAnalysis.pending')}</span>
+    </div>
+  );
+}
+
 function ImageAnalysisDisclosure({
   analysis,
 }: {
@@ -512,10 +869,10 @@ function ImageAnalysisDisclosure({
   }
 
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-border-dark/70 bg-text-dark/[0.04]">
+    <div className="mt-4 overflow-hidden rounded-xl bg-text-dark/[0.06]">
       <button
         type="button"
-        className="flex h-10 w-full items-center justify-between gap-3 px-3 text-left text-xs font-medium text-text-dark transition hover:bg-text-dark/[0.05]"
+        className="flex h-10 w-full items-center justify-between gap-3 px-3 text-left text-sm font-medium text-text-dark transition hover:bg-text-dark/[0.06]"
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
       >
@@ -526,7 +883,7 @@ function ImageAnalysisDisclosure({
         <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen ? (
-        <div className="space-y-2 border-t border-border-dark/60 px-3 py-3 text-xs leading-5 text-text-dark/85">
+        <div className="space-y-2 px-3 pb-3 pt-1 text-sm leading-6 text-text-dark/85">
           {analysis.summary ? (
             <p className="whitespace-pre-wrap">{analysis.summary}</p>
           ) : null}
@@ -574,13 +931,14 @@ function GuidanceChoiceButton({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`rounded-lg border px-2.5 py-1.5 text-left text-xs leading-5 transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left text-sm leading-6 transition-colors ${
         active
-          ? 'border-text-dark/35 bg-text-dark/[0.12] text-text-dark'
-          : 'border-border-dark/70 bg-bg-dark/70 text-text-muted hover:border-text-dark/20 hover:text-text-dark'
+          ? 'bg-text-dark/[0.12] text-text-dark'
+          : 'bg-transparent text-text-muted hover:bg-text-dark/[0.07] hover:text-text-dark'
       }`}
     >
-      {children}
+      <span className="text-text-muted">↳</span>
+      <span>{children}</span>
     </button>
   );
 }
@@ -608,6 +966,33 @@ function resolveActiveStageNode<T extends CanvasNode['data']>(
   }
 
   return matchingNodes[matchingNodes.length - 1] as CanvasNode & { data: T };
+}
+
+function resolveCommerceResultImagePosition(
+  resultGroupNode: Pick<CanvasNode, 'position' | 'width' | 'measured' | 'style'> | null | undefined,
+  index: number
+): { x: number; y: number } {
+  const groupX = resultGroupNode?.position.x ?? 1260;
+  const groupY = resultGroupNode?.position.y ?? 420;
+  const rawStyleWidth = resultGroupNode?.style?.width;
+  const styleWidth =
+    typeof rawStyleWidth === 'number'
+      ? rawStyleWidth
+      : typeof rawStyleWidth === 'string'
+        ? Number.parseFloat(rawStyleWidth)
+        : null;
+  const groupWidth =
+    resultGroupNode?.measured?.width ??
+    resultGroupNode?.width ??
+    (Number.isFinite(styleWidth) ? styleWidth : null) ??
+    380;
+  const column = index % COMMERCE_RESULT_IMAGE_COLUMNS;
+  const row = Math.floor(index / COMMERCE_RESULT_IMAGE_COLUMNS);
+
+  return {
+    x: Math.round(groupX + groupWidth + COMMERCE_RESULT_GROUP_TO_IMAGE_GAP + column * (COMMERCE_RESULT_IMAGE_NODE_WIDTH + COMMERCE_RESULT_IMAGE_GAP_X)),
+    y: Math.round(groupY + row * (COMMERCE_RESULT_IMAGE_NODE_HEIGHT + COMMERCE_RESULT_IMAGE_GAP_Y)),
+  };
 }
 
 function mergeProductImages(
@@ -812,6 +1197,152 @@ function resolveCommerceAspectRatiosForModel(
   return defaultRatio ? [defaultRatio] : ['1:1'];
 }
 
+function normalizeCommerceTextForMatching(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[\s_\-./|,，、;；:：()\[\]{}]+/g, '');
+}
+
+function normalizeCommerceAspectRatioToken(value: string): string {
+  const trimmed = value.trim();
+  const normalized = trimmed
+    .replace(/[：]/g, ':')
+    .replace(/[xX×]/g, ':')
+    .replace(/\s+/g, '');
+  const match = normalized.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  return match ? `${match[1]}:${match[2]}` : trimmed;
+}
+
+function collectCommerceSlotStrings(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => collectCommerceSlotStrings(item))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.trim() ? [value.trim()] : [];
+  }
+  return [];
+}
+
+function collectPlatformHintsFromAgentContext(input: {
+  selectedSkillId: string;
+  text: string;
+  confirmedSlots?: CommerceAdAgentThreadState['confirmedSlots'];
+  briefPlatform?: string;
+}): string[] {
+  const platformSlotValues = collectCommerceSlotStrings(input.confirmedSlots?.platforms);
+  return dedupeStrings([
+    ...platformSlotValues,
+    input.briefPlatform ?? '',
+    input.selectedSkillId ? input.text : '',
+  ]);
+}
+
+function resolveCommercePlatformAspectRatioCandidates(platformHints: string[]): string[] {
+  if (platformHints.length === 0) {
+    return [];
+  }
+
+  const normalizedHints = platformHints.map(normalizeCommerceTextForMatching).filter(Boolean);
+  const hasAny = (needles: string[]) => normalizedHints.some((hint) => (
+    needles.some((needle) => hint.includes(normalizeCommerceTextForMatching(needle)))
+  ));
+  const includesFeed = hasAny(['feed', '信息流', '帖子', '动态']);
+  const includesStoryLike = hasAny(['story', 'stories', 'reels', 'shorts', '竖版', '短视频', '故事']);
+  const includesLandscapeLike = hasAny(['landscape', '横版', 'in-stream', 'instream', 'thumbnail', '视频封面']);
+  const ratios: string[] = [];
+  const add = (...items: string[]) => {
+    items.forEach((item) => {
+      if (!ratios.includes(item)) {
+        ratios.push(item);
+      }
+    });
+  };
+
+  if (hasAny(['instagram', 'ig', 'ins'])) {
+    if (includesStoryLike) {
+      add('9:16');
+    }
+    if (includesFeed || !includesStoryLike) {
+      add('4:5', '1:1');
+    }
+  }
+  if (hasAny(['facebook', 'fb'])) {
+    if (includesStoryLike) {
+      add('9:16');
+    }
+    add('4:5', '1:1');
+  }
+  if (hasAny(['tiktok', '抖音'])) {
+    add('9:16');
+  }
+  if (hasAny(['linkedin', '领英'])) {
+    add('16:9', '1:1');
+  }
+  if (hasAny(['youtube', 'yt'])) {
+    if (includesStoryLike) {
+      add('9:16');
+    } else {
+      add('16:9');
+    }
+  }
+  if (hasAny(['googleads', 'google广告', '谷歌广告', 'displayads', 'responsiveads', 'gdn'])) {
+    add('16:9', '1:1');
+  }
+  if (hasAny(['x平台', 'twitter', '推特']) || normalizedHints.includes('x')) {
+    add('16:9', '1:1');
+  }
+  if (hasAny(['多平台', 'multi-platform', 'multiplatform', '全平台', '跨平台'])) {
+    add('9:16', '4:5', '1:1', '16:9');
+  }
+  if (includesStoryLike && ratios.length === 0) {
+    add('9:16');
+  }
+  if (includesLandscapeLike && ratios.length === 0) {
+    add('16:9');
+  }
+
+  return ratios;
+}
+
+function resolveCommerceAgentPlanAspectRatios(input: {
+  model: Parameters<typeof resolveImageModelResolutions>[0];
+  selectedSkillId: string;
+  text: string;
+  confirmedSlots?: CommerceAdAgentThreadState['confirmedSlots'];
+  briefPlatform?: string;
+  llmRatios: string[];
+  previousRatios: string[];
+  fallbackRatios: string[];
+}): string[] {
+  const platformHints = collectPlatformHintsFromAgentContext({
+    selectedSkillId: input.selectedSkillId,
+    text: input.text,
+    confirmedSlots: input.confirmedSlots,
+    briefPlatform: input.briefPlatform,
+  });
+  const platformRatios = resolveCommercePlatformAspectRatioCandidates(platformHints);
+  const normalizedLlmRatios = input.llmRatios.map(normalizeCommerceAspectRatioToken);
+  const normalizedPreviousRatios = input.previousRatios.map(normalizeCommerceAspectRatioToken);
+  const normalizedFallbackRatios = input.fallbackRatios.map(normalizeCommerceAspectRatioToken);
+  const preferredRatios = dedupeStrings([
+    ...platformRatios,
+    ...normalizedLlmRatios,
+    ...(
+      platformRatios.length > 0
+        ? []
+        : normalizedPreviousRatios
+    ),
+    ...normalizedFallbackRatios,
+  ]);
+  const modelRatios = resolveCommerceAspectRatiosForModel(input.model, preferredRatios);
+  if (platformRatios.length === 0) {
+    return modelRatios;
+  }
+  return modelRatios.slice(0, COMMERCE_PLATFORM_RATIO_LIMIT);
+}
+
 function normalizeDetailPagesForEditing(pages: CommerceAdDetailPage[]): CommerceAdDetailPage[] {
   return pages.map((page, index) => ({
     ...page,
@@ -945,6 +1476,39 @@ function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAd
   const variantsPerRatio = Math.max(1, Math.min(8, Math.round(Number(plan.variantsPerRatio) || 1)));
   const batchCount = Math.max(1, Math.min(20, Math.round(Number(plan.batchCount) || 1)));
   const batchId = `commerce-agent-plan-batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const isAdCreativePlan = plan.selectedSkillId === 'ad-creative';
+  const userRequestedNoText = /不要(?:加|出现|生成)?(?:文字|文案|标题|字幕|字)|无字(?:版)?|不带(?:文字|文案|标题|字幕)|去掉(?:文字|文案|标题|字幕)|no\s*(?:text|copy|words|typography)|without\s*(?:text|copy|words|typography)/i.test(plan.prompt);
+  const buildPrompt = (aspectRatio: string): string => {
+    if (!isAdCreativePlan) {
+      return plan.prompt;
+    }
+    if (userRequestedNoText) {
+      return [
+        plan.prompt,
+        '',
+        'Fashion ad art direction: premium magazine-like composition, strong but tasteful focal point, commercial photography lighting, realistic material texture, refined color grading, generous negative space for later typography, platform-safe cropping, polished contemporary fashion advertising aesthetic.',
+        '广告创意出图要求：遵循用户明确要求，不在画面中生成任何文字、标题、字幕、按钮文案或品牌字样。',
+        '可以通过构图、产品摆放、光影、色彩、留白和场景道具表达广告感；如需后期排版，请预留干净留白区。',
+        `输出比例：${aspectRatio}。`,
+      ].join('\n');
+    }
+    const layoutHint = aspectRatio === '9:16'
+      ? '竖版广告版式：顶部或中上方放一行醒目的短标题，底部安全区放 CTA 按钮文案，主体产品保持居中偏下，文字避开边缘和平台 UI 安全区。'
+      : aspectRatio === '16:9'
+        ? '横版广告版式：左侧或上方放短标题与一句卖点，右侧突出产品主体，保留清晰 CTA 区域。'
+        : '信息流广告版式：画面包含主标题、一句核心卖点和一个短 CTA 按钮，文字排版清晰、留白充足，产品主体与文案形成广告海报感。';
+    return [
+      plan.prompt,
+      '',
+      'Fashion ad art direction: premium magazine-like composition, commercial photography lighting, realistic material texture, refined color palette, elegant whitespace, clear product hierarchy, platform-safe crop, polished contemporary fashion advertising aesthetic.',
+      '广告创意出图要求：这不是纯产品摄影图，必须生成带广告宣传文案的完整广告素材。',
+      '画面文字只使用短文案，避免长段文字；文字需清晰可读、排版专业，允许使用简体中文。',
+      '至少包含：1 个主标题、1 个短卖点句、1 个 CTA 按钮或行动号召。',
+      '如果品牌名/价格/具体权益未确认，不要编造具体承诺，可使用通用但自然的广告表达。',
+      layoutHint,
+      `输出比例：${aspectRatio}。`,
+    ].join('\n');
+  };
   const images: CommerceAdGeneratedImageRecord[] = aspectRatios.flatMap((aspectRatio) => (
     Array.from({ length: batchCount }, (_, batchIndex) => (
       Array.from({ length: variantsPerRatio }, (_, variantIndex): CommerceAdGeneratedImageRecord => ({
@@ -961,7 +1525,7 @@ function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAd
           variantsPerRatio > 1 ? `Variant ${variantIndex + 1}` : '',
         ].filter(Boolean).join(' / '),
         nodeId: null,
-        prompt: plan.prompt,
+        prompt: buildPrompt(aspectRatio),
         status: 'queued',
         imageUrl: null,
         previewImageUrl: null,
@@ -973,7 +1537,7 @@ function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAd
   return {
     id: batchId,
     createdAt: Date.now(),
-    corePrompt: plan.prompt,
+    corePrompt: isAdCreativePlan ? buildPrompt(aspectRatios[0] ?? '4:5') : plan.prompt,
     aspectRatios,
     variantsPerRatio,
     batchCount,
@@ -1020,11 +1584,14 @@ function composeAgentPlanState(input: {
   images: CommerceAdProductImage[];
   previousPlan?: CommerceAgentPlanState | null;
   selectedSkillId: string;
+  agentThreadId: string;
+  confirmedSlots?: CommerceAdAgentThreadState['confirmedSlots'];
   resultActions: CommerceAdAgentAction[];
   fallbackModelId: string;
   fallbackProviderId: string;
   fallbackSize: string;
   fallbackRatios: string[];
+  fallbackModel: Parameters<typeof resolveImageModelResolutions>[0];
 }): CommerceAgentPlanState {
   const productAction = input.resultActions.find((action) => action.type === 'upsertProduct');
   const briefAction = input.resultActions.find((action) => action.type === 'upsertBrief');
@@ -1039,11 +1606,23 @@ function composeAgentPlanState(input: {
     brief?.headline,
     input.text,
   ].find((value) => value?.trim())?.trim() ?? '';
-  const riskNotes = dedupeStrings([
+  const riskNotes = input.previousPlan
+    ? dedupeStrings([
     ...(product?.inference?.uncertaintyNotes ?? []),
     ...(product?.inference?.followUpQuestions ?? []),
     ...(brief?.qualityIssues ?? []),
-  ]);
+      ])
+    : dedupeStrings(brief?.qualityIssues ?? []).slice(0, 2);
+  const resolvedAspectRatios = resolveCommerceAgentPlanAspectRatios({
+    model: input.fallbackModel,
+    selectedSkillId: input.selectedSkillId,
+    text: input.text,
+    confirmedSlots: input.confirmedSlots,
+    briefPlatform: brief?.platform,
+    llmRatios: batch?.aspectRatios ?? [],
+    previousRatios: input.previousPlan?.aspectRatios ?? [],
+    fallbackRatios: input.fallbackRatios,
+  });
 
   return {
     ...defaultPlan,
@@ -1063,10 +1642,11 @@ function composeAgentPlanState(input: {
       : input.previousPlan?.referenceImageNotes ?? '',
     riskNotes: riskNotes.length > 0 ? riskNotes : input.previousPlan?.riskNotes ?? [],
     selectedSkillId: input.selectedSkillId || input.previousPlan?.selectedSkillId || '',
+    agentThreadId: input.agentThreadId || input.previousPlan?.agentThreadId || '',
     providerId: batch?.modelId ? input.fallbackProviderId : input.fallbackProviderId,
     modelId: batch?.modelId || input.fallbackModelId,
     size: batch?.size || input.fallbackSize,
-    aspectRatios: batch?.aspectRatios?.length ? batch.aspectRatios : input.fallbackRatios,
+    aspectRatios: resolvedAspectRatios,
     variantsPerRatio: batch?.variantsPerRatio ?? 1,
     batchCount: batch?.batchCount ?? 1,
     status: (prompt || input.previousPlan?.prompt) ? 'ready' : 'idle',
@@ -1874,7 +2454,7 @@ function CommerceDetailPageSetupModal({
   );
 }
 
-function GuidanceCard({
+function DecisionPanel({
   messageId,
   guidance,
   selectedChoiceKeys,
@@ -1891,13 +2471,13 @@ function GuidanceCard({
   }
 
   return (
-    <div className="mt-2 space-y-3 rounded-lg border border-border-dark/70 bg-bg-dark/45 p-3">
+    <div className="mt-4 space-y-4 text-sm leading-6 text-text-dark/85">
       {guidance.summary ? (
         <div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="text-[13px] font-semibold text-text-muted">
             {t('commerceAd.agent.guidance.understood')}
           </div>
-          <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-text-dark/85">
+          <p className="mt-1 whitespace-pre-wrap">
             {guidance.summary}
           </p>
         </div>
@@ -1905,7 +2485,7 @@ function GuidanceCard({
 
       {guidance.confirmedFacts.length > 0 ? (
         <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="text-[13px] font-semibold text-text-muted">
             {t('commerceAd.agent.guidance.confirmed')}
           </div>
           <GuidancePillList items={guidance.confirmedFacts} />
@@ -1914,7 +2494,7 @@ function GuidanceCard({
 
       {guidance.missingFields.length > 0 ? (
         <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="text-[13px] font-semibold text-text-muted">
             {t('commerceAd.agent.guidance.missing')}
           </div>
           <GuidancePillList items={guidance.missingFields} tone="warning" />
@@ -1923,10 +2503,10 @@ function GuidanceCard({
 
       {guidance.designDirections.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-            {t('commerceAd.agent.guidance.directions')}
+          <div className="text-[13px] font-semibold text-text-muted">
+            {guidance.panelTitle || t('commerceAd.agent.guidance.directions')}
           </div>
-          <div className="grid gap-2">
+          <div className="space-y-1">
             {guidance.designDirections.map((direction) => {
               const key = buildGuidanceChoiceKey(messageId, 'direction', direction.id);
               const value = direction.description
@@ -1938,15 +2518,18 @@ function GuidanceCard({
                   type="button"
                   aria-pressed={selectedChoiceKeys.includes(key)}
                   onClick={() => onToggleChoice(key, value)}
-                  className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  className={`group w-full rounded-lg px-3 py-2 text-left transition-colors ${
                     selectedChoiceKeys.includes(key)
-                      ? 'border-text-dark/35 bg-text-dark/[0.12]'
-                      : 'border-border-dark/70 bg-surface-dark/45 hover:border-text-dark/20'
+                      ? 'bg-text-dark/[0.1]'
+                      : 'hover:bg-text-dark/[0.06]'
                   }`}
                 >
-                  <div className="text-xs font-medium text-text-dark">{direction.title}</div>
+                  <div className="flex items-start gap-2">
+                    <span className="mt-0.5 text-text-muted">↳</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-text-dark">{direction.title}</div>
                   {direction.description ? (
-                    <div className="mt-1 text-[11px] leading-5 text-text-muted">
+                    <div className="mt-1 text-[13px] leading-6 text-text-muted">
                       {direction.description}
                     </div>
                   ) : null}
@@ -1955,13 +2538,15 @@ function GuidanceCard({
                       {direction.tags.map((tag) => (
                         <span
                           key={tag}
-                          className="rounded-full bg-bg-dark px-1.5 py-0.5 text-[10px] text-text-muted"
+                              className="rounded-full bg-transparent px-1.5 py-0.5 text-xs text-text-muted transition-colors group-hover:bg-bg-dark/80"
                         >
                           {tag}
                         </span>
                       ))}
                     </div>
                   ) : null}
+                    </div>
+                  </div>
                 </button>
               );
             })}
@@ -1971,12 +2556,12 @@ function GuidanceCard({
 
       {guidance.questions.length > 0 ? (
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="text-[13px] font-semibold text-text-muted">
             {t('commerceAd.agent.guidance.questions')}
           </div>
           {guidance.questions.map((question) => (
             <div key={question.id} className="space-y-1.5">
-              <div className="text-xs leading-5 text-text-dark/85">{question.label}</div>
+              <div className="text-sm leading-6 text-text-dark/85">{question.label}</div>
               {question.options.length > 0 ? (
                 <div className="flex flex-wrap gap-1.5">
                   {question.options.map((option) => {
@@ -2000,7 +2585,7 @@ function GuidanceCard({
 
       {guidance.quickReplies.length > 0 ? (
         <div className="space-y-1.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+          <div className="text-[13px] font-semibold text-text-muted">
             {t('commerceAd.agent.guidance.quickReplies')}
           </div>
           <div className="flex flex-wrap gap-1.5">
@@ -2021,7 +2606,7 @@ function GuidanceCard({
       ) : null}
 
       {guidance.readinessHint ? (
-        <div className="rounded-lg border border-text-dark/10 bg-text-dark/[0.06] px-3 py-2 text-xs leading-5 text-text-dark/80">
+        <div className="rounded-lg bg-text-dark/[0.04] px-3 py-2 text-sm leading-6 text-text-dark/80">
           {guidance.readinessHint}
         </div>
       ) : null}
@@ -2041,6 +2626,10 @@ function CommerceAdWorkspaceInner() {
   const batchSettingsContentRef = useRef<HTMLElement | null>(null);
   const replaceImageIdRef = useRef<string | null>(null);
   const activeCommerceStreamRequestIdRef = useRef<string | null>(null);
+  const thinkingTypewriterQueueRef = useRef<Record<string, string>>({});
+  const thinkingTypewriterTimerRef = useRef<number | null>(null);
+  const messageTypewriterQueueRef = useRef<Record<string, string>>({});
+  const messageTypewriterTimerRef = useRef<number | null>(null);
   const hasLoadedAgentThreadRef = useRef(false);
   const activeThreadCreatedAtRef = useRef(Date.now());
   const activeThreadIdRef = useRef(COMMERCE_AGENT_DEFAULT_THREAD_ID);
@@ -2056,6 +2645,7 @@ function CommerceAdWorkspaceInner() {
   const [threadSearchQuery, setThreadSearchQuery] = useState('');
   const [agentThreadState, setAgentThreadState] = useState<CommerceAdAgentThreadState>(createDefaultAgentThreadState);
   const [thinkingPreviewByMessageId, setThinkingPreviewByMessageId] = useState<Record<string, string>>({});
+  const [structuredProgressByMessageId, setStructuredProgressByMessageId] = useState<Record<string, string[]>>({});
   const [agentPanelWidth, setAgentPanelWidth] = useState(readCommerceAgentPanelWidth);
   const [isChatDragActive, setIsChatDragActive] = useState(false);
   const [detailInputMode, setDetailInputMode] = useState<CommerceAdProductState['detailInputMode']>('auto');
@@ -2090,6 +2680,132 @@ function CommerceAdWorkspaceInner() {
       : skill
   )), [t]);
 
+  const stopThinkingTypewriter = useCallback(() => {
+    if (thinkingTypewriterTimerRef.current !== null) {
+      window.clearInterval(thinkingTypewriterTimerRef.current);
+      thinkingTypewriterTimerRef.current = null;
+    }
+  }, []);
+
+  const clearThinkingTypewriter = useCallback((messageId?: string) => {
+    if (messageId) {
+      delete thinkingTypewriterQueueRef.current[messageId];
+    } else {
+      thinkingTypewriterQueueRef.current = {};
+    }
+    if (Object.keys(thinkingTypewriterQueueRef.current).length === 0) {
+      stopThinkingTypewriter();
+    }
+  }, [stopThinkingTypewriter]);
+
+  const ensureThinkingTypewriter = useCallback(() => {
+    if (thinkingTypewriterTimerRef.current !== null) {
+      return;
+    }
+    thinkingTypewriterTimerRef.current = window.setInterval(() => {
+      const messageId = Object.keys(thinkingTypewriterQueueRef.current)
+        .find((id) => thinkingTypewriterQueueRef.current[id]);
+      if (!messageId) {
+        stopThinkingTypewriter();
+        return;
+      }
+      const queueRef = {
+        get current() {
+          return thinkingTypewriterQueueRef.current[messageId] ?? '';
+        },
+        set current(value: string) {
+          thinkingTypewriterQueueRef.current[messageId] = value;
+        },
+      } as MutableRefObject<string>;
+      appendNextTypewriterChar(queueRef, (nextChar) => {
+        setThinkingPreviewByMessageId((items) => {
+          const existing = items[messageId] ?? '';
+          return {
+            ...items,
+            [messageId]: buildThinkingPreviewText(`${existing}${nextChar}`),
+          };
+        });
+      });
+    }, COMMERCE_AGENT_TYPEWRITER_INTERVAL_MS);
+  }, [stopThinkingTypewriter]);
+
+  const enqueueThinkingPreviewText = useCallback((messageId: string, nextText: string, replace = false) => {
+    const normalized = nextText.replace(/\s+/g, ' ').trim();
+    if (!normalized) {
+      return;
+    }
+    const textForQueue = replace ? normalized : ` ${normalized}`;
+    if (replace) {
+      thinkingTypewriterQueueRef.current[messageId] = textForQueue;
+      setThinkingPreviewByMessageId((items) => ({ ...items, [messageId]: '' }));
+    } else {
+      thinkingTypewriterQueueRef.current[messageId] = `${thinkingTypewriterQueueRef.current[messageId] ?? ''}${textForQueue}`;
+    }
+    ensureThinkingTypewriter();
+  }, [ensureThinkingTypewriter]);
+
+  const stopMessageTypewriter = useCallback(() => {
+    if (messageTypewriterTimerRef.current !== null) {
+      window.clearInterval(messageTypewriterTimerRef.current);
+      messageTypewriterTimerRef.current = null;
+    }
+  }, []);
+
+  const clearMessageTypewriter = useCallback((messageId?: string) => {
+    if (messageId) {
+      delete messageTypewriterQueueRef.current[messageId];
+    } else {
+      messageTypewriterQueueRef.current = {};
+    }
+    if (Object.keys(messageTypewriterQueueRef.current).length === 0) {
+      stopMessageTypewriter();
+    }
+  }, [stopMessageTypewriter]);
+
+  const ensureMessageTypewriter = useCallback(() => {
+    if (messageTypewriterTimerRef.current !== null) {
+      return;
+    }
+    messageTypewriterTimerRef.current = window.setInterval(() => {
+      const messageId = Object.keys(messageTypewriterQueueRef.current)
+        .find((id) => messageTypewriterQueueRef.current[id]);
+      if (!messageId) {
+        stopMessageTypewriter();
+        return;
+      }
+      const queueRef = {
+        get current() {
+          return messageTypewriterQueueRef.current[messageId] ?? '';
+        },
+        set current(value: string) {
+          messageTypewriterQueueRef.current[messageId] = value;
+        },
+      } as MutableRefObject<string>;
+      appendNextTypewriterChar(queueRef, (nextChar) => {
+        setMessages((items) => items.map((message) => (
+          message.id === messageId
+            ? { ...message, content: `${message.content}${nextChar}` }
+            : message
+        )));
+      });
+    }, COMMERCE_AGENT_TYPEWRITER_INTERVAL_MS);
+  }, [stopMessageTypewriter]);
+
+  const enqueueAssistantMessageText = useCallback((messageId: string, textToAppend: string, replace = false) => {
+    if (!textToAppend) {
+      return;
+    }
+    if (replace) {
+      messageTypewriterQueueRef.current[messageId] = textToAppend;
+      setMessages((items) => items.map((message) => (
+        message.id === messageId ? { ...message, content: '' } : message
+      )));
+    } else {
+      messageTypewriterQueueRef.current[messageId] = `${messageTypewriterQueueRef.current[messageId] ?? ''}${textToAppend}`;
+    }
+    ensureMessageTypewriter();
+  }, [ensureMessageTypewriter]);
+
   const nodes = useCanvasStore((state) => state.nodes);
   const selectedNodeId = useCanvasStore((state) => state.selectedNodeId);
   const addNode = useCanvasStore((state) => state.addNode);
@@ -2113,8 +2829,20 @@ function CommerceAdWorkspaceInner() {
     [nodes, selectedNodeId]
   );
   const agentPlanNode = useMemo(
-    () => resolveActiveStageNode<CommerceAgentPlanNodeData>(nodes, CANVAS_NODE_TYPES.commerceAgentPlan, selectedNodeId),
-    [nodes, selectedNodeId]
+    () => {
+      const threadMatch = nodes.find((node) => (
+        node.type === CANVAS_NODE_TYPES.commerceAgentPlan
+        && (node.data as Partial<CommerceAgentPlanNodeData>).agentThreadId === activeThreadId
+      ));
+      if (threadMatch) {
+        return threadMatch as CanvasNode & { data: CommerceAgentPlanNodeData };
+      }
+      if (activeThreadId !== COMMERCE_AGENT_DEFAULT_THREAD_ID) {
+        return null;
+      }
+      return resolveActiveStageNode<CommerceAgentPlanNodeData>(nodes, CANVAS_NODE_TYPES.commerceAgentPlan, selectedNodeId);
+    },
+    [activeThreadId, nodes, selectedNodeId]
   );
   const visualPreferenceNode = useMemo(
     () => resolveActiveStageNode<CommerceVisualPreferenceNodeData>(nodes, CANVAS_NODE_TYPES.commerceVisualPreference, selectedNodeId),
@@ -2141,6 +2869,14 @@ function CommerceAdWorkspaceInner() {
     () => threadSummaries.find((thread) => thread.threadId === activeThreadId) ?? null,
     [activeThreadId, threadSummaries]
   );
+  const activeThreadTitle = useMemo(
+    () => deriveCommerceAgentThreadTitle(
+      messages,
+      selectedSkill,
+      activeThreadSummary?.title || t('commerceAd.agent.untitledChat')
+    ),
+    [activeThreadSummary?.title, messages, selectedSkill, t]
+  );
 
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;
@@ -2149,14 +2885,17 @@ function CommerceAdWorkspaceInner() {
   useEffect(() => {
     hasLoadedAgentThreadRef.current = false;
     setMessages(DEFAULT_AGENT_MESSAGES);
-    setAgentThreadState(createDefaultAgentThreadState());
+    setAgentThreadState(createDefaultAgentThreadState(selectedSkill));
     setThreadSummaries([]);
     setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
     activeThreadCreatedAtRef.current = Date.now();
     setDraft('');
     setChatImages([]);
     setStatusText(null);
+    clearThinkingTypewriter();
+    clearMessageTypewriter();
     setThinkingPreviewByMessageId({});
+    setStructuredProgressByMessageId({});
     setIsThreadHistoryOpen(false);
     if (!currentProjectId) {
       return;
@@ -2178,18 +2917,18 @@ function CommerceAdWorkspaceInner() {
           setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
           activeThreadCreatedAtRef.current = Date.now();
           setMessages(DEFAULT_AGENT_MESSAGES);
-          setAgentThreadState(createDefaultAgentThreadState());
+          setAgentThreadState(createDefaultAgentThreadState(selectedSkill));
           return;
         }
         setActiveThreadId(record.threadId);
         activeThreadCreatedAtRef.current = record.createdAt || record.updatedAt || Date.now();
         setMessages(parsePersistedCommerceAgentMessages(record.messagesJson));
-        setAgentThreadState(parseAgentThreadState(record.stateJson));
+        setAgentThreadState(parseAgentThreadState(record.stateJson, selectedSkill));
       })
       .catch(() => {
         if (!cancelled) {
           setMessages(DEFAULT_AGENT_MESSAGES);
-          setAgentThreadState(createDefaultAgentThreadState());
+          setAgentThreadState(createDefaultAgentThreadState(selectedSkill));
           setThreadSummaries([]);
           setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
           activeThreadCreatedAtRef.current = Date.now();
@@ -2205,6 +2944,22 @@ function CommerceAdWorkspaceInner() {
       cancelled = true;
     };
   }, [currentProjectId]);
+
+  useEffect(() => {
+    setAgentThreadState((current) => {
+      if (current.skillId === (selectedSkill?.id ?? '')) {
+        return current;
+      }
+      return mergeAgentThreadState(
+        createDefaultAgentThreadState(selectedSkill),
+        {
+          imageAnalysis: current.imageAnalysis,
+          planVersion: current.planVersion,
+        },
+        selectedSkill
+      );
+    });
+  }, [selectedSkill]);
 
   useEffect(() => {
     if (!currentProjectId || !hasLoadedAgentThreadRef.current) {
@@ -2443,6 +3198,13 @@ function CommerceAdWorkspaceInner() {
     if (!normalizedValue) {
       return;
     }
+    const slotPatch = extractConfirmedSlotsFromText(normalizedValue, selectedSkill);
+    if (Object.keys(slotPatch).length > 0) {
+      setAgentThreadState((current) => mergeAgentThreadState(current, {
+        confirmedSlots: slotPatch,
+        skillId: selectedSkill?.id ?? current.skillId,
+      }, selectedSkill));
+    }
     setSelectedGuidanceChoiceKeys((keys) => (
       keys.includes(key)
         ? keys.filter((item) => item !== key)
@@ -2458,7 +3220,7 @@ function CommerceAdWorkspaceInner() {
       }
       return parts.length > 0 ? `${current.trim()}；${normalizedValue}` : normalizedValue;
     });
-  }, []);
+  }, [selectedSkill]);
   const persistActiveThreadSnapshot = useCallback(() => {
     if (
       !currentProjectId
@@ -2498,12 +3260,15 @@ function CommerceAdWorkspaceInner() {
     activeThreadCreatedAtRef.current = now;
     setActiveThreadId(threadId);
     setMessages(DEFAULT_AGENT_MESSAGES);
-    setAgentThreadState(createDefaultAgentThreadState());
+    setAgentThreadState(createDefaultAgentThreadState(selectedSkill));
     setDraft('');
     setChatImages([]);
     setSelectedGuidanceChoiceKeys([]);
     setStatusText(null);
+    clearThinkingTypewriter();
+    clearMessageTypewriter();
     setThinkingPreviewByMessageId({});
+    setStructuredProgressByMessageId({});
     setIsThreadHistoryOpen(false);
     setThreadSearchQuery('');
     setThreadSummaries((items) => {
@@ -2512,7 +3277,7 @@ function CommerceAdWorkspaceInner() {
         threadId,
         title: selectedSkill?.title || t('commerceAd.agent.untitledChat'),
         messagesJson: '[]',
-        stateJson: JSON.stringify(createDefaultAgentThreadState()),
+        stateJson: JSON.stringify(createDefaultAgentThreadState(selectedSkill)),
         createdAt: now,
         updatedAt: now,
       };
@@ -2537,12 +3302,15 @@ function CommerceAdWorkspaceInner() {
     setActiveThreadId(threadId);
     activeThreadCreatedAtRef.current = summary?.createdAt || summary?.updatedAt || Date.now();
     setMessages(summary ? parsePersistedCommerceAgentMessages(summary.messagesJson) : DEFAULT_AGENT_MESSAGES);
-    setAgentThreadState(summary ? parseAgentThreadState(summary.stateJson) : createDefaultAgentThreadState());
+    setAgentThreadState(summary ? parseAgentThreadState(summary.stateJson, selectedSkill) : createDefaultAgentThreadState(selectedSkill));
     setDraft('');
     setChatImages([]);
     setSelectedGuidanceChoiceKeys([]);
     setStatusText(null);
+    clearThinkingTypewriter();
+    clearMessageTypewriter();
     setThinkingPreviewByMessageId({});
+    setStructuredProgressByMessageId({});
     setIsThreadHistoryOpen(false);
     void getCommerceAgentThread(currentProjectId, threadId)
       .then((record) => {
@@ -2555,7 +3323,7 @@ function CommerceAdWorkspaceInner() {
         }
         activeThreadCreatedAtRef.current = nextRecord.createdAt || nextRecord.updatedAt || Date.now();
         setMessages(parsePersistedCommerceAgentMessages(nextRecord.messagesJson));
-        setAgentThreadState(parseAgentThreadState(nextRecord.stateJson));
+        setAgentThreadState(parseAgentThreadState(nextRecord.stateJson, selectedSkill));
       })
       .catch(() => {
         if (threadId !== activeThreadIdRef.current) {
@@ -2564,7 +3332,7 @@ function CommerceAdWorkspaceInner() {
         if (summary) {
           activeThreadCreatedAtRef.current = summary.createdAt || summary.updatedAt || Date.now();
           setMessages(parsePersistedCommerceAgentMessages(summary.messagesJson));
-          setAgentThreadState(parseAgentThreadState(summary.stateJson));
+          setAgentThreadState(parseAgentThreadState(summary.stateJson, selectedSkill));
         }
       });
   }, [activeThreadId, currentProjectId, isThinking, persistActiveThreadSnapshot, threadSummaries]);
@@ -2590,7 +3358,7 @@ function CommerceAdWorkspaceInner() {
         activeThreadCreatedAtRef.current = now;
         setActiveThreadId(COMMERCE_AGENT_DEFAULT_THREAD_ID);
         setMessages(DEFAULT_AGENT_MESSAGES);
-        setAgentThreadState(createDefaultAgentThreadState());
+        setAgentThreadState(createDefaultAgentThreadState(selectedSkill));
         setDraft('');
         setChatImages([]);
         setSelectedGuidanceChoiceKeys([]);
@@ -2739,9 +3507,15 @@ function CommerceAdWorkspaceInner() {
     [batchNode?.data.size, selectedImageModel]
   );
   const upsertAgentPlanNode = useCallback((plan: CommerceAgentPlanState) => {
-    const existing = useCanvasStore.getState().nodes.find((node) => node.type === CANVAS_NODE_TYPES.commerceAgentPlan);
+    const existing = useCanvasStore.getState().nodes.find((node) => (
+      node.type === CANVAS_NODE_TYPES.commerceAgentPlan
+      && (node.data as Partial<CommerceAgentPlanNodeData>).agentThreadId === activeThreadId
+    ));
     if (existing) {
-      updateNodeData(existing.id, plan as Partial<CanvasNodeData>);
+      updateNodeData(existing.id, {
+        ...plan,
+        agentThreadId: activeThreadId,
+      } as Partial<CanvasNodeData>);
       setSelectedNode(existing.id);
       flow.setCenter(existing.position.x + 180, existing.position.y + 180, {
         zoom: 0.9,
@@ -2750,17 +3524,25 @@ function CommerceAdWorkspaceInner() {
       return existing.id;
     }
 
-    const position = resultNode?.position
-      ? { x: resultNode.position.x, y: resultNode.position.y - 520 }
-      : { x: 120, y: 120 };
-    const nodeId = addNode(CANVAS_NODE_TYPES.commerceAgentPlan, position, plan as Partial<CanvasNodeData>);
+    const planNodes = useCanvasStore.getState().nodes
+      .filter((node) => node.type === CANVAS_NODE_TYPES.commerceAgentPlan);
+    const lastPlanNode = planNodes[planNodes.length - 1];
+    const position = lastPlanNode?.position
+      ? { x: lastPlanNode.position.x, y: lastPlanNode.position.y + 560 }
+      : resultNode?.position
+        ? { x: resultNode.position.x, y: resultNode.position.y - 520 }
+        : { x: 120, y: 120 };
+    const nodeId = addNode(CANVAS_NODE_TYPES.commerceAgentPlan, position, {
+      ...plan,
+      agentThreadId: activeThreadId,
+    } as Partial<CanvasNodeData>);
     setSelectedNode(nodeId);
     flow.setCenter(position.x + 180, position.y + 180, {
       zoom: 0.9,
       duration: 260,
     });
     return nodeId;
-  }, [addNode, flow, resultNode?.position, setSelectedNode, updateNodeData]);
+  }, [activeThreadId, addNode, flow, resultNode?.position, setSelectedNode, updateNodeData]);
 
   const canvasActionContext = useMemo<CommerceAdCanvasActionsContext>(() => ({
     getNodes: () => useCanvasStore.getState().nodes,
@@ -3540,7 +4322,6 @@ function CommerceAdWorkspaceInner() {
       resultGroupId
         ? useCanvasStore.getState().nodes.find((node) => node.id === resultGroupId)
         : resultNode ?? null;
-    const resultPositionBase = resultGroupNode?.position ?? resultNode?.position ?? { x: 1260, y: 420 };
     const submittedImages: CommerceAdGeneratedImageRecord[] = [];
     setStatusText(t('commerceAd.agent.statusSubmitting'));
 
@@ -3550,10 +4331,7 @@ function CommerceAdWorkspaceInner() {
       const prompt = imageRecord.prompt || corePrompt;
       const resultNodeId = addNode(
         CANVAS_NODE_TYPES.exportImage,
-        {
-          x: resultPositionBase.x + (index % 4) * 260,
-          y: resultPositionBase.y + Math.floor(index / 4) * 300,
-        },
+        resolveCommerceResultImagePosition(resultGroupNode, index),
         {
           isGenerating: true,
           generationPhase: 'submitting',
@@ -3587,6 +4365,7 @@ function CommerceAdWorkspaceInner() {
           size: selectedResolution.value,
           aspectRatio: imageRecord.aspectRatio,
           referenceImages,
+          submissionSource: 'commerceBatchGenerate',
         });
         const jobId = await canvasAiGateway.submitGenerateImageJob(resolvedPayload);
         updateNodeData(resultNodeId, {
@@ -3775,6 +4554,10 @@ function CommerceAdWorkspaceInner() {
           activeBatchId: emptyBatch.id,
         } as Partial<CanvasNodeData>);
     if (existingResultGroup) {
+      updateNodePosition(resultGroupId, {
+        x: planNode.position.x + 520,
+        y: planNode.position.y,
+      });
       updateNodeData(resultGroupId, {
         batches: [...(((existingResultGroup.data as CommerceResultGroupNodeData).batches) ?? []), emptyBatch],
         activeBatchId: emptyBatch.id,
@@ -3783,7 +4566,6 @@ function CommerceAdWorkspaceInner() {
     addEdge(planNode.id, resultGroupId);
 
     const resultGroupNode = useCanvasStore.getState().nodes.find((node) => node.id === resultGroupId);
-    const resultPositionBase = resultGroupNode?.position ?? { x: planNode.position.x + 520, y: planNode.position.y };
     const submittedImages: CommerceAdGeneratedImageRecord[] = [];
     setStatusText(t('commerceAd.agent.statusSubmitting'));
     await canvasAiGateway.setApiKey(selectedPlanModel.providerId, providerApiKey);
@@ -3792,10 +4574,7 @@ function CommerceAdWorkspaceInner() {
       const prompt = imageRecord.prompt || plan.prompt;
       const resultImageNodeId = addNode(
         CANVAS_NODE_TYPES.exportImage,
-        {
-          x: resultPositionBase.x + (index % 4) * 260,
-          y: resultPositionBase.y + 360 + Math.floor(index / 4) * 300,
-        },
+        resolveCommerceResultImagePosition(resultGroupNode, index),
         {
           isGenerating: true,
           generationPhase: 'submitting',
@@ -3821,6 +4600,7 @@ function CommerceAdWorkspaceInner() {
           size: selectedPlanResolution.value,
           aspectRatio: imageRecord.aspectRatio,
           referenceImages,
+          submissionSource: 'commerceBatchGenerate',
         });
         const jobId = await canvasAiGateway.submitGenerateImageJob(resolvedPayload);
         updateNodeData(resultImageNodeId, {
@@ -4104,7 +4884,7 @@ function CommerceAdWorkspaceInner() {
       : '';
     const submittedText = text || selectedSkill?.title || '';
     const combinedText = [priorContext.text, skillContext, submittedText].filter(Boolean).join('\n');
-    const deterministicSlotPatch = extractConfirmedSlotsFromText(text);
+    const deterministicSlotPatch = extractConfirmedSlotsFromText(text, selectedSkill);
     const turnIntent = inferAdAgentTurnIntent({
       text,
       hasNewImages: submittedImages.length > 0,
@@ -4113,17 +4893,18 @@ function CommerceAdWorkspaceInner() {
     const threadStateForTurn = mergeAgentThreadState(agentThreadState, {
       phase: turnIntent === 'revise' ? 'refining' : agentThreadState.phase,
       confirmedSlots: deterministicSlotPatch,
-    });
+      skillId: selectedSkill?.id ?? agentThreadState.skillId,
+    }, selectedSkill);
     const assistantMessageId = `commerce-agent-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const streamRequestId = `commerce-agent-request-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setDraft('');
     setChatImages([]);
     setSelectedGuidanceChoiceKeys([]);
-    setThinkingPreviewByMessageId((items) => {
-      const next = { ...items };
-      delete next[assistantMessageId];
-      return next;
-    });
+    enqueueThinkingPreviewText(
+      assistantMessageId,
+      t('commerceAd.agentPlan.thinkingPreviewImage'),
+      true
+    );
     void (async () => {
       const nextUserMessage = text || selectedSkill?.title || t('commerceAd.agentPlan.imageOnlyPrompt');
       setMessages((items) => [
@@ -4149,6 +4930,9 @@ function CommerceAdWorkspaceInner() {
         product.images = contextImages;
         product.userInfo = combinedText;
         product.userIdeaInfo = combinedText;
+        const referenceImagesForTurn = submittedImages.length > 0 || !threadStateForTurn.imageAnalysis
+          ? dedupeStrings(contextImages.map((image) => image.imageUrl))
+          : [];
         const turnInput = {
           userMessage: [skillContext, text || nextUserMessage].filter(Boolean).join('\n\n'),
           conversationSummary: priorContext.text,
@@ -4156,13 +4940,29 @@ function CommerceAdWorkspaceInner() {
           brief: null,
           visualPreference: createDefaultCommerceAdVisualPreferenceState(),
           batch: null,
-          referenceImages: dedupeStrings(contextImages.map((image) => image.imageUrl)),
+          referenceImages: referenceImagesForTurn,
           canUseVisionModel: true,
           selectedSkill,
           threadState: threadStateForTurn,
           turnIntent,
         };
-        let streamedPreviewText = '';
+        let hasVisibleAnswerText = false;
+        const thinkingStageTimers = [
+          window.setTimeout(() => {
+            enqueueThinkingPreviewText(
+              assistantMessageId,
+              t('commerceAd.agentPlan.thinkingPreviewSkill'),
+              true
+            );
+          }, 1600),
+          window.setTimeout(() => {
+            enqueueThinkingPreviewText(
+              assistantMessageId,
+              t('commerceAd.agentPlan.thinkingPreviewStructure'),
+              true
+            );
+          }, 3600),
+        ];
         const waitForStream = new Promise<void>((resolve, reject) => {
           void listenCommerceAdAgentStream((event: CommerceAdAgentStreamEvent) => {
             if (event.requestId !== streamRequestId) {
@@ -4180,21 +4980,25 @@ function CommerceAdWorkspaceInner() {
               )));
             }
             if (event.type === 'text_delta') {
-              streamedPreviewText = `${streamedPreviewText}${event.delta}`;
-              const preview = buildThinkingPreviewText(streamedPreviewText);
-              if (preview) {
-                setThinkingPreviewByMessageId((items) => ({
-                  ...items,
-                  [assistantMessageId]: preview,
-                }));
+              if (event.delta.trim()) {
+                hasVisibleAnswerText = true;
+                clearThinkingTypewriter(assistantMessageId);
+                setThinkingPreviewByMessageId((items) => {
+                  const next = { ...items };
+                  delete next[assistantMessageId];
+                  return next;
+                });
+                enqueueAssistantMessageText(assistantMessageId, event.delta);
               }
             }
             if (event.type === 'message_completed') {
-              setThinkingPreviewByMessageId((items) => {
-                const next = { ...items };
-                delete next[assistantMessageId];
-                return next;
-              });
+              if (!hasVisibleAnswerText) {
+                enqueueThinkingPreviewText(
+                  assistantMessageId,
+                  t('commerceAd.agentPlan.thinkingPreviewStructure'),
+                  true
+                );
+              }
               setMessages((items) => items.map((message) => (
                 message.id === assistantMessageId
                   ? { ...message, status: 'streaming', phase: 'finalizing' }
@@ -4203,19 +5007,9 @@ function CommerceAdWorkspaceInner() {
               resolve();
             }
             if (event.type === 'stream_cancelled') {
-              setThinkingPreviewByMessageId((items) => {
-                const next = { ...items };
-                delete next[assistantMessageId];
-                return next;
-              });
               resolve();
             }
             if (event.type === 'stream_failed') {
-              setThinkingPreviewByMessageId((items) => {
-                const next = { ...items };
-                delete next[assistantMessageId];
-                return next;
-              });
               setStatusText(t('commerceAd.agentPlan.statusThinking'));
               reject(new Error(event.message));
             }
@@ -4235,31 +5029,95 @@ function CommerceAdWorkspaceInner() {
           await waitForStream;
         } catch (streamError) {
           console.warn('[CommerceAdAgent] visible stream failed', streamError);
+        } finally {
+          thinkingStageTimers.forEach((timer) => window.clearTimeout(timer));
         }
+        const isExplorationTurn =
+          turnIntent === 'initial'
+          && threadStateForTurn.planVersion === 0
+          && !hasSlotValue(threadStateForTurn.confirmedSlots.visualDirection);
+        const structuredProgressSteps = isExplorationTurn
+          ? [
+              t('commerceAd.agentPlan.structuredProgressImage'),
+              t('commerceAd.agentPlan.structuredProgressConfirmed'),
+              t('commerceAd.agentPlan.structuredProgressDirections'),
+              t('commerceAd.agentPlan.structuredProgressOptions'),
+            ]
+          : [
+              t('commerceAd.agentPlan.structuredProgressConfirmed'),
+              t('commerceAd.agentPlan.structuredProgressPlan'),
+              t('commerceAd.agentPlan.structuredProgressOptions'),
+            ];
+        const structuredProgressTimers = structuredProgressSteps.map((step, index) => (
+          window.setTimeout(() => {
+            setStructuredProgressByMessageId((items) => {
+              const existing = items[assistantMessageId] ?? [];
+              if (existing.includes(step)) {
+                return items;
+              }
+              return {
+                ...items,
+                [assistantMessageId]: [...existing, step],
+              };
+            });
+          }, index * 650)
+        ));
         const agentResult = await runCommerceAdAgentTurn({
           ...turnInput,
         });
+        structuredProgressTimers.forEach((timer) => window.clearTimeout(timer));
+        const nextAction = resolveAgentNextAction(agentResult.nextAction, {
+          ...threadStateForTurn,
+          ...(agentResult.threadStatePatch ?? {}),
+          confirmedSlots: {
+            ...threadStateForTurn.confirmedSlots,
+            ...(agentResult.threadStatePatch?.confirmedSlots ?? {}),
+          },
+        }, selectedSkill);
         const nextAgentThreadState = mergeAgentThreadState(threadStateForTurn, {
           ...(agentResult.threadStatePatch ?? {}),
           imageAnalysis: agentResult.assistantMessage.imageAnalysis
             ?? threadStateForTurn.imageAnalysis,
-          lastAskedFields: agentResult.assistantMessage.guidance?.questions?.map((question) => question.id)
-            ?? agentResult.threadStatePatch?.lastAskedFields
+          lastAskedFields: agentResult.threadStatePatch?.lastAskedFields
             ?? threadStateForTurn.lastAskedFields,
           planVersion: (
-            agentResult.nextAction === 'plan'
-            || agentResult.nextAction === 'ready'
-            || agentResult.nextAction === 'generate'
+            nextAction === 'plan'
+            || nextAction === 'ready'
+            || nextAction === 'generate'
           )
             ? threadStateForTurn.planVersion + 1
             : agentResult.threadStatePatch?.planVersion ?? threadStateForTurn.planVersion,
-        });
+        }, selectedSkill);
+        const normalizedGuidance = normalizeAgentGuidanceForState(
+          agentResult.assistantMessage.guidance,
+          nextAgentThreadState,
+          selectedSkill,
+          nextAction,
+          text
+        );
+        const askedFieldIds = normalizedGuidance?.questions.map((question) => question.id);
+        const visibleGuidanceKind = normalizedGuidance?.designDirections.length
+          ? normalizedGuidance.guidanceKind
+          : undefined;
+        const finalAgentThreadState = {
+          ...nextAgentThreadState,
+          ...(askedFieldIds && askedFieldIds.length > 0 ? { lastAskedFields: askedFieldIds } : {}),
+          ...(visibleGuidanceKind
+            ? {
+                guidanceRound: nextAgentThreadState.guidanceRound + 1,
+                shownGuidanceKinds: Array.from(new Set([
+                  ...nextAgentThreadState.shownGuidanceKinds,
+                  visibleGuidanceKind,
+                ])),
+                lastGuidanceAtPlanVersion: nextAgentThreadState.planVersion,
+              }
+            : {}),
+        };
         setMessages((items) => items.map((message) => (
           message.id === assistantMessageId
             ? {
                 ...message,
-                content: agentResult.assistantMessage.content,
-                guidance: agentResult.assistantMessage.guidance,
+                guidance: normalizedGuidance,
                 imageAnalysis: turnIntent === 'initial' || turnIntent === 'new_image'
                   ? agentResult.assistantMessage.imageAnalysis
                   : undefined,
@@ -4268,34 +5126,63 @@ function CommerceAdWorkspaceInner() {
               }
             : message
         )));
-        setAgentThreadState(nextAgentThreadState);
+        setStructuredProgressByMessageId((items) => {
+          const next = { ...items };
+          delete next[assistantMessageId];
+          return next;
+        });
+        if (!hasVisibleAnswerText) {
+          enqueueAssistantMessageText(assistantMessageId, agentResult.assistantMessage.content, true);
+        }
+        setAgentThreadState(finalAgentThreadState);
+        clearThinkingTypewriter(assistantMessageId);
         setThinkingPreviewByMessageId((items) => {
           const next = { ...items };
           delete next[assistantMessageId];
           return next;
         });
-        setStatusText(t('commerceAd.agentPlan.thinkingStepPlan'));
-        const planState = composeAgentPlanState({
-          text: combinedText,
-          images: contextImages,
-          previousPlan: agentPlanNode?.data ?? null,
-          selectedSkillId,
-          resultActions: agentResult.actions,
-          fallbackModelId: COMMERCE_DEFAULT_IMAGE_MODEL_ID,
-          fallbackProviderId: getImageModel(
+        const shouldCreateOrUpdatePlan =
+          nextAction === 'ready'
+          || nextAction === 'plan'
+          || nextAction === 'generate'
+          || Boolean(agentPlanNode?.data?.agentThreadId === activeThreadId);
+        if (shouldCreateOrUpdatePlan) {
+          setStatusText(t('commerceAd.agentPlan.thinkingStepPlan'));
+          const fallbackImageModel = getImageModel(
             COMMERCE_DEFAULT_IMAGE_MODEL_ID,
             settings.storyboardCompatibleModelConfig,
             settings.storyboardNewApiModelConfig,
             settings.storyboardApi2OkModelConfig,
             settings.storyboardProviderCustomModels
-          ).providerId,
-          fallbackSize: COMMERCE_DEFAULT_RESOLUTION,
-          fallbackRatios: ['4:5'],
-        });
-        upsertAgentPlanNode(planState);
-        setStatusText(t('commerceAd.agentPlan.statusPlanCreated'));
+          );
+          const planState = composeAgentPlanState({
+            text: combinedText,
+            images: contextImages,
+            previousPlan: agentPlanNode?.data ?? null,
+            selectedSkillId,
+            agentThreadId: activeThreadId,
+            confirmedSlots: finalAgentThreadState.confirmedSlots,
+            resultActions: agentResult.actions,
+            fallbackModelId: COMMERCE_DEFAULT_IMAGE_MODEL_ID,
+            fallbackProviderId: fallbackImageModel.providerId,
+            fallbackSize: COMMERCE_DEFAULT_RESOLUTION,
+            fallbackRatios: ['4:5'],
+            fallbackModel: fallbackImageModel,
+          });
+          upsertAgentPlanNode(planState);
+          setStatusText(t('commerceAd.agentPlan.statusPlanCreated'));
+        } else {
+          setStatusText(null);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        clearThinkingTypewriter(assistantMessageId);
+        clearMessageTypewriter(assistantMessageId);
+        setStructuredProgressByMessageId((items) => {
+          const next = { ...items };
+          delete next[assistantMessageId];
+          return next;
+        });
         setThinkingPreviewByMessageId((items) => {
           const next = { ...items };
           delete next[assistantMessageId];
@@ -4322,6 +5209,12 @@ function CommerceAdWorkspaceInner() {
     chatImages,
     draft,
     availableSkills,
+    agentPlanNode?.data,
+    agentThreadState,
+    clearMessageTypewriter,
+    clearThinkingTypewriter,
+    enqueueAssistantMessageText,
+    enqueueThinkingPreviewText,
     isThinking,
     messages,
     selectedSkillId,
@@ -4358,8 +5251,10 @@ function CommerceAdWorkspaceInner() {
         void cancelCommerceAdAgentStream(requestId);
         activeCommerceStreamRequestIdRef.current = null;
       }
+      clearThinkingTypewriter();
+      clearMessageTypewriter();
     };
-  }, []);
+  }, [clearMessageTypewriter, clearThinkingTypewriter]);
 
   const isSyncProductInfoRunning = activeAgentTask === 'syncProductInfo';
   const isChatRunning = activeAgentTask === 'chat';
@@ -4394,7 +5289,13 @@ function CommerceAdWorkspaceInner() {
           onPointerDown={handleAgentPanelResizeStart}
           aria-hidden="true"
         />
-        <div className="relative z-10 flex justify-end gap-2 border-b border-border-dark/70 px-3 py-2.5">
+        <div className="relative z-10 flex items-center gap-2 border-b border-border-dark/70 px-3 py-2.5">
+          <div
+            className="min-w-0 flex-1 truncate text-sm font-semibold text-text-dark"
+            title={activeThreadTitle}
+          >
+            {activeThreadTitle}
+          </div>
           <button
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition hover:bg-text-dark/[0.08] hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-45"
@@ -4492,27 +5393,27 @@ function CommerceAdWorkspaceInner() {
                 key={message.id}
                 className={message.role === 'user'
                   ? 'rounded-lg border border-text-dark/10 bg-text-dark/[0.08] px-3 py-2 text-sm leading-6 text-text-dark'
-                  : 'rounded-lg border border-border-dark/70 bg-bg-dark/70 px-3 py-2 text-sm leading-6 text-text-dark/90'}
+                  : 'px-1 py-2 text-sm leading-6 text-text-dark/90'}
               >
                 {message.content ? (
                   <div className="whitespace-pre-wrap">{message.content}</div>
-                ) : thinkingPreviewByMessageId[message.id] ? (
-                  <div className="flex items-start gap-2 rounded-lg border border-border-dark/60 bg-surface-dark/70 px-3 py-2 text-xs leading-5 text-text-muted">
-                    <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
-                    <span className="line-clamp-2">{thinkingPreviewByMessageId[message.id]}</span>
-                  </div>
                 ) : message.status === 'streaming' ? (
-                  <div className="flex items-center gap-2 text-xs text-text-muted">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    <span>{t('commerceAd.agentPlan.statusThinking')}</span>
-                  </div>
+                  <ThinkingPreviewBubble
+                    text={thinkingPreviewByMessageId[message.id]}
+                    fallback={t('commerceAd.agentPlan.thinkingPreviewImage')}
+                  />
+                ) : thinkingPreviewByMessageId[message.id] ? (
+                  <ThinkingPreviewBubble
+                    text={thinkingPreviewByMessageId[message.id]}
+                    fallback={t('commerceAd.agentPlan.thinkingPreviewImage')}
+                  />
                 ) : null}
                 {message.images?.length ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {message.images.map((image) => (
                       <div
                         key={image.id}
-                        className="h-14 w-14 overflow-hidden rounded-lg border border-border-dark/70 bg-bg-dark"
+                        className="h-14 w-14 overflow-hidden rounded-lg bg-bg-dark"
                         title={image.label}
                       >
                         <img
@@ -4527,9 +5428,14 @@ function CommerceAdWorkspaceInner() {
                 ) : null}
                 {message.imageAnalysis ? (
                   <ImageAnalysisDisclosure analysis={message.imageAnalysis} />
+                ) : structuredProgressByMessageId[message.id]?.length ? (
+                  <PendingImageAnalysisDisclosure />
+                ) : null}
+                {structuredProgressByMessageId[message.id]?.length ? (
+                  <StructuredAnalysisProgress steps={structuredProgressByMessageId[message.id]} />
                 ) : null}
                 {message.guidance ? (
-                  <GuidanceCard
+                  <DecisionPanel
                     messageId={message.id}
                     guidance={message.guidance}
                     selectedChoiceKeys={selectedGuidanceChoiceKeys}
@@ -4547,7 +5453,7 @@ function CommerceAdWorkspaceInner() {
           onDragLeave={handleChatDragLeave}
           onDrop={handleChatDrop}
         >
-          {statusText ? (
+          {statusText && !isChatRunning ? (
             <div className="mb-2 text-xs text-text-muted">{statusText}</div>
           ) : null}
           <div

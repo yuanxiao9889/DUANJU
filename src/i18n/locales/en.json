@@ -3992,7 +3992,8 @@
       "imageAnalysis": {
         "title": "Image analysis",
         "observations": "Observations",
-        "uncertainties": "Uncertain information"
+        "uncertainties": "Uncertain information",
+        "pending": "Waiting for the creative plan"
       },
       "emptyConversation": "Upload an image, choose a skill, or type your design request.",
       "chatPlaceholder": "Tell me the platform, style, audience, copy angle, or say things like \"make it Xiaohongshu style\"...",
@@ -4138,6 +4139,11 @@
       "productUnderstanding": "Product understanding",
       "creativeDirection": "Creative direction",
       "prompt": "Core prompt",
+      "details": "Plan details",
+      "promptReady": "Prompt ready",
+      "imageCountSummary": "{{count}} images",
+      "referenceImageCount": "{{count}} reference images",
+      "riskCount": "{{count}} items to confirm",
       "referenceImages": "Reference images",
       "noReferenceImageNotes": "No reference image notes yet",
       "productionSettings": "Production settings",
@@ -4146,6 +4152,14 @@
       "needPrompt": "Add a core prompt before starting production.",
       "imageOnlyPrompt": "I uploaded images first. Please analyze them and draft a plan.",
       "statusThinking": "The Agent is analyzing the request and drafting a plan...",
+      "thinkingPreviewImage": "Reading the subject and visible selling points...",
+      "thinkingPreviewSkill": "Matching the selected skill to the direction...",
+      "thinkingPreviewStructure": "Preparing the conclusion and next step...",
+      "structuredProgressImage": "Preparing image analysis",
+      "structuredProgressConfirmed": "Extracting confirmed details",
+      "structuredProgressDirections": "Drafting recommended directions",
+      "structuredProgressPlan": "Updating the executable plan",
+      "structuredProgressOptions": "Preparing clickable follow-ups",
       "thinkingStepUnderstanding": "I am reading the product info and your latest request...",
       "thinkingStepEvidence": "I am matching the uploaded images with useful product evidence...",
       "thinkingStepPlan": "I am updating the canvas plan node...",
@@ -5549,6 +5563,29 @@
       "completed": "Completed",
       "error": "Error",
       "cancelled": "Cancelled"
+    }
+  },
+  "generationHistory": {
+    "title": "Generation History",
+    "toolbarTitle": "Generation History",
+    "refresh": "Refresh",
+    "loading": "Scanning generation history...",
+    "searchPlaceholder": "Search file, project, or path...",
+    "mediaTypeFilter": "Media type filter",
+    "projectFilter": "Project filter",
+    "allMediaTypes": "All types",
+    "allProjects": "All projects",
+    "openFolder": "Open folder",
+    "totalCount": "{{count}} resources",
+    "groupCount": "{{count}} items",
+    "scanFailed": "Generation history scan failed. Showing the last indexed result.",
+    "emptyAfterError": "Scan failed and no indexed resources are available.",
+    "emptyFiltered": "No history resources match the current filters.",
+    "empty": "No generation history resources yet.",
+    "mediaTypes": {
+      "image": "Image",
+      "video": "Video",
+      "audio": "Audio"
     }
   }
 }

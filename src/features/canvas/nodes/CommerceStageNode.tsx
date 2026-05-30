@@ -1,7 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { CanvasHandle } from "@/features/canvas/ui/CanvasHandle";
-import { ArrowDown, ArrowUp, BookOpen, FileText, Images, LayoutTemplate, PackageSearch, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, BookOpen, ChevronDown, FileText, Images, LayoutTemplate, PackageSearch, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { UiInput, UiSelect, UiTextAreaField } from "@/components/ui";
 import { resolveImageDisplayUrl } from "@/features/canvas/application/imageData";
@@ -16,6 +16,7 @@ import {
   type CanvasNodeType,
 } from "@/features/canvas/domain/canvasNodes";
 import { resolveNodeDisplayName } from "@/features/canvas/domain/nodeDisplay";
+import { nodeHasSourceHandle, nodeHasTargetHandle } from "@/features/canvas/domain/nodeRegistry";
 import {
   BRAND_ACCENT_PRESETS,
   VISUAL_PREFERENCE_OPTION_KEYS,
@@ -53,7 +54,7 @@ type CommerceStageNodeData =
 
 type CommerceStageNodeProps = NodeProps & {
   id: string;
-  type: string;
+  type: CanvasNodeType;
   data: CommerceStageNodeData;
   selected?: boolean;
   width?: number;
@@ -272,6 +273,47 @@ function ChipList({ items, fallbackText = "" }: { items: string[]; fallbackText?
           {item}
         </span>
       ))}
+    </div>
+  );
+}
+
+function CompactDisclosure({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  summary?: string | null;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-black/[0.06]">
+      <button
+        type="button"
+        className="nodrag nowheel flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+        onClick={() => setIsOpen((value) => !value)}
+      >
+        <ChevronDown
+          className={`h-3.5 w-3.5 shrink-0 text-text-muted transition-transform ${isOpen ? "" : "-rotate-90"}`}
+        />
+        <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-dark">
+          {title}
+        </span>
+        {summary ? (
+          <span className="max-w-[52%] truncate text-[11px] text-text-muted">
+            {summary}
+          </span>
+        ) : null}
+      </button>
+      {isOpen ? (
+        <div className="border-t border-white/[0.06] px-3 py-2.5">
+          {children}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1092,6 +1134,16 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
   const imageCount = currentRatios.length * currentVariantsPerRatio * currentBatchCount;
   const referenceImages = data.referenceImages.slice(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT);
   const canStartGeneration = data.prompt.trim().length > 0 && imageCount > 0 && data.status !== "generating";
+  const productionSummary = [
+    selectedImageModel.displayName,
+    selectedResolution.label,
+    currentRatios.map((ratio) => {
+      const ratioOption = selectedImageModel.aspectRatios.find((item) => item.value === ratio);
+      return ratioOption?.label ?? ratio;
+    }).join(" / "),
+    t("commerceAd.agentPlan.imageCountSummary", { count: imageCount }),
+  ].filter(Boolean).join(" · ");
+  const hasAdvancedContent = referenceImages.length > 0 || data.riskNotes.length > 0 || data.prompt.trim().length > 0;
 
   const updatePlan = useCallback((patch: Partial<CommerceAgentPlanNodeData>) => {
     updateNodeData(id, patch);
@@ -1151,43 +1203,11 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
       <FieldRow label={t("commerceAd.agentPlan.summary")} value={data.summary} />
       <FieldRow label={t("commerceAd.agentPlan.productUnderstanding")} value={data.productUnderstanding} />
       <FieldRow label={t("commerceAd.agentPlan.creativeDirection")} value={data.creativeDirection} />
-      {referenceImages.length > 0 ? (
-        <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
-          <div className="mb-2 text-xs font-medium text-text-dark">
-            {t("commerceAd.agentPlan.referenceImages")}
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {referenceImages.map((image) => (
-              <div
-                key={image.id}
-                className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-white/[0.08] bg-bg-dark"
-                title={image.description || image.label}
-              >
-                <img
-                  src={resolveImageDisplayUrl(image.previewImageUrl || image.imageUrl)}
-                  alt={image.label}
-                  className="h-full w-full object-cover"
-                  draggable={false}
-                />
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-text-muted">
-            {data.referenceImageNotes || t("commerceAd.agentPlan.noReferenceImageNotes")}
-          </p>
-        </div>
-      ) : null}
-      <ChipList items={data.riskNotes} />
-      <TextAreaControl
-        label={t("commerceAd.agentPlan.prompt")}
-        value={data.prompt}
-        rows={5}
-        onChange={(value) => updatePlan({ prompt: value, status: "ready", lastError: null } as Partial<CommerceAgentPlanNodeData>)}
-      />
-      <div className={SCRIPT_NODE_SECTION_CARD_CLASS}>
-        <div className="mb-3 text-xs font-medium text-text-dark">
-          {t("commerceAd.agentPlan.productionSettings")}
-        </div>
+      <CompactDisclosure
+        title={t("commerceAd.agentPlan.productionSettings")}
+        summary={productionSummary}
+        defaultOpen={false}
+      >
         <div className="space-y-3">
           <label className="block text-[11px] text-text-muted">
             <span>{t("commerceAd.agent.imageProvider")}</span>
@@ -1287,7 +1307,54 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
           </div>
           <FieldRow label={t("commerceAd.fields.count")} value={String(imageCount)} />
         </div>
-      </div>
+      </CompactDisclosure>
+      {hasAdvancedContent ? (
+        <CompactDisclosure
+          title={t("commerceAd.agentPlan.details")}
+          summary={[
+            referenceImages.length > 0 ? t("commerceAd.agentPlan.referenceImageCount", { count: referenceImages.length }) : "",
+            data.riskNotes.length > 0 ? t("commerceAd.agentPlan.riskCount", { count: data.riskNotes.length }) : "",
+            data.prompt.trim() ? t("commerceAd.agentPlan.promptReady") : "",
+          ].filter(Boolean).join(" · ")}
+          defaultOpen={false}
+        >
+          <div className="space-y-3">
+            {referenceImages.length > 0 ? (
+              <div>
+                <div className="mb-2 text-xs font-medium text-text-dark">
+                  {t("commerceAd.agentPlan.referenceImages")}
+                </div>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {referenceImages.map((image) => (
+                    <div
+                      key={image.id}
+                      className="h-14 w-14 shrink-0 overflow-hidden rounded-lg border border-white/[0.08] bg-bg-dark"
+                      title={image.description || image.label}
+                    >
+                      <img
+                        src={resolveImageDisplayUrl(image.previewImageUrl || image.imageUrl)}
+                        alt={image.label}
+                        className="h-full w-full object-cover"
+                        draggable={false}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-text-muted">
+                  {data.referenceImageNotes || t("commerceAd.agentPlan.noReferenceImageNotes")}
+                </p>
+              </div>
+            ) : null}
+            <ChipList items={data.riskNotes} />
+            <TextAreaControl
+              label={t("commerceAd.agentPlan.prompt")}
+              value={data.prompt}
+              rows={5}
+              onChange={(value) => updatePlan({ prompt: value, status: "ready", lastError: null } as Partial<CommerceAgentPlanNodeData>)}
+            />
+          </div>
+        </CompactDisclosure>
+      ) : null}
       {data.lastError ? (
         <div className="rounded-lg border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-xs leading-5 text-rose-100">
           {data.lastError}
@@ -1623,24 +1690,24 @@ export const CommerceStageNode = memo(
     }, [id, resolvedHeight, resolvedWidth, updateNodeInternals, updateNodeSize]);
 
     return (
-      <div className={`relative w-full ${resolvedHeight ? "h-full" : ""}`}>
-        {type !== CANVAS_NODE_TYPES.commerceProduct && type !== CANVAS_NODE_TYPES.commerceAgentPlan ? (
+      <div className={`pointer-events-none relative w-full ${resolvedHeight ? "h-full" : ""}`}>
+        {nodeHasTargetHandle(type) ? (
           <CanvasHandle
             type="target"
             id="target"
             position={Position.Left}
-            className="!h-3 !w-3 !-left-1.5 !rounded-full !border-surface-dark !bg-slate-400"
+            className="!pointer-events-auto !h-3 !w-3 !-left-1.5 !rounded-full !border-surface-dark !bg-slate-400"
           />
         ) : null}
-        {type !== CANVAS_NODE_TYPES.commerceResultGroup ? (
+        {nodeHasSourceHandle(type) ? (
           <CanvasHandle
             type="source"
             id="source"
             position={Position.Right}
-            className="!h-3 !w-3 !-right-1.5 !rounded-full !border-surface-dark !bg-slate-400"
+            className="!pointer-events-auto !h-3 !w-3 !-right-1.5 !rounded-full !border-surface-dark !bg-slate-400"
           />
         ) : null}
-        <div ref={cardWrapRef}>
+        <div ref={cardWrapRef} className="pointer-events-auto">
           <ScriptNodeCard
             accent={stageMeta.accent}
             icon={stageMeta.icon}
@@ -1677,6 +1744,7 @@ export const CommerceStageNode = memo(
           maxWidth={1800}
           maxHeight={1800}
           isVisible={selected}
+          className="!pointer-events-auto"
         />
       </div>
     );

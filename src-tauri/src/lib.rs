@@ -13,6 +13,7 @@ use commands::dreamina_cli;
 use commands::error_log;
 use commands::extensions;
 use commands::gpt_best_video;
+use commands::generation_history;
 use commands::image;
 use commands::jimeng_video_queue;
 use commands::media_audio;
@@ -490,6 +491,9 @@ pub fn run() {
             gpt_best_video::create_gpt_best_video_task,
             gpt_best_video::get_gpt_best_video_task,
             gpt_best_video::download_gpt_best_video_content,
+            generation_history::scan_generation_history,
+            generation_history::list_generation_history,
+            generation_history::open_generation_history_item_in_folder,
             vidu::create_vidu_video_task,
             vidu::create_vidu_voice_clone,
             vidu::get_vidu_video_task,

@@ -208,6 +208,10 @@ import {
   applyCanvasThumbnailUpdatesToNodes,
   type CanvasThumbnailUpdate,
 } from '@/features/canvas/application/canvasThumbnailRecords';
+import {
+  DEFAULT_CANVAS_VIEWPORT,
+  sanitizeCanvasViewport,
+} from '@/features/canvas/domain/viewport';
 
 export type {
   ActiveToolDialog,
@@ -3865,7 +3869,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   history: { past: [], future: [] },
   restoredHistoryRevision: 0,
   dragHistorySnapshot: null,
-  currentViewport: { x: 0, y: 0, zoom: 1 },
+  currentViewport: DEFAULT_CANVAS_VIEWPORT,
   canvasViewportSize: { width: 0, height: 0 },
   imageViewer: createInitialImageViewerState(),
 
@@ -4123,16 +4127,17 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       history: { past: [], future: [] },
       restoredHistoryRevision: 0,
       dragHistorySnapshot: null,
-      currentViewport: { x: 0, y: 0, zoom: 1 },
+      currentViewport: DEFAULT_CANVAS_VIEWPORT,
       imageViewer: createInitialImageViewerState(),
     });
   },
 
   setViewportState: (viewport) => {
+    const safeViewport = sanitizeCanvasViewport(viewport);
     set((state) => (
-      areViewportsNearlyEqual(state.currentViewport, viewport)
+      areViewportsNearlyEqual(state.currentViewport, safeViewport)
         ? state
-        : { currentViewport: viewport }
+        : { currentViewport: safeViewport }
     ));
   },
 

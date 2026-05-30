@@ -1790,7 +1790,7 @@ const commerceResultGroupNodeDefinition: CanvasNodeDefinition<CommerceResultGrou
     promptInput: false,
   },
   connectivity: {
-    sourceHandle: false,
+    sourceHandle: true,
     targetHandle: true,
     connectMenu: {
       fromSource: false,

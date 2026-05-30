@@ -41,6 +41,11 @@ import {
   normalizeCanvasColorLabelMap,
   type CanvasColorLabelMap,
 } from "@/features/canvas/domain/semanticColors";
+import {
+  DEFAULT_CANVAS_VIEWPORT,
+  normalizeCanvasViewportForPersistence,
+  sanitizeCanvasViewport,
+} from "@/features/canvas/domain/viewport";
 import { setActiveMediaProjectId } from "@/features/canvas/application/mediaPersistenceContext";
 import { isTauriRuntime } from "@/lib/tauriRuntime";
 
@@ -52,9 +57,7 @@ function getCurrentWindowLabel(): string | null {
 }
 
 export const DEFAULT_VIEWPORT: Viewport = {
-  x: 0,
-  y: 0,
-  zoom: 1,
+  ...DEFAULT_CANVAS_VIEWPORT,
 };
 
 export function createEmptyHistory(): CanvasHistoryState {
@@ -692,6 +695,20 @@ function safeParseJson<T>(value: string, fallback: T): T {
   }
 }
 
+function parseProjectJson<T>(
+  value: string,
+  fieldName: string,
+  projectId: string,
+): T {
+  try {
+    return JSON.parse(value) as T;
+  } catch (error) {
+    throw new Error(
+      `Failed to parse project ${fieldName} for ${projectId}: ${formatSaveError(error)}`,
+    );
+  }
+}
+
 function extractImagePoolFromHistoryJson(historyJson: string): string[] {
   const imagePoolKey = '"imagePool"';
   const keyIndex = historyJson.indexOf(imagePoolKey);
@@ -809,7 +826,9 @@ export function toProjectRecord(project: Project): ProjectRecord {
     nodeCount: encodedProject.nodeCount,
     nodesJson: JSON.stringify(persistedNodesPayload),
     edgesJson: JSON.stringify(encodedProject.edges),
-    viewportJson: JSON.stringify(encodedProject.viewport),
+    viewportJson: JSON.stringify(
+      normalizeViewport(encodedProject.viewport ?? DEFAULT_VIEWPORT),
+    ),
     historyJson: JSON.stringify(toPersistedHistoryPayload(encodedProject)),
     colorLabelsJson: JSON.stringify(encodedProject.colorLabels),
     scriptWelcomeSkipped: encodedProject.scriptWelcomeSkipped ?? false,
@@ -832,14 +851,24 @@ export function fromProjectRecord(
 ): Project {
   const startedAt = performance.now();
   const parsedNodesPayload = parsePersistedNodesPayload(
-    safeParseJson<unknown>(record.nodesJson, []),
+    parseProjectJson<unknown>(record.nodesJson, "nodesJson", record.id),
   );
   const parsedNodes = parsedNodesPayload.nodes;
-  const parsedEdges = safeParseJson<CanvasEdge[]>(record.edgesJson, []);
+  if (record.nodeCount > 0 && parsedNodes.length === 0) {
+    throw new Error(
+      `Refusing to open project ${record.id} with empty parsed nodes while nodeCount is ${record.nodeCount}`,
+    );
+  }
+  const parsedEdges = parseProjectJson<CanvasEdge[]>(
+    record.edgesJson,
+    "edgesJson",
+    record.id,
+  );
   const parsedViewport = safeParseJson<Viewport>(
     record.viewportJson,
     DEFAULT_VIEWPORT,
   );
+  const safeViewport = sanitizeCanvasViewport(parsedViewport);
   const shouldRestoreHistory =
     record.historyJson.length <= MAX_HISTORY_RESTORE_JSON_CHARS;
   const parsedHistoryPayload = shouldRestoreHistory
@@ -893,7 +922,7 @@ export function fromProjectRecord(
     nodeCount: record.nodeCount,
     nodes: parsedNodes,
     edges: parsedEdges,
-    viewport: parsedViewport ?? DEFAULT_VIEWPORT,
+    viewport: safeViewport,
     history: parsedHistory,
     colorLabels: normalizeCanvasColorLabelMap(
       safeParseJson<unknown>(
@@ -909,7 +938,7 @@ export function fromProjectRecord(
   const project = {
     ...decodedProject,
     nodeCount: parsedNodes.length,
-    viewport: decodedProject.viewport ?? DEFAULT_VIEWPORT,
+    viewport: sanitizeCanvasViewport(decodedProject.viewport),
     history: decodedProject.history ?? createEmptyHistory(),
     colorLabels: normalizeCanvasColorLabelMap(decodedProject.colorLabels),
   };
@@ -1193,7 +1222,7 @@ function buildProjectGraphPatch(
     upsertEdges,
     deleteEdgeIds,
     viewportJson: viewportChanged
-      ? JSON.stringify(nextProject.viewport ?? DEFAULT_VIEWPORT)
+      ? JSON.stringify(normalizeViewport(nextProject.viewport ?? DEFAULT_VIEWPORT))
       : undefined,
     history: historyChanged
       ? { historyJson: JSON.stringify(toPersistedHistoryPayload(encodedProject!)) }
@@ -1313,19 +1342,17 @@ function hasViewportMeaningfulDelta(
   current: Viewport,
   next: Viewport,
 ): boolean {
+  const safeCurrent = sanitizeCanvasViewport(current);
+  const safeNext = sanitizeCanvasViewport(next);
   return (
-    Math.abs(current.x - next.x) > VIEWPORT_EPSILON ||
-    Math.abs(current.y - next.y) > VIEWPORT_EPSILON ||
-    Math.abs(current.zoom - next.zoom) > VIEWPORT_EPSILON
+    Math.abs(safeCurrent.x - safeNext.x) > VIEWPORT_EPSILON ||
+    Math.abs(safeCurrent.y - safeNext.y) > VIEWPORT_EPSILON ||
+    Math.abs(safeCurrent.zoom - safeNext.zoom) > VIEWPORT_EPSILON
   );
 }
 
 function normalizeViewport(viewport: Viewport): Viewport {
-  return {
-    x: Number(viewport.x.toFixed(2)),
-    y: Number(viewport.y.toFixed(2)),
-    zoom: Number(viewport.zoom.toFixed(4)),
-  };
+  return normalizeCanvasViewportForPersistence(viewport);
 }
 
 function delay(ms: number): Promise<void> {
@@ -1848,7 +1875,7 @@ function queueViewportUpsert(
   options?: PersistViewportOptions,
 ): void {
   deletingProjectIds.delete(projectId);
-  queuedViewportUpserts.set(projectId, JSON.stringify(viewport));
+  queuedViewportUpserts.set(projectId, JSON.stringify(normalizeViewport(viewport)));
 
   const existingTimer = viewportUpsertTimers.get(projectId);
   if (existingTimer) {
@@ -1921,11 +1948,11 @@ function parseHistoryFromRecord(
   historyJson: string,
   imagePool?: string[],
 ): CanvasHistoryState {
-  const parsedHistoryPayload = safeParseJson<{
+  const parsedHistoryPayload = parseProjectJson<{
     past?: CanvasHistoryState["past"];
     future?: CanvasHistoryState["future"];
     imagePool?: string[];
-  }>(historyJson, {});
+  }>(historyJson, "historyJson", projectId);
   const history = {
     past: parsedHistoryPayload.past ?? [],
     future: parsedHistoryPayload.future ?? [],
@@ -2004,17 +2031,23 @@ function scheduleBackgroundHistoryLoad(
         }
 
         const currentProject = useProjectStore.getState().currentProject;
-        const restoredHistory = graphHistoryRecord
-          ? parseHistoryFromRecord(
-              projectId,
-              graphHistoryRecord.historyJson,
-              (currentProject as PersistedProject | null)?.imagePool,
-            )
-          : parseHistoryFromRecord(
-              projectId,
-              record?.historyJson ?? '{"past":[],"future":[]}',
-              (currentProject as PersistedProject | null)?.imagePool,
-            );
+        let restoredHistory: CanvasHistoryState;
+        try {
+          restoredHistory = graphHistoryRecord
+            ? parseHistoryFromRecord(
+                projectId,
+                graphHistoryRecord.historyJson,
+                (currentProject as PersistedProject | null)?.imagePool,
+              )
+            : parseHistoryFromRecord(
+                projectId,
+                record?.historyJson ?? '{"past":[],"future":[]}',
+                (currentProject as PersistedProject | null)?.imagePool,
+              );
+        } catch (error) {
+          console.warn("Failed to parse project history during background restore", error);
+          return;
+        }
         if (
           restoredHistory.past.length === 0 &&
           restoredHistory.future.length === 0
@@ -2757,9 +2790,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           return;
         }
         const parseStartedAt = performance.now();
-        let project: Project | null = graphRecord
-          ? fromProjectGraphRecord(graphRecord)
-          : null;
+        let didOpenGraphRecord = false;
+        let project: Project | null = null;
+        if (graphRecord) {
+          try {
+            project = fromProjectGraphRecord(graphRecord);
+            didOpenGraphRecord = true;
+          } catch (error) {
+            console.warn(
+              "Failed to parse ready project graph; falling back to legacy record",
+              error,
+            );
+          }
+        }
         if (!project) {
           const readStartedAt = performance.now();
           const record = await getProjectRecordWithoutHistory(id);
@@ -2800,7 +2843,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         }));
         setActiveMediaProjectId(id, project.name);
         scheduleBackgroundHistoryLoad(id, reqSeq);
-        if (!graphRecord) {
+        if (!didOpenGraphRecord) {
           scheduleBackgroundGraphWarmup(id, reqSeq);
         }
         logProjectTrace("open:state-set", {

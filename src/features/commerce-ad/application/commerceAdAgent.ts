@@ -39,22 +39,52 @@ export interface CommerceAdAgentTurnResult {
   nextAction?: 'ask' | 'plan' | 'ready' | 'generate';
 }
 
+function isLegacyCommerceDetailRule(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('-')) {
+    return false;
+  }
+  return [
+    'ecommerce detail-page',
+    'detailPages',
+    'detail-page',
+    'lockedDocumentInfo',
+    'lockedCopy',
+    'manualPages',
+    'pageGoal',
+    'pageNo',
+    'one generated image per page',
+    'brief.usage',
+    '广告创意',
+    'ad objective',
+  ].some((keyword) => trimmed.includes(keyword));
+}
+
 export function buildCommerceAdAgentVisiblePrompt(input: CommerceAdAgentTurnInput): string {
   const skill = input.selectedSkill ?? null;
+  const missingSlots = input.threadState?.missingSlots ?? [];
+  const isReady = missingSlots.length === 0 && Boolean(input.threadState?.imageAnalysis || input.product?.images?.length);
   return [
     'You are the visible chat voice of a Chinese design agent in a node-canvas app.',
     'Write natural Simplified Chinese for the user. Do not output JSON.',
-    'The user should see this only as a temporary thinking preview while the real structured analysis runs.',
+    'This is the real user-visible streaming answer. Start answering immediately like ChatGPT, while a hidden structured pass will later update cards and canvas state.',
     '',
-    'Required flow:',
-    '1. Output short thinking-style progress phrases only, not a final answer.',
-    '2. Keep each phrase under 28 Chinese characters and write at most 3 short phrases total.',
-    '3. Do not use numbered lists, Markdown headings, bold text, or long paragraphs.',
-    '4. Do not enumerate image details, missing fields, platform options, or recommendations.',
-    '5. Good style examples: 正在看图里的主体和卖点。 / 正在判断适合的广告版位。 / 正在整理需要补充的信息。',
+    'Visible answer rules:',
+    '1. Start with a concise direct conclusion in Simplified Chinese.',
+    '2. Do not output JSON, Markdown tables, long lists, image-analysis details, or option lists.',
+    '3. Keep it to 1-3 short paragraphs. If key information is missing, ask only the next 1-2 important questions in prose.',
+    '4. If enough information is ready, briefly say you will continue into the plan; detailed cards and image analysis will be shown separately by the UI.',
+    '5. Do not say you are only thinking or that another model/pass will run.',
     '',
     skill ? 'Selected skill instructions:' : 'Selected skill instructions: none.',
     skill ? skill.promptInstructions : '',
+    skill ? 'Selected skill manifest:' : '',
+    skill ? JSON.stringify({
+      requiredSlots: skill.requiredSlots,
+      optionalSlots: skill.optionalSlots,
+      workflowStages: skill.workflowStages,
+      outputArtifacts: skill.outputArtifacts,
+    }, null, 2) : '',
     '',
     'Conversation summary:',
     input.conversationSummary?.trim() || '(no prior conversation summary)',
@@ -68,6 +98,8 @@ export function buildCommerceAdAgentVisiblePrompt(input: CommerceAdAgentTurnInpu
     JSON.stringify(input.threadState ?? null, null, 2),
     '',
     `Turn intent: ${input.turnIntent ?? 'initial'}`,
+    `Required slots still missing: ${missingSlots.join(', ') || '(none)'}`,
+    `Ready to produce plan: ${isReady ? 'yes' : 'no'}`,
     '',
     'Current brief state:',
     JSON.stringify(input.brief, null, 2),
@@ -392,6 +424,13 @@ function readGuidance(record: Record<string, unknown>): CommerceAdAgentGuidance 
 
   return {
     stage: normalizeGuidanceStage(readString(guidanceRecord, 'stage')),
+    panelTitle: readString(guidanceRecord, 'panelTitle') || undefined,
+    guidanceKind: (() => {
+      const value = readString(guidanceRecord, 'guidanceKind');
+      return ['recommendation', 'optimization', 'final_suggestion', 'missing_info', 'ready'].includes(value)
+        ? value as CommerceAdAgentGuidance['guidanceKind']
+        : undefined;
+    })(),
     summary: readString(guidanceRecord, 'summary'),
     confirmedFacts: readStringArray(guidanceRecord, 'confirmedFacts'),
     missingFields: readStringArray(guidanceRecord, 'missingFields'),
@@ -430,24 +469,28 @@ function readThreadStatePatch(record: Record<string, unknown>): Partial<Commerce
   }
   const confirmedRecord = readRecord(patchRecord, 'confirmedSlots');
   const confirmedSlots = Object.keys(confirmedRecord).length > 0
-    ? {
-        platforms: readStringArray(confirmedRecord, 'platforms'),
-        objective: readString(confirmedRecord, 'objective'),
-        audience: readString(confirmedRecord, 'audience'),
-        sellingPoint: readString(confirmedRecord, 'sellingPoint'),
-        visualDirection: readString(confirmedRecord, 'visualDirection'),
-        cta: readString(confirmedRecord, 'cta'),
-        brandInfo: readString(confirmedRecord, 'brandInfo'),
-        outputFormat: readString(confirmedRecord, 'outputFormat'),
-      }
+    ? Object.fromEntries(
+        Object.entries(confirmedRecord)
+          .map(([key, value]) => [
+            key,
+            Array.isArray(value)
+              ? readStringArray(confirmedRecord, key)
+              : readString(confirmedRecord, key),
+          ])
+          .filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value))
+      )
     : undefined;
   const phase = readString(patchRecord, 'phase');
   return {
     ...(phase ? { phase: phase as CommerceAdAgentThreadState['phase'] } : {}),
+    skillId: readString(patchRecord, 'skillId'),
     ...(confirmedSlots ? { confirmedSlots } : {}),
     missingSlots: readStringArray(patchRecord, 'missingSlots'),
     lastAskedFields: readStringArray(patchRecord, 'lastAskedFields'),
     planVersion: Number(readString(patchRecord, 'planVersion')) || undefined,
+    guidanceRound: Number(readString(patchRecord, 'guidanceRound')) || undefined,
+    shownGuidanceKinds: readStringArray(patchRecord, 'shownGuidanceKinds'),
+    lastGuidanceAtPlanVersion: Number(readString(patchRecord, 'lastGuidanceAtPlanVersion')) || undefined,
   };
 }
 
@@ -533,6 +576,8 @@ function mergeGuidance(
 
   return {
     stage: guidance.stage || fallback.stage,
+    panelTitle: guidance.panelTitle || fallback.panelTitle,
+    guidanceKind: guidance.guidanceKind || fallback.guidanceKind,
     summary: guidance.summary || fallback.summary,
     confirmedFacts: guidance.confirmedFacts.length > 0 ? guidance.confirmedFacts : fallback.confirmedFacts,
     missingFields: guidance.missingFields.length > 0 ? guidance.missingFields : fallback.missingFields,
@@ -815,8 +860,7 @@ export async function runCommerceAdAgentTurn(
     return { assistantMessage, actions, nextAction: 'ask' };
   }
 
-  const prompt = [
-    'You are the ecommerce ad image design strategist inside a node-canvas app for Chinese users.',
+  const jsonSchemaLines = [
     'Return strict JSON only.',
     '',
     'JSON schema:',
@@ -825,19 +869,14 @@ export async function runCommerceAdAgentTurn(
       nextAction: 'ask|plan|ready|generate',
       threadStatePatch: {
         phase: 'collecting|planning|ready|refining|generating',
-        confirmedSlots: {
-          platforms: [''],
-          objective: '',
-          audience: '',
-          sellingPoint: '',
-          visualDirection: '',
-          cta: '',
-          brandInfo: '',
-          outputFormat: '',
-        },
+        skillId: '',
+        confirmedSlots: {},
         missingSlots: [''],
         lastAskedFields: [''],
         planVersion: 0,
+        guidanceRound: 0,
+        shownGuidanceKinds: [''],
+        lastGuidanceAtPlanVersion: 0,
       },
       imageAnalysis: {
         summary: '',
@@ -846,6 +885,8 @@ export async function runCommerceAdAgentTurn(
       },
       guidance: {
         stage: 'brief',
+        panelTitle: '',
+        guidanceKind: 'recommendation|optimization|final_suggestion|missing_info|ready',
         summary: '',
         confirmedFacts: [''],
         missingFields: [''],
@@ -939,6 +980,52 @@ export async function runCommerceAdAgentTurn(
         detailPageCount: 1,
       },
     }),
+  ];
+  const skillRuntimeRules = selectedSkill
+    ? [
+        'You are a generic creative Skill Agent runtime inside a node-canvas app for Chinese users.',
+        ...jsonSchemaLines,
+        '',
+        'Core runtime rules:',
+        '- Treat the selected skill manifest as the source of truth for required slots, workflow stages, output artifacts, quality checklist, and prompt instructions.',
+        '- Use Current thread state as task memory. Preserve confirmedSlots unless the user clearly changes them.',
+        '- Merge only newly confirmed slot values into threadStatePatch.confirmedSlots. Do not invent user facts.',
+        '- Never list confirmedSlots as missingFields. Ask only for requiredSlots still missing after this user turn.',
+        '- If requiredSlots are still missing, set nextAction to ask and keep the response in guidance/assistant only; do not pretend a final production plan is ready.',
+        '- If all requiredSlots are known and imageAnalysis or product information exists, set nextAction to ready or plan and produce the concrete skill output.',
+        '- The app supports an intelligent creative guidance loop. Use Current thread state guidanceRound and shownGuidanceKinds to avoid repeating the same guidance.',
+        '- For creative skills, provide at least two meaningful guidance rounds by default when useful: round 1 guidanceKind=recommendation/panelTitle=推荐方向, round 2 guidanceKind=optimization/panelTitle=优化建议. Use round 3 guidanceKind=final_suggestion/panelTitle=成稿建议 only when direction is still vague or a final craft decision would improve output.',
+        '- After the default 2-3 guidance rounds, move toward nextAction=ready or plan unless the user explicitly asks for more directions, refinement, a different style, or more fashionable/high-end options.',
+        '- If nextAction is ready, plan, or generate, guidance.questions and guidance.quickReplies should be empty unless the user is explicitly asking for more refinement. designDirections may still be used for the default creative guidance rounds or explicit refinement requests.',
+        '- If Current thread state already has imageAnalysis and this turn has no new reference image, reuse it silently and do not repeat the full image analysis.',
+        '- Keep assistant to 1-2 concise Chinese sentences. Put image evidence in imageAnalysis and choices in guidance.',
+        '- Use only the existing canvas artifacts: plan node and generated result nodes. Do not propose additional node types.',
+        '- If information is missing, ask at most 1-2 high-impact questions and provide clickable options in guidance.',
+        '',
+        'Selected skill manifest:',
+        JSON.stringify({
+          id: selectedSkill.id,
+          title: selectedSkill.title,
+          description: selectedSkill.description,
+          promptInstructions: selectedSkill.promptInstructions,
+          defaultQuestions: selectedSkill.defaultQuestions,
+          quickOptions: selectedSkill.quickOptions,
+          requiredSlots: selectedSkill.requiredSlots,
+          optionalSlots: selectedSkill.optionalSlots,
+          slotLabels: selectedSkill.slotLabels,
+          slotAliases: selectedSkill.slotAliases,
+          workflowStages: selectedSkill.workflowStages,
+          outputArtifacts: selectedSkill.outputArtifacts,
+          qualityChecklist: selectedSkill.qualityChecklist,
+        }, null, 2),
+      ]
+    : [
+        'You are the ecommerce ad image design strategist inside a node-canvas app for Chinese users.',
+        ...jsonSchemaLines,
+      ];
+
+  const promptLines = [
+    ...skillRuntimeRules,
     '',
     'Rules:',
     '- 默认用简体中文输出所有面向用户展示的 JSON 值，包括 assistant、guidance、product.inference、brief、batch.corePrompt、batch.ratioPrompts。',
@@ -977,13 +1064,16 @@ export async function runCommerceAdAgentTurn(
     '- Use Current thread state as memory. Preserve confirmedSlots unless the user clearly changes them.',
     '- If Current thread state already has imageAnalysis and this turn has no new reference image, do not redo or restate full image analysis; reuse it silently.',
     '- Never list confirmedSlots as missingFields. Only ask for slots that are still missing after applying the current user message.',
-    '- If platform, objective, and visualDirection are known and imageAnalysis or product information exists, set nextAction to ready or plan and produce a concrete ad creative plan instead of asking more setup questions.',
+    '- If requiredSlots from the selected skill manifest are still missing, set nextAction to ask and keep missing information in guidance.missingFields/questions. Do not bury missing facts inside the canvas plan.',
+    '- If all requiredSlots from the selected skill manifest are known and imageAnalysis or product information exists, set nextAction to ready or plan and produce the concrete skill output instead of asking more setup questions.',
+    '- If nextAction is ready, plan, or generate, set guidance.questions = [] and guidance.quickReplies = [] unless the user explicitly asks for more refinement. Keep guidance.designDirections only for the default creative guidance rounds or explicit user refinement requests.',
     '- threadStatePatch should include only the updated phase, confirmedSlots, missingSlots, lastAskedFields, and planVersion needed after this turn.',
-    '- Include 2-3 concrete Chinese designDirections when the product is understood or partially understood.',
+    '- For creative skills, use guidance.panelTitle and guidance.guidanceKind to label the design guidance: 推荐方向/recommendation first, 优化建议/optimization second, 成稿建议/final_suggestion only when useful. Do not repeat the same guidanceKind on consecutive turns unless the user asks for more.',
+    '- Include 2-3 concrete Chinese designDirections when a creative guidance round is appropriate. Round 1 should compare big creative routes; round 2 should refine composition, color, scene, copy hierarchy, and platform fit; round 3 should decide final craft details before generation.',
     '- Before platform, audience, selling points, and style are clear, prioritize Chinese brief refinement instead of pushing generation settings.',
     '- guidance.quickReplies should be short Chinese phrases users can click and edit before sending.',
     '- The image text strategy is baked into the generated image, not editable overlay layers.',
-    '- Keep corePrompt production-ready for ecommerce image generation with faithful product preservation, but write it in Chinese by default.',
+    '- Keep corePrompt production-ready for image generation with faithful product preservation, but write it in Chinese by default. For ad creative, make it detailed and fashion-forward: composition, lens/framing, lighting, material texture, color palette, layout hierarchy, negative space, platform safe zones, overlay copy strategy, and quality constraints.',
     '- visualPreference must be Chinese by default and include designStyle, colorPalette, platformVisual, language, brandAccentColor, summary, and a production-ready promptFragment.',
     '- batch.corePrompt and every batch.ratioPrompts value must explicitly include visualPreference.promptFragment constraints.',
     selectedSkill
@@ -996,7 +1086,28 @@ export async function runCommerceAdAgentTurn(
       ? '- If platform, ad objective, audience, offer/selling point, CTA, or required output format is missing, ask concise questions and provide clickable options in guidance.questions and guidance.quickReplies, but only for missing/high-impact fields. If the image makes something clear, confirm it instead of asking.'
       : '',
     selectedSkill
+      ? '- For 广告创意 first-turn exploration, provide 2-3 distinct designDirections unless the user has already chosen one. After the user chooses a direction, do not repeat directions unless they ask for alternatives.'
+      : '',
+    selectedSkill
+      ? '- For 广告创意 second guidance round, provide 2-3 optimization suggestions that deepen the chosen/likely direction with fashion advertising taste: magazine-like layout, premium whitespace, commercial photography lighting, refined typography hierarchy, and platform-native cropping.'
+      : '',
+    selectedSkill
+      ? '- For 广告创意 final prompt, avoid generic product-photo prompts. The prompt must describe a polished fashion/commercial ad visual with clear art direction, subject placement, styling props, background, lighting mood, color grading, text/CTA placement or no-text negative-space rule, and platform-specific safe composition.'
+      : '',
+    selectedSkill
       ? '- When 广告创意 is active, brief.usage should describe paid ad creative, brief.platform should contain selected/recommended ad platforms, batch.aspectRatios should match chosen platforms, and prompts should be ad creative prompts rather than detail-page-only prompts.'
+      : '',
+    selectedSkill
+      ? '- The app applies deterministic platform-to-ratio mapping after this JSON for known platforms, and uses your batch.aspectRatios as fallback for unknown/new platforms or future skills. Still include any explicit platform ratio needs you infer, but do not invent many extra ratios.'
+      : '',
+    selectedSkill
+      ? '- When 广告创意 is active and nextAction is ready/plan/generate, batch.corePrompt and ratioPrompts must describe a finished ad creative with overlay copy: one short headline, one benefit line, and one CTA/button text. Do not output pure product photography prompts.'
+      : '',
+    selectedSkill
+      ? '- However, explicit user instructions override the default copy rule. If the user asks for no text, no copy, no typography, a clean no-word version, or copy to be added later, do not include overlay text in the image prompt; instead require clean negative space for later layout.'
+      : '',
+    selectedSkill
+      ? '- Keep overlay copy short and readable. If exact brand/offer is unknown, use generic supportable copy instead of inventing price, discount, medical/ergonomic claims, or guarantees.'
       : '',
     '',
     selectedSkill ? 'Selected skill:' : '',
@@ -1007,6 +1118,12 @@ export async function runCommerceAdAgentTurn(
       promptInstructions: selectedSkill.promptInstructions,
       defaultQuestions: selectedSkill.defaultQuestions,
       quickOptions: selectedSkill.quickOptions,
+      requiredSlots: selectedSkill.requiredSlots,
+      optionalSlots: selectedSkill.optionalSlots,
+      slotLabels: selectedSkill.slotLabels,
+      workflowStages: selectedSkill.workflowStages,
+      outputArtifacts: selectedSkill.outputArtifacts,
+      qualityChecklist: selectedSkill.qualityChecklist,
     }, null, 2) : '',
     '',
     'Conversation summary and prior user context:',
@@ -1042,7 +1159,11 @@ export async function runCommerceAdAgentTurn(
     '',
     'User message:',
     message || '(no new message; analyze current uploaded product image and state)',
-  ].join('\n');
+  ];
+  const prompt = (selectedSkill
+    ? promptLines.filter((line) => !isLegacyCommerceDetailRule(line))
+    : promptLines
+  ).join('\n');
 
   try {
     const result = await generateText({

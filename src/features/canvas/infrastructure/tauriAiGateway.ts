@@ -181,7 +181,7 @@ export const tauriAiGateway: AiGateway = {
     });
   },
   submitGenerateImageJob: async (payload: GenerateImagePayload) => {
-    assertCanSubmitImageGenerationJob();
+    assertCanSubmitImageGenerationJob({ source: payload.submissionSource });
     const resolvedPayload = await resolveGenerateImagePayload(payload);
     const normalizedReferenceImages = await normalizeReferenceImages(resolvedPayload);
     return await submitGenerateImageJob({

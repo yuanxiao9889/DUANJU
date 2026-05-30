@@ -143,6 +143,13 @@ export interface CommerceAgentSkill {
   promptInstructions: string;
   defaultQuestions: CommerceAdGuidanceQuestion[];
   quickOptions: string[];
+  requiredSlots?: string[];
+  optionalSlots?: string[];
+  slotLabels?: Record<string, string>;
+  slotAliases?: Record<string, string[]>;
+  workflowStages?: CommerceAdAgentThreadPhase[];
+  outputArtifacts?: string[];
+  qualityChecklist?: string[];
 }
 
 export interface CommerceAgentPlanState {
@@ -154,6 +161,7 @@ export interface CommerceAgentPlanState {
   referenceImageNotes: string;
   riskNotes: string[];
   selectedSkillId: string;
+  agentThreadId: string;
   providerId: string;
   modelId: string;
   size: string;
@@ -171,24 +179,20 @@ export type CommerceAdAgentThreadPhase =
   | 'refining'
   | 'generating';
 
-export interface CommerceAdAgentConfirmedSlots {
-  platforms: string[];
-  objective: string;
-  audience: string;
-  sellingPoint: string;
-  visualDirection: string;
-  cta: string;
-  brandInfo: string;
-  outputFormat: string;
-}
+export type CommerceSkillSlotValue = string | string[];
+export type CommerceSkillSlotMap = Record<string, CommerceSkillSlotValue>;
 
 export interface CommerceAdAgentThreadState {
   phase: CommerceAdAgentThreadPhase;
-  confirmedSlots: CommerceAdAgentConfirmedSlots;
+  skillId: string;
+  confirmedSlots: CommerceSkillSlotMap;
   missingSlots: string[];
   imageAnalysis?: CommerceAdAgentImageAnalysis;
   lastAskedFields: string[];
   planVersion: number;
+  guidanceRound: number;
+  shownGuidanceKinds: string[];
+  lastGuidanceAtPlanVersion: number | null;
 }
 
 export type CommerceAdAgentTurnIntent =
@@ -227,6 +231,8 @@ export interface CommerceAdDesignDirection {
 
 export interface CommerceAdAgentGuidance {
   stage: CommerceAdGuidanceStage;
+  panelTitle?: string;
+  guidanceKind?: 'recommendation' | 'optimization' | 'final_suggestion' | 'missing_info' | 'ready';
   summary: string;
   confirmedFacts: string[];
   missingFields: string[];
@@ -645,6 +651,7 @@ export function createDefaultCommerceAgentPlanState(): CommerceAgentPlanState {
     referenceImageNotes: '',
     riskNotes: [],
     selectedSkillId: '',
+    agentThreadId: '',
     providerId: '',
     modelId: '',
     size: '2K',
@@ -679,6 +686,7 @@ export function normalizeCommerceAgentPlanState(value: unknown): CommerceAgentPl
     referenceImageNotes: normalizeString(record.referenceImageNotes),
     riskNotes: normalizeStringArray(record.riskNotes),
     selectedSkillId: normalizeString(record.selectedSkillId),
+    agentThreadId: normalizeString(record.agentThreadId),
     providerId: normalizeString(record.providerId),
     modelId: normalizeString(record.modelId),
     size: normalizeString(record.size) || '2K',

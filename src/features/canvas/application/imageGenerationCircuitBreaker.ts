@@ -7,11 +7,20 @@ const IMAGE_GENERATION_BREAKER_COOLDOWN_MS = 30_000;
 let submitTimestamps: number[] = [];
 let breakerOpenUntil = 0;
 
+export type ImageGenerationSubmissionSource = "commerceBatchGenerate";
+
 function formatSeconds(milliseconds: number): number {
   return Math.max(1, Math.ceil(milliseconds / 1000));
 }
 
-export function assertCanSubmitImageGenerationJob(now = Date.now()): void {
+export function assertCanSubmitImageGenerationJob(
+  options: { source?: ImageGenerationSubmissionSource } = {},
+  now = Date.now(),
+): void {
+  if (options.source === "commerceBatchGenerate") {
+    return;
+  }
+
   if (breakerOpenUntil > now) {
     throw new Error(
       i18n.t("errorLog.circuitBreakerOpen", {
@@ -24,7 +33,7 @@ export function assertCanSubmitImageGenerationJob(now = Date.now()): void {
     (timestamp) => now - timestamp <= IMAGE_GENERATION_SUBMIT_WINDOW_MS,
   );
 
-  if (submitTimestamps.length >= IMAGE_GENERATION_SUBMIT_LIMIT) {
+  if (submitTimestamps.length + 1 >= IMAGE_GENERATION_SUBMIT_LIMIT) {
     breakerOpenUntil = now + IMAGE_GENERATION_BREAKER_COOLDOWN_MS;
     submitTimestamps = [];
     throw new Error(
