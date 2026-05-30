@@ -1022,6 +1022,13 @@ export async function runCommerceAdAgentTurn(
     : [
         'You are the ecommerce ad image design strategist inside a node-canvas app for Chinese users.',
         ...jsonSchemaLines,
+        '',
+        'Default agent runtime rules:',
+        '- Even when no skill is selected, act like a design consultant, not a one-shot executor.',
+        '- If platform, audience, selling point, usage scenario, style, CTA/copy, or output format is unclear, put the missing items in guidance.missingFields and ask 1-2 useful guidance.questions with clickable options.',
+        '- Provide multi-round design guidance by default when useful: round 1 guidanceKind=recommendation/panelTitle=推荐方向, round 2 guidanceKind=optimization/panelTitle=优化建议, and round 3 guidanceKind=final_suggestion/panelTitle=成稿建议 only when the brief is still vague or final craft choices matter.',
+        '- Do not stop after one direction round if the user is still shaping the brief. Continue with optimization suggestions unless the user asks to generate directly.',
+        '- If the user gives enough information, move toward nextAction=ready or plan and keep remaining questions minimal.',
       ];
 
   const promptLines = [
@@ -1064,12 +1071,16 @@ export async function runCommerceAdAgentTurn(
     '- Use Current thread state as memory. Preserve confirmedSlots unless the user clearly changes them.',
     '- If Current thread state already has imageAnalysis and this turn has no new reference image, do not redo or restate full image analysis; reuse it silently.',
     '- Never list confirmedSlots as missingFields. Only ask for slots that are still missing after applying the current user message.',
-    '- If requiredSlots from the selected skill manifest are still missing, set nextAction to ask and keep missing information in guidance.missingFields/questions. Do not bury missing facts inside the canvas plan.',
-    '- If all requiredSlots from the selected skill manifest are known and imageAnalysis or product information exists, set nextAction to ready or plan and produce the concrete skill output instead of asking more setup questions.',
+    '- If a selected skill has requiredSlots still missing, set nextAction to ask and keep missing information in guidance.missingFields/questions. Do not bury missing facts inside the canvas plan.',
+    '- If no skill is selected, still surface unclear brief information in guidance.missingFields/questions: platform/usage, audience, selling point, visual style, CTA/copy, and output format.',
+    '- If all required selected-skill slots are known, or the no-skill brief is clear enough, set nextAction to ready or plan and produce the concrete output instead of asking more setup questions.',
     '- If nextAction is ready, plan, or generate, set guidance.questions = [] and guidance.quickReplies = [] unless the user explicitly asks for more refinement. Keep guidance.designDirections only for the default creative guidance rounds or explicit user refinement requests.',
     '- threadStatePatch should include only the updated phase, confirmedSlots, missingSlots, lastAskedFields, and planVersion needed after this turn.',
     '- For creative skills, use guidance.panelTitle and guidance.guidanceKind to label the design guidance: 推荐方向/recommendation first, 优化建议/optimization second, 成稿建议/final_suggestion only when useful. Do not repeat the same guidanceKind on consecutive turns unless the user asks for more.',
     '- Include 2-3 concrete Chinese designDirections when a creative guidance round is appropriate. Round 1 should compare big creative routes; round 2 should refine composition, color, scene, copy hierarchy, and platform fit; round 3 should decide final craft details before generation.',
+    '- If the user explicitly asks for more directions, recommendations, color palettes, color schemes, or options, you MUST populate guidance.designDirections or guidance.questions/options with 2-3 clickable choices. Do not answer only in assistant text.',
+    '- Treat a user request for more directions/color palettes/options as a one-shot exploration branch. Give one round of options, preserve all previously confirmed copy, selling points, platform, audience, CTA, and visual constraints, and do not restart the default multi-round guidance loop.',
+    '- When exploring alternatives, do not remove or overwrite existing confirmedSlots or previously accepted copy. Only add/adjust the specific aspect the user asked to explore unless they clearly replace an earlier decision.',
     '- Before platform, audience, selling points, and style are clear, prioritize Chinese brief refinement instead of pushing generation settings.',
     '- guidance.quickReplies should be short Chinese phrases users can click and edit before sending.',
     '- The image text strategy is baked into the generated image, not editable overlay layers.',

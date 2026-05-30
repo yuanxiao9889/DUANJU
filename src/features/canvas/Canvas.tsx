@@ -8009,7 +8009,7 @@ export function Canvas() {
 
       closeDirectorStage();
       void closeDirectorStageWindowHandle().catch((error) => {
-        console.warn("Failed to close director stage window from storage request", error);
+        console.debug("Ignored stale director stage close request", error);
       });
     };
 

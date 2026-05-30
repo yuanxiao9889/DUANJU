@@ -1032,6 +1032,100 @@ function normalizeEdgesWithNodes(rawEdges: CanvasEdge[], nodes: CanvasNode[]): C
     });
 }
 
+function normalizeCanvasNodeParentHierarchy(
+  nodes: CanvasNode[]
+): { nodes: CanvasNode[]; changed: boolean } {
+  if (nodes.length === 0) {
+    return { nodes, changed: false };
+  }
+
+  const nodeMap = new Map(nodes.map((node) => [node.id, node] as const));
+  let changed = false;
+
+  const normalizedParentById = new Map<string, string | undefined>();
+  const isValidParent = (node: CanvasNode): boolean => {
+    const parentId = node.parentId;
+    if (!parentId) {
+      normalizedParentById.set(node.id, undefined);
+      return true;
+    }
+
+    const parentNode = nodeMap.get(parentId);
+    if (!parentNode || parentNode.id === node.id) {
+      normalizedParentById.set(node.id, undefined);
+      changed = true;
+      return false;
+    }
+
+    const visited = new Set<string>([node.id]);
+    let currentParentId: string | undefined = parentId;
+    while (currentParentId) {
+      if (visited.has(currentParentId)) {
+        normalizedParentById.set(node.id, undefined);
+        changed = true;
+        return false;
+      }
+
+      visited.add(currentParentId);
+      currentParentId = nodeMap.get(currentParentId)?.parentId;
+    }
+
+    normalizedParentById.set(node.id, parentId);
+    return true;
+  };
+
+  const sanitizedNodes = nodes.map((node) => {
+    if (isValidParent(node)) {
+      return node;
+    }
+
+    return {
+      ...node,
+      parentId: undefined,
+      extent: undefined,
+    };
+  });
+
+  const orderIndexById = new Map(nodes.map((node, index) => [node.id, index] as const));
+  const sortedNodes: CanvasNode[] = [];
+  const sortedIds = new Set<string>();
+  const visitingIds = new Set<string>();
+  const sanitizedNodeMap = new Map(sanitizedNodes.map((node) => [node.id, node] as const));
+
+  const visit = (node: CanvasNode) => {
+    if (sortedIds.has(node.id)) {
+      return;
+    }
+    if (visitingIds.has(node.id)) {
+      return;
+    }
+
+    visitingIds.add(node.id);
+    const parentId = normalizedParentById.get(node.id);
+    const parentNode = parentId ? sanitizedNodeMap.get(parentId) : undefined;
+    if (parentNode) {
+      visit(parentNode);
+    }
+    visitingIds.delete(node.id);
+
+    if (!sortedIds.has(node.id)) {
+      sortedIds.add(node.id);
+      sortedNodes.push(node);
+    }
+  };
+
+  sanitizedNodes.forEach(visit);
+
+  const orderChanged = sortedNodes.some((node, index) => (
+    (orderIndexById.get(node.id) ?? -1) !== index
+  ));
+
+  return {
+    nodes: changed || orderChanged ? sortedNodes : nodes,
+    changed: changed || orderChanged,
+  };
+}
+
 function isKnownCanvasNodeType(value: unknown): value is CanvasNodeType {
   return typeof value === 'string' && Object.values(CANVAS_NODE_TYPES).includes(value as CanvasNodeType);
 }
@@ -1058,7 +1152,11 @@ function normalizeLegacyNodeData(node: CanvasNode): LegacyNodeData {
   };
 }
 
-function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
+function normalizeNodes(
+  rawNodes: CanvasNode[],
+  options: { normalizeParentHierarchy?: boolean } = {}
+): CanvasNode[] {
+  const shouldNormalizeParentHierarchy = options.normalizeParentHierarchy !== false;
   const normalizedNodes = rawNodes
     .map((node) => {
       if (!node.type || typeof node.type !== 'string') {
@@ -1421,7 +1519,7 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
 
   const reindexedNodes = reindexScriptSceneNodesByChapter(normalizedNodes).nodes;
   const nodeMap = new Map(reindexedNodes.map((node) => [node.id, node] as const));
-  return reindexedNodes.map((node) => {
+  const extentNormalizedNodes = reindexedNodes.map((node) => {
     if (!node.parentId || typeof node.extent === 'undefined') {
       return node;
     }
@@ -1436,6 +1534,9 @@ function normalizeNodes(rawNodes: CanvasNode[]): CanvasNode[] {
       extent: undefined,
     };
   });
+  return shouldNormalizeParentHierarchy
+    ? normalizeCanvasNodeParentHierarchy(extentNormalizedNodes).nodes
+    : extentNormalizedNodes;
 }
 
 function buildScriptSceneSourceKey(sourceChapterId: string, sourceSceneId: string): string {
@@ -1690,7 +1791,8 @@ function normalizeHistory(history?: CanvasHistoryState): CanvasHistoryState {
       const normalizedPatchNodes = normalizeNodes(
         snapshot.entries
           .map((entry) => entry.node)
-          .filter((node): node is CanvasNode => Boolean(node))
+          .filter((node): node is CanvasNode => Boolean(node)),
+        { normalizeParentHierarchy: false }
       );
       let normalizedIndex = 0;
       return {
@@ -3770,6 +3872,15 @@ function fitGroupsForChangedNodes(
   return nextNodes;
 }
 
+function normalizeParentHierarchyAfterGroupFit(
+  nodes: CanvasNode[],
+  changedNodeIds: Iterable<string>
+): CanvasNode[] {
+  return normalizeCanvasNodeParentHierarchy(
+    fitGroupsForChangedNodes(nodes, changedNodeIds)
+  ).nodes;
+}
+
 function fitGroupsForChangedNodesWithIds(
   nodes: CanvasNode[],
   changedNodeIds: Iterable<string>
@@ -4244,7 +4355,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         nodeMap,
         options.positionSpace ?? 'canvas'
       );
-    const nextNodes = fitGroupsForChangedNodes([...state.nodes, newNode], [newNode.id]);
+    const nextNodes = normalizeParentHierarchyAfterGroupFit(
+      [...state.nodes, newNode],
+      [newNode.id]
+    );
     set({
       nodes: nextNodes,
       history: {
@@ -4270,7 +4384,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         return {};
       }
 
-      const nextNodes = fitGroupsForChangedNodes(
+      const nextNodes = normalizeParentHierarchyAfterGroupFit(
         [...state.nodes, ...uniqueNodesToAdd],
         uniqueNodesToAdd.map((node) => node.id)
       );
@@ -7268,16 +7382,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       ? createReverseNodePatchSnapshot(target, state.nodes, state.edges)
       : createSnapshot(state.nodes, state.edges);
     const appliedSnapshot = applyHistorySnapshot(state.nodes, state.edges, target);
+    const nextNodes = normalizeCanvasNodeParentHierarchy(appliedSnapshot.nodes).nodes;
+    const nextEdges = normalizeEdgesWithNodes(appliedSnapshot.edges, nextNodes);
     const nextPast = state.history.past.slice(0, -1);
 
     set({
-      nodes: appliedSnapshot.nodes,
-      edges: appliedSnapshot.edges,
-      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
-      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, nextNodes),
+      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, nextNodes),
       activeShotParamsPanelNodeId: resolveActiveShotParamsPanelNodeId(
         state.activeShotParamsPanelNodeId,
-        appliedSnapshot.nodes,
+        nextNodes,
       ),
       history: {
         past: nextPast,
@@ -7299,16 +7415,18 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       ? createReverseNodePatchSnapshot(target, state.nodes, state.edges)
       : createSnapshot(state.nodes, state.edges);
     const appliedSnapshot = applyHistorySnapshot(state.nodes, state.edges, target);
+    const nextNodes = normalizeCanvasNodeParentHierarchy(appliedSnapshot.nodes).nodes;
+    const nextEdges = normalizeEdgesWithNodes(appliedSnapshot.edges, nextNodes);
     const nextFuture = state.history.future.slice(0, -1);
 
     set({
-      nodes: appliedSnapshot.nodes,
-      edges: appliedSnapshot.edges,
-      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, appliedSnapshot.nodes),
-      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, appliedSnapshot.nodes),
+      nodes: nextNodes,
+      edges: nextEdges,
+      selectedNodeId: resolveSelectedNodeId(state.selectedNodeId, nextNodes),
+      activeToolDialog: resolveActiveToolDialog(state.activeToolDialog, nextNodes),
       activeShotParamsPanelNodeId: resolveActiveShotParamsPanelNodeId(
         state.activeShotParamsPanelNodeId,
-        appliedSnapshot.nodes,
+        nextNodes,
       ),
       history: {
         past: pushSnapshot(state.history.past, currentSnapshot),

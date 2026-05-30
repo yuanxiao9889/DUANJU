@@ -1656,7 +1656,10 @@ export const CommerceStageNode = memo(
 
       let frameId: number | null = null;
       const syncAutoSize = () => {
-        const rect = element.getBoundingClientRect();
+        const measuredElement = element.firstElementChild instanceof HTMLElement
+          ? element.firstElementChild
+          : element;
+        const rect = measuredElement.getBoundingClientRect();
         const nextHeight = Math.max(260, Math.ceil(rect.height));
         if (Math.abs((lastAutoHeightRef.current ?? 0) - nextHeight) <= 1) {
           return;
@@ -1707,7 +1710,7 @@ export const CommerceStageNode = memo(
             className="!pointer-events-auto !h-3 !w-3 !-right-1.5 !rounded-full !border-surface-dark !bg-slate-400"
           />
         ) : null}
-        <div ref={cardWrapRef} className="pointer-events-auto">
+        <div ref={cardWrapRef} className="pointer-events-auto inline-block align-top">
           <ScriptNodeCard
             accent={stageMeta.accent}
             icon={stageMeta.icon}

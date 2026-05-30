@@ -78,6 +78,7 @@ import {
   type CommerceAdAgentTurnIntent,
   type CommerceAgentSkill,
   type CommerceAdBatchGenerateState,
+  type CommerceAdBriefState,
   type CommerceAdDetailPage,
   type CommerceAdGeneratedImageRecord,
   type CommerceAdGenerationBatch,
@@ -259,18 +260,15 @@ function GuidancePillList({
 }
 
 function getSkillRequiredSlots(skill: CommerceAgentSkill | null): string[] {
-  return skill?.requiredSlots?.length
-    ? skill.requiredSlots
-    : DEFAULT_SKILL_REQUIRED_SLOT_KEYS;
+  return skill?.requiredSlots?.length ? skill.requiredSlots : [];
 }
 
 function createDefaultAgentThreadState(skill: CommerceAgentSkill | null = null): CommerceAdAgentThreadState {
-  const requiredSlots = getSkillRequiredSlots(skill);
   return {
     phase: 'collecting',
     skillId: skill?.id ?? '',
     confirmedSlots: {},
-    missingSlots: requiredSlots,
+    missingSlots: skill?.requiredSlots?.length ? skill.requiredSlots : DEFAULT_SKILL_REQUIRED_SLOT_KEYS,
     lastAskedFields: [],
     planVersion: 0,
     guidanceRound: 0,
@@ -397,6 +395,9 @@ function isAgentReadyForSkillWork(
   state: CommerceAdAgentThreadState,
   skill: CommerceAgentSkill | null
 ): boolean {
+  if (!skill) {
+    return Boolean(state.imageAnalysis) || Object.keys(state.confirmedSlots).length > 0 || state.planVersion > 0;
+  }
   return computeMissingAgentSlots(state, skill).length === 0
     && (Boolean(state.imageAnalysis) || Object.keys(state.confirmedSlots).length > 0);
 }
@@ -417,6 +418,72 @@ function isUserRequestingMoreCreativeGuidance(text: string): boolean {
   return /再|继续|优化|建议|方向|换|改|更高级|更时尚|more|another|again|refine|optimi[sz]e|direction/i.test(text);
 }
 
+function isUserClearlyAskingForMoreOptions(text: string): boolean {
+  return /更多|多[一几]个|再来|继续|推荐|色系|配色|颜色|方向|方案|灵感|优化|建议|换|改|高级|时尚|more|another|again|refine|optimi[sz]e|direction|palette|color/i.test(text);
+}
+
+function isOneShotCreativeExplorationRequest(text: string): boolean {
+  return isUserClearlyAskingForMoreOptions(text) && !/生成|制作|出图|开始|确认|采用|选择|就这个|go|start|generate/i.test(text);
+}
+
+function buildMoreCreativeGuidanceFallback(userMessage: string): Pick<CommerceAdAgentGuidance, 'designDirections' | 'quickReplies' | 'panelTitle' | 'guidanceKind' | 'readinessHint'> {
+  const wantsColor = /色系|配色|颜色|palette|color/i.test(userMessage);
+  if (wantsColor) {
+    return {
+      panelTitle: '推荐方向',
+      guidanceKind: 'recommendation',
+      designDirections: [
+        {
+          id: 'palette-warm-premium',
+          title: '暖白金高级感',
+          description: '使用暖白、香槟金、浅灰金做主色，适合强调柔和、精致、厨房高级质感。',
+          tags: ['暖色', '高级', '柔和'],
+        },
+        {
+          id: 'palette-cool-metallic',
+          title: '冷灰银现代感',
+          description: '使用浅灰、银色、深石墨色做层次，适合更科技、更克制、更现代的产品表达。',
+          tags: ['冷色', '现代', '金属'],
+        },
+        {
+          id: 'palette-soft-lifestyle',
+          title: '燕麦奶油生活感',
+          description: '使用奶油白、燕麦色、鼠尾草绿做背景和道具，适合偏生活方式和温柔种草。',
+          tags: ['生活感', '清爽', '自然'],
+        },
+      ],
+      quickReplies: ['选择暖白金高级感', '选择冷灰银现代感', '选择燕麦奶油生活感'],
+      readinessHint: '可以点选一个色系，我会把它放入输入框继续细化。',
+    };
+  }
+  return {
+    panelTitle: '推荐方向',
+    guidanceKind: 'recommendation',
+    designDirections: [
+      {
+        id: 'direction-premium-hero',
+        title: '高级单品主视觉',
+        description: '突出产品轮廓、材质和留白，适合首屏、广告主图和品牌感表达。',
+        tags: ['主视觉', '高级', '留白'],
+      },
+      {
+        id: 'direction-lifestyle-scene',
+        title: '生活方式场景',
+        description: '把产品放进真实使用场景，用道具和环境强化使用价值和情绪记忆点。',
+        tags: ['场景', '生活感', '种草'],
+      },
+      {
+        id: 'direction-benefit-layout',
+        title: '卖点层级海报',
+        description: '用短标题、卖点分层和 CTA 强化转化，适合详情首屏或投放素材。',
+        tags: ['卖点', '转化', '文案'],
+      },
+    ],
+    quickReplies: ['选择高级单品主视觉', '选择生活方式场景', '选择卖点层级海报'],
+    readinessHint: '可以点选一个方向，我会继续把它细化成可出图的方案。',
+  };
+}
+
 function resolveCreativeGuidanceKind(input: {
   guidance: CommerceAdAgentGuidance;
   state: CommerceAdAgentThreadState;
@@ -425,12 +492,17 @@ function resolveCreativeGuidanceKind(input: {
   userMessage: string;
 }): NonNullable<CommerceAdAgentGuidance['guidanceKind']> {
   const explicitKind = input.guidance.guidanceKind;
-  const wantsMore = isUserRequestingMoreCreativeGuidance(input.userMessage);
+  const isOneShotExploration = isOneShotCreativeExplorationRequest(input.userMessage);
+  const wantsMore = isOneShotExploration || isUserRequestingMoreCreativeGuidance(input.userMessage);
   const lastKind = input.state.shownGuidanceKinds.slice(-1)[0];
+  const hasMissingGuidance = input.guidance.missingFields.length > 0 || input.guidance.questions.length > 0;
+  if (isOneShotExploration) {
+    return 'recommendation';
+  }
   if (explicitKind && (explicitKind !== lastKind || wantsMore)) {
     return explicitKind;
   }
-  if (input.guidance.missingFields.length > 0 || input.guidance.questions.length > 0) {
+  if (hasMissingGuidance && input.guidance.designDirections.length === 0) {
     return 'missing_info';
   }
   if (input.nextAction === 'plan' || input.nextAction === 'ready' || input.nextAction === 'generate') {
@@ -444,6 +516,7 @@ function resolveCreativeGuidanceKind(input: {
       input.state.guidanceRound === 2
       && (
         computeMissingAgentSlots(input.state, input.skill).length > 0
+        || isUserClearlyAskingForMoreOptions(input.userMessage)
         || isUserRequestingMoreCreativeGuidance(input.userMessage)
       )
     ) {
@@ -487,10 +560,11 @@ function shouldShowCreativeDirections(input: {
   if (input.guidance.designDirections.length === 0) {
     return false;
   }
-  if (input.guidanceKind === 'ready' || input.guidanceKind === 'missing_info') {
+  if (input.guidanceKind === 'ready') {
     return false;
   }
-  const wantsMore = isUserRequestingMoreCreativeGuidance(input.userMessage);
+  const isOneShotExploration = isOneShotCreativeExplorationRequest(input.userMessage);
+  const wantsMore = isOneShotExploration || isUserRequestingMoreCreativeGuidance(input.userMessage);
   const repeatedKind = input.state.shownGuidanceKinds.slice(-1)[0] === input.guidanceKind;
   if (repeatedKind && !wantsMore) {
     return false;
@@ -499,7 +573,8 @@ function shouldShowCreativeDirections(input: {
     return true;
   }
   if (input.state.guidanceRound < COMMERCE_AGENT_MAX_DEFAULT_CREATIVE_GUIDANCE_ROUNDS) {
-    return input.guidanceKind === 'final_suggestion'
+    return isOneShotExploration
+      || input.guidanceKind === 'final_suggestion'
       || !isAgentReadyForSkillWork(input.state, input.skill)
       || wantsMore;
   }
@@ -584,7 +659,7 @@ function normalizeAgentGuidanceForState(
           return !slotKey || missingSlots.includes(slotKey);
         })
         .slice(0, 2);
-  const isAdCreativeSkill = skill?.id === 'ad-creative';
+  const usesCreativeGuidanceLoop = skill?.id === 'ad-creative' || !skill;
   const hasConfirmedDirection = hasSlotValue(state.confirmedSlots.visualDirection)
     || hasSlotValue(state.confirmedSlots.outputFormat);
   const creativeGuidanceKind = resolveCreativeGuidanceKind({
@@ -594,7 +669,7 @@ function normalizeAgentGuidanceForState(
     nextAction,
     userMessage,
   });
-  const shouldShowDesignDirections = isAdCreativeSkill
+  const shouldShowDesignDirections = usesCreativeGuidanceLoop
     ? shouldShowCreativeDirections({
         guidance,
         guidanceKind: creativeGuidanceKind,
@@ -607,15 +682,24 @@ function normalizeAgentGuidanceForState(
       && !hasConfirmedDirection
       && state.planVersion === 0
       && guidance.designDirections.length > 0;
+  const moreOptionsFallback = (
+    usesCreativeGuidanceLoop
+    && isUserClearlyAskingForMoreOptions(userMessage)
+    && guidance.designDirections.length === 0
+    && guidance.questions.length === 0
+    && guidance.quickReplies.length === 0
+  )
+    ? buildMoreCreativeGuidanceFallback(userMessage)
+    : null;
   const nextGuidance: CommerceAdAgentGuidance = {
     ...guidance,
-    panelTitle: guidance.panelTitle || (isAdCreativeSkill ? resolveCreativeGuidancePanelTitle(creativeGuidanceKind) : undefined),
-    guidanceKind: isAdCreativeSkill ? creativeGuidanceKind : guidance.guidanceKind,
-    missingFields: filteredMissingFields.length > 0 ? filteredMissingFields : (isReady ? [] : missingSlotLabels),
+    panelTitle: moreOptionsFallback?.panelTitle || guidance.panelTitle || (usesCreativeGuidanceLoop ? resolveCreativeGuidancePanelTitle(creativeGuidanceKind) : undefined),
+    guidanceKind: moreOptionsFallback?.guidanceKind || (usesCreativeGuidanceLoop ? creativeGuidanceKind : guidance.guidanceKind),
+    missingFields: filteredMissingFields.length > 0 ? filteredMissingFields : (skill && !isReady ? missingSlotLabels : guidance.missingFields),
     questions: filteredQuestions,
-    designDirections: shouldShowDesignDirections ? guidance.designDirections.slice(0, 3) : [],
-    quickReplies: isReady && !shouldShowDesignDirections ? [] : guidance.quickReplies.slice(0, 3),
-    readinessHint: isReady ? guidance.readinessHint : guidance.readinessHint,
+    designDirections: moreOptionsFallback?.designDirections ?? (shouldShowDesignDirections ? guidance.designDirections.slice(0, 3) : []),
+    quickReplies: moreOptionsFallback?.quickReplies ?? (isReady && !shouldShowDesignDirections ? [] : guidance.quickReplies.slice(0, 3)),
+    readinessHint: moreOptionsFallback?.readinessHint || guidance.readinessHint,
   };
   return hasGuidanceContent(nextGuidance) ? nextGuidance : undefined;
 }
@@ -1005,6 +1089,10 @@ function resolveCommerceResultImagePosition(
     x: Math.round(groupX + groupWidth + COMMERCE_RESULT_GROUP_TO_IMAGE_GAP + column * (COMMERCE_RESULT_IMAGE_NODE_WIDTH + COMMERCE_RESULT_IMAGE_GAP_X)),
     y: Math.round(groupY + row * (COMMERCE_RESULT_IMAGE_NODE_HEIGHT + COMMERCE_RESULT_IMAGE_GAP_Y)),
   };
+}
+
+function countCommerceResultImages(batches: CommerceAdGenerationBatch[] | undefined): number {
+  return (batches ?? []).reduce((total, batch) => total + (batch.images?.length ?? 0), 0);
 }
 
 function mergeProductImages(
@@ -4357,6 +4445,7 @@ function CommerceAdWorkspaceInner() {
       resultGroupId
         ? useCanvasStore.getState().nodes.find((node) => node.id === resultGroupId)
         : resultNode ?? null;
+    const resultImageStartIndex = countCommerceResultImages(resultNode?.data.batches);
     const submittedImages: CommerceAdGeneratedImageRecord[] = [];
     setStatusText(t('commerceAd.agent.statusSubmitting'));
 
@@ -4366,7 +4455,7 @@ function CommerceAdWorkspaceInner() {
       const prompt = imageRecord.prompt || corePrompt;
       const resultNodeId = addNode(
         CANVAS_NODE_TYPES.exportImage,
-        resolveCommerceResultImagePosition(resultGroupNode, index),
+        resolveCommerceResultImagePosition(resultGroupNode, resultImageStartIndex + index),
         {
           isGenerating: true,
           generationPhase: 'submitting',
@@ -4601,6 +4690,10 @@ function CommerceAdWorkspaceInner() {
     addEdge(planNode.id, resultGroupId);
 
     const resultGroupNode = useCanvasStore.getState().nodes.find((node) => node.id === resultGroupId);
+    const existingResultBatches = existingResultGroup
+      ? ((existingResultGroup.data as CommerceResultGroupNodeData).batches ?? [])
+      : [];
+    const resultImageStartIndex = countCommerceResultImages(existingResultBatches);
     const submittedImages: CommerceAdGeneratedImageRecord[] = [];
     setStatusText(t('commerceAd.agent.statusSubmitting'));
     await canvasAiGateway.setApiKey(selectedPlanModel.providerId, providerApiKey);
@@ -4609,7 +4702,7 @@ function CommerceAdWorkspaceInner() {
       const prompt = imageRecord.prompt || plan.prompt;
       const resultImageNodeId = addNode(
         CANVAS_NODE_TYPES.exportImage,
-        resolveCommerceResultImagePosition(resultGroupNode, index),
+        resolveCommerceResultImagePosition(resultGroupNode, resultImageStartIndex + index),
         {
           isGenerating: true,
           generationPhase: 'submitting',
@@ -4965,6 +5058,49 @@ function CommerceAdWorkspaceInner() {
         product.images = contextImages;
         product.userInfo = combinedText;
         product.userIdeaInfo = combinedText;
+        const currentBriefForTurn = briefNode?.data ?? (
+          agentPlanNode?.data
+            ? {
+                usage: '',
+                platform: agentPlanNode.data.creativeDirection,
+                audience: '',
+                style: agentPlanNode.data.creativeDirection,
+                headline: agentPlanNode.data.summary,
+                sellingPoints: [],
+                cta: '',
+                mustInclude: '',
+                constraints: agentPlanNode.data.riskNotes.join('\n'),
+                normalizedBrief: agentPlanNode.data.summary,
+                optimizedUserIdeaInfo: agentPlanNode.data.productUnderstanding,
+                detailPages: [],
+                qualityCheckSummary: '',
+                qualityIssues: agentPlanNode.data.riskNotes,
+                updatedAt: null,
+              } satisfies CommerceAdBriefState
+            : null
+        );
+        const currentVisualPreferenceForTurn = visualPreferenceNode?.data ?? createDefaultCommerceAdVisualPreferenceState();
+        const currentBatchForTurn = batchNode?.data ?? (
+          agentPlanNode?.data
+            ? {
+                generationMode: 'legacyRatios' as const,
+                aspectRatios: agentPlanNode.data.aspectRatios,
+                variantsPerRatio: agentPlanNode.data.variantsPerRatio,
+                batchCount: agentPlanNode.data.batchCount,
+                modelId: agentPlanNode.data.modelId,
+                size: agentPlanNode.data.size,
+                corePrompt: agentPlanNode.data.prompt,
+                ratioPrompts: {},
+                detailPages: [],
+                detailPageIds: [],
+                detailPageCount: 0,
+                stylePromptFragment: '',
+                status: agentPlanNode.data.status === 'failed' ? 'failed' : agentPlanNode.data.prompt ? 'ready' : 'idle',
+                lastGeneratedAt: null,
+                lastError: agentPlanNode.data.lastError,
+              } satisfies CommerceAdBatchGenerateState
+            : null
+        );
         const referenceImagesForTurn = submittedImages.length > 0 || !threadStateForTurn.imageAnalysis
           ? dedupeStrings(contextImages.map((image) => image.imageUrl))
           : [];
@@ -4972,9 +5108,9 @@ function CommerceAdWorkspaceInner() {
           userMessage: [skillContext, text || nextUserMessage].filter(Boolean).join('\n\n'),
           conversationSummary: priorContext.text,
           product,
-          brief: null,
-          visualPreference: createDefaultCommerceAdVisualPreferenceState(),
-          batch: null,
+          brief: currentBriefForTurn,
+          visualPreference: currentVisualPreferenceForTurn,
+          batch: currentBatchForTurn,
           referenceImages: referenceImagesForTurn,
           canUseVisionModel: true,
           selectedSkill,
@@ -5101,27 +5237,40 @@ function CommerceAdWorkspaceInner() {
           ...turnInput,
         });
         structuredProgressTimers.forEach((timer) => window.clearTimeout(timer));
+        const isOneShotExplorationTurn = isOneShotCreativeExplorationRequest(text);
+        const agentThreadPatchForTurn = isOneShotExplorationTurn
+          ? {
+              ...(agentResult.threadStatePatch ?? {}),
+              confirmedSlots: {},
+              missingSlots: threadStateForTurn.missingSlots,
+              phase: threadStateForTurn.phase,
+            }
+          : agentResult.threadStatePatch;
         const nextAction = resolveAgentNextAction(agentResult.nextAction, {
           ...threadStateForTurn,
-          ...(agentResult.threadStatePatch ?? {}),
+          ...(agentThreadPatchForTurn ?? {}),
           confirmedSlots: {
             ...threadStateForTurn.confirmedSlots,
-            ...(agentResult.threadStatePatch?.confirmedSlots ?? {}),
+            ...(agentThreadPatchForTurn?.confirmedSlots ?? {}),
           },
         }, selectedSkill);
         const nextAgentThreadState = mergeAgentThreadState(threadStateForTurn, {
-          ...(agentResult.threadStatePatch ?? {}),
+          ...(agentThreadPatchForTurn ?? {}),
           imageAnalysis: agentResult.assistantMessage.imageAnalysis
             ?? threadStateForTurn.imageAnalysis,
-          lastAskedFields: agentResult.threadStatePatch?.lastAskedFields
+          lastAskedFields: agentThreadPatchForTurn?.lastAskedFields
             ?? threadStateForTurn.lastAskedFields,
           planVersion: (
+            isOneShotExplorationTurn
+          )
+            ? threadStateForTurn.planVersion
+            : (
             nextAction === 'plan'
             || nextAction === 'ready'
             || nextAction === 'generate'
           )
             ? threadStateForTurn.planVersion + 1
-            : agentResult.threadStatePatch?.planVersion ?? threadStateForTurn.planVersion,
+            : agentThreadPatchForTurn?.planVersion ?? threadStateForTurn.planVersion,
         }, selectedSkill);
         const normalizedGuidance = normalizeAgentGuidanceForState(
           agentResult.assistantMessage.guidance,
@@ -5134,17 +5283,27 @@ function CommerceAdWorkspaceInner() {
         const visibleGuidanceKind = normalizedGuidance?.designDirections.length
           ? normalizedGuidance.guidanceKind
           : undefined;
+        const trackedGuidanceKind = visibleGuidanceKind
+          ?? (normalizedGuidance?.questions.length || normalizedGuidance?.missingFields.length
+            ? normalizedGuidance.guidanceKind
+            : undefined);
         const finalAgentThreadState = {
           ...nextAgentThreadState,
           ...(askedFieldIds && askedFieldIds.length > 0 ? { lastAskedFields: askedFieldIds } : {}),
-          ...(visibleGuidanceKind
+          ...(trackedGuidanceKind
             ? {
-                guidanceRound: nextAgentThreadState.guidanceRound + 1,
-                shownGuidanceKinds: Array.from(new Set([
-                  ...nextAgentThreadState.shownGuidanceKinds,
-                  visibleGuidanceKind,
-                ])),
-                lastGuidanceAtPlanVersion: nextAgentThreadState.planVersion,
+                guidanceRound: visibleGuidanceKind && !isOneShotExplorationTurn
+                  ? nextAgentThreadState.guidanceRound + 1
+                  : nextAgentThreadState.guidanceRound,
+                shownGuidanceKinds: isOneShotExplorationTurn
+                  ? nextAgentThreadState.shownGuidanceKinds
+                  : Array.from(new Set([
+                      ...nextAgentThreadState.shownGuidanceKinds,
+                      trackedGuidanceKind,
+                    ])),
+                lastGuidanceAtPlanVersion: isOneShotExplorationTurn
+                  ? nextAgentThreadState.lastGuidanceAtPlanVersion
+                  : nextAgentThreadState.planVersion,
               }
             : {}),
         };
@@ -5177,10 +5336,13 @@ function CommerceAdWorkspaceInner() {
           return next;
         });
         const shouldCreateOrUpdatePlan =
-          nextAction === 'ready'
-          || nextAction === 'plan'
-          || nextAction === 'generate'
-          || Boolean(agentPlanNode?.data?.agentThreadId === activeThreadId);
+          !isOneShotExplorationTurn
+          && (
+            nextAction === 'ready'
+            || nextAction === 'plan'
+            || nextAction === 'generate'
+            || Boolean(agentPlanNode?.data?.agentThreadId === activeThreadId)
+          );
         if (shouldCreateOrUpdatePlan) {
           setStatusText(t('commerceAd.agentPlan.thinkingStepPlan'));
           const fallbackImageModel = getImageModel(
@@ -5535,7 +5697,13 @@ function CommerceAdWorkspaceInner() {
               className="min-h-[78px] !border-transparent !bg-transparent px-1 py-1 text-sm leading-6 shadow-none focus:!border-transparent"
               placeholder={t('commerceAd.agent.chatPlaceholder')}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                if (event.key !== 'Enter' || event.nativeEvent.isComposing) {
+                  return;
+                }
+                if (event.ctrlKey) {
+                  return;
+                }
+                if (!event.shiftKey && !event.altKey && !event.metaKey) {
                   event.preventDefault();
                   handleSubmit();
                 }

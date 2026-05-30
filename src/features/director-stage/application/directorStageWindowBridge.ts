@@ -112,6 +112,12 @@ function writeStoredBounds(bounds: DirectorStageStoredBounds) {
   }
 }
 
+function isWindowNotFoundError(error: unknown): boolean {
+  return error instanceof Error
+    ? error.message.toLowerCase().includes('window not found')
+    : typeof error === 'string' && error.toLowerCase().includes('window not found');
+}
+
 export async function getDirectorStageWindow(): Promise<WebviewWindow | null> {
   return await WebviewWindow.getByLabel(DIRECTOR_STAGE_WINDOW_LABEL);
 }
@@ -200,8 +206,18 @@ export async function closeDirectorStageWindowHandle() {
   try {
     await directorStageWindow.close();
   } catch (closeError) {
+    if (isWindowNotFoundError(closeError)) {
+      return;
+    }
+
     console.warn('Failed to close director stage window from main, trying destroy', closeError);
-    await directorStageWindow.destroy();
+    try {
+      await directorStageWindow.destroy();
+    } catch (destroyError) {
+      if (!isWindowNotFoundError(destroyError)) {
+        throw destroyError;
+      }
+    }
   }
 }
 
