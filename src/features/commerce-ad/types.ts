@@ -85,6 +85,20 @@ export interface CommerceAdVisualPreferenceState {
   updatedAt: number | null;
 }
 
+export interface CommercePromptSpec {
+  task: string;
+  subject: string;
+  audienceAndGoal: string;
+  artDirection: string;
+  composition: string;
+  copyStrategy: string;
+  platformAdaptation: string;
+  referenceUsage: string;
+  negativeConstraints: string[];
+  qualityChecklist: string[];
+  ratioAdaptations: Record<string, string>;
+}
+
 export interface CommerceAdBatchGenerateState {
   generationMode: 'detailPages' | 'legacyRatios';
   aspectRatios: string[];
@@ -94,6 +108,9 @@ export interface CommerceAdBatchGenerateState {
   size: string;
   corePrompt: string;
   ratioPrompts: Record<string, string>;
+  promptSpec?: CommercePromptSpec;
+  renderedCorePrompt: string;
+  renderedRatioPrompts: Record<string, string>;
   detailPages: CommerceAdDetailPage[];
   detailPageIds: string[];
   detailPageCount: number;
@@ -121,6 +138,9 @@ export interface CommerceAdGenerationBatch {
   id: string;
   createdAt: number;
   corePrompt: string;
+  promptSpec?: CommercePromptSpec;
+  renderedCorePrompt?: string;
+  renderedRatioPrompts?: Record<string, string>;
   aspectRatios: string[];
   variantsPerRatio: number;
   batchCount?: number;
@@ -157,6 +177,8 @@ export interface CommerceAgentPlanState {
   productUnderstanding: string;
   creativeDirection: string;
   prompt: string;
+  promptSpec?: CommercePromptSpec;
+  renderedPrompt: string;
   referenceImages: CommerceAdProductImage[];
   referenceImageNotes: string;
   riskNotes: string[];
@@ -352,6 +374,55 @@ function normalizeTimestamp(value: unknown): number | null {
 function normalizePositiveInteger(value: unknown, fallback: number): number {
   const normalized = Math.round(Number(value));
   return Number.isFinite(normalized) && normalized > 0 ? normalized : fallback;
+}
+
+function normalizeStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => [key, normalizeString(item)])
+      .filter(([, item]) => item.length > 0)
+  );
+}
+
+export function normalizeCommercePromptSpec(value: unknown): CommercePromptSpec | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Partial<CommercePromptSpec>;
+  const spec: CommercePromptSpec = {
+    task: normalizeString(record.task),
+    subject: normalizeString(record.subject),
+    audienceAndGoal: normalizeString(record.audienceAndGoal),
+    artDirection: normalizeString(record.artDirection),
+    composition: normalizeString(record.composition),
+    copyStrategy: normalizeString(record.copyStrategy),
+    platformAdaptation: normalizeString(record.platformAdaptation),
+    referenceUsage: normalizeString(record.referenceUsage),
+    negativeConstraints: normalizeStringArray(record.negativeConstraints),
+    qualityChecklist: normalizeStringArray(record.qualityChecklist),
+    ratioAdaptations: normalizeStringRecord(record.ratioAdaptations),
+  };
+
+  const hasContent = [
+    spec.task,
+    spec.subject,
+    spec.audienceAndGoal,
+    spec.artDirection,
+    spec.composition,
+    spec.copyStrategy,
+    spec.platformAdaptation,
+    spec.referenceUsage,
+    ...spec.negativeConstraints,
+    ...spec.qualityChecklist,
+    ...Object.values(spec.ratioAdaptations),
+  ].some((item) => item.trim().length > 0);
+
+  return hasContent ? spec : undefined;
 }
 
 function normalizeProductImage(value: unknown, index: number): CommerceAdProductImage | null {
@@ -588,6 +659,9 @@ export function createDefaultCommerceAdBatchGenerateState(): CommerceAdBatchGene
     size: '2K',
     corePrompt: '',
     ratioPrompts: {},
+    promptSpec: undefined,
+    renderedCorePrompt: '',
+    renderedRatioPrompts: {},
     detailPages: [],
     detailPageIds: [],
     detailPageCount: 0,
@@ -609,6 +683,8 @@ export function normalizeCommerceAdBatchGenerateState(value: unknown): CommerceA
   const generationMode = ['detailPages', 'legacyRatios'].includes(record.generationMode ?? '')
     ? record.generationMode as CommerceAdBatchGenerateState['generationMode']
     : 'detailPages';
+  const ratioPrompts = normalizeStringRecord(record.ratioPrompts);
+  const renderedRatioPrompts = normalizeStringRecord(record.renderedRatioPrompts);
 
   return {
     generationMode,
@@ -620,14 +696,10 @@ export function normalizeCommerceAdBatchGenerateState(value: unknown): CommerceA
     modelId: normalizeString(record.modelId),
     size: normalizeString(record.size) || '2K',
     corePrompt: normalizeString(record.corePrompt),
-    ratioPrompts:
-      record.ratioPrompts && typeof record.ratioPrompts === 'object' && !Array.isArray(record.ratioPrompts)
-        ? Object.fromEntries(
-            Object.entries(record.ratioPrompts as Record<string, unknown>)
-              .map(([key, item]) => [key, normalizeString(item)])
-              .filter(([, item]) => item.length > 0)
-          )
-        : {},
+    ratioPrompts,
+    promptSpec: normalizeCommercePromptSpec(record.promptSpec),
+    renderedCorePrompt: normalizeString(record.renderedCorePrompt),
+    renderedRatioPrompts,
     detailPages: normalizeCommerceAdDetailPages(record.detailPages),
     detailPageIds: normalizeStringArray(record.detailPageIds),
     detailPageCount: Math.max(
@@ -647,6 +719,8 @@ export function createDefaultCommerceAgentPlanState(): CommerceAgentPlanState {
     productUnderstanding: '',
     creativeDirection: '',
     prompt: '',
+    promptSpec: undefined,
+    renderedPrompt: '',
     referenceImages: [],
     referenceImageNotes: '',
     riskNotes: [],
@@ -678,6 +752,8 @@ export function normalizeCommerceAgentPlanState(value: unknown): CommerceAgentPl
     productUnderstanding: normalizeString(record.productUnderstanding),
     creativeDirection: normalizeString(record.creativeDirection),
     prompt: normalizeString(record.prompt),
+    promptSpec: normalizeCommercePromptSpec(record.promptSpec),
+    renderedPrompt: normalizeString(record.renderedPrompt),
     referenceImages: Array.isArray(record.referenceImages)
       ? record.referenceImages
           .map((item, index) => normalizeProductImage(item, index))
@@ -717,10 +793,14 @@ export function normalizeCommerceAdResultGroupState(value: unknown): CommerceAdR
             return null;
           }
           const item = batch as Partial<CommerceAdGenerationBatch>;
+          const renderedRatioPrompts = normalizeStringRecord(item.renderedRatioPrompts);
           return {
             id: normalizeString(item.id) || `commerce-batch-${batchIndex + 1}`,
             createdAt: normalizeTimestamp(item.createdAt) ?? Date.now(),
             corePrompt: normalizeString(item.corePrompt),
+            promptSpec: normalizeCommercePromptSpec(item.promptSpec),
+            renderedCorePrompt: normalizeString(item.renderedCorePrompt),
+            renderedRatioPrompts,
             aspectRatios: normalizeStringArray(item.aspectRatios),
             variantsPerRatio: Math.max(1, Math.min(8, Math.round(Number(item.variantsPerRatio) || 1))),
             batchCount: Math.max(1, Math.min(20, Math.round(Number(item.batchCount) || 1))),

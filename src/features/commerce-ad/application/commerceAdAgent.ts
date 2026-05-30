@@ -14,9 +14,15 @@ import {
   type CommerceAdProductState,
   type CommerceAdVisualPreferenceState,
   type CommerceAgentSkill,
+  type CommercePromptSpec,
   createDefaultCommerceAdVisualPreferenceState,
+  normalizeCommercePromptSpec,
   normalizeCommerceAdVisualPreferenceState,
 } from '@/features/commerce-ad/types';
+import {
+  buildCommercePromptSpecFallback,
+  renderPromptForImageGeneration,
+} from '@/features/commerce-ad/application/commercePromptSpec';
 
 export interface CommerceAdAgentTurnInput {
   userMessage: string;
@@ -189,6 +195,10 @@ function readRecordArray(record: Record<string, unknown>, key: string): Record<s
   return value.filter((item): item is Record<string, unknown> => (
     Boolean(item) && typeof item === 'object' && !Array.isArray(item)
   ));
+}
+
+function readPromptSpec(record: Record<string, unknown>): CommercePromptSpec | undefined {
+  return normalizeCommercePromptSpec(record.promptSpec);
 }
 
 function normalizeId(value: string, fallback: string): string {
@@ -968,6 +978,21 @@ export async function runCommerceAdAgentTurn(
         summary: '',
         promptFragment: '',
       },
+      promptSpec: {
+        task: '',
+        subject: '',
+        audienceAndGoal: '',
+        artDirection: '',
+        composition: '',
+        copyStrategy: '',
+        platformAdaptation: '',
+        referenceUsage: '',
+        negativeConstraints: [''],
+        qualityChecklist: [''],
+        ratioAdaptations: {
+          '4:5': '',
+        },
+      },
       batch: {
         generationMode: 'detailPages',
         aspectRatios: ['4:5'],
@@ -1084,6 +1109,9 @@ export async function runCommerceAdAgentTurn(
     '- Before platform, audience, selling points, and style are clear, prioritize Chinese brief refinement instead of pushing generation settings.',
     '- guidance.quickReplies should be short Chinese phrases users can click and edit before sending.',
     '- The image text strategy is baked into the generated image, not editable overlay layers.',
+    '- Output promptSpec as the structured source of truth for final image prompts. batch.corePrompt may summarize it, but promptSpec must carry the complete production intent.',
+    '- promptSpec fields must be specific and useful, not generic adjectives. Include concrete product preservation, art direction, lighting, material texture, props/background, composition, safe zones, copy strategy, negative constraints, and QA checks.',
+    '- promptSpec.ratioAdaptations must provide a distinct composition adaptation for each requested aspect ratio in batch.aspectRatios.',
     '- Keep corePrompt production-ready for image generation with faithful product preservation, but write it in Chinese by default. For ad creative, make it detailed and fashion-forward: composition, lens/framing, lighting, material texture, color palette, layout hierarchy, negative space, platform safe zones, overlay copy strategy, and quality constraints.',
     '- visualPreference must be Chinese by default and include designStyle, colorPalette, platformVisual, language, brandAccentColor, summary, and a production-ready promptFragment.',
     '- batch.corePrompt and every batch.ratioPrompts value must explicitly include visualPreference.promptFragment constraints.',
@@ -1119,6 +1147,9 @@ export async function runCommerceAdAgentTurn(
       : '',
     selectedSkill
       ? '- Keep overlay copy short and readable. If exact brand/offer is unknown, use generic supportable copy instead of inventing price, discount, medical/ergonomic claims, or guarantees.'
+      : '',
+    selectedSkill
+      ? '- For 广告创意 promptSpec, copyStrategy must explicitly say whether text should be generated. If text is allowed, include short headline, benefit line, CTA, and placement. If no text is requested, write a strict no-text rule and negative-space strategy.'
       : '',
     '',
     selectedSkill ? 'Selected skill:' : '',
@@ -1193,6 +1224,7 @@ export async function runCommerceAdAgentTurn(
     const briefRecord = readRecord(parsed, 'brief');
     const visualPreferenceRecord = readRecord(parsed, 'visualPreference');
     const batchRecord = readRecord(parsed, 'batch');
+    const parsedPromptSpec = readPromptSpec(parsed);
     const inferenceSummary = readString(inferenceRecord, 'summary');
     const inferenceVisualDescription = readString(inferenceRecord, 'visualDescription');
     const briefNormalizedBrief = readString(briefRecord, 'normalizedBrief');
@@ -1307,6 +1339,37 @@ export async function runCommerceAdAgentTurn(
       readString(batchRecord, 'corePrompt') || buildDetailFallbackCorePrompt(fallbackProductForBrief, mergedBrief),
       visualPreferenceData
     );
+    const requestedAspectRatios = readStringArray(batchRecord, 'aspectRatios').length > 0
+      ? readStringArray(batchRecord, 'aspectRatios')
+      : input.batch?.aspectRatios ?? ['4:5'];
+    const promptSpec = parsedPromptSpec ?? buildCommercePromptSpecFallback({
+      selectedSkillId: selectedSkill?.id,
+      product: fallbackProductForBrief,
+      brief: mergedBrief,
+      visualPreference: visualPreferenceData,
+      prompt: corePrompt || message,
+      referenceImageNotes: input.product?.images?.map((image) => image.description || image.label).filter(Boolean).join('\n'),
+      aspectRatios: requestedAspectRatios,
+    });
+    const renderedCorePrompt = renderPromptForImageGeneration({
+      spec: promptSpec,
+      basePrompt: corePrompt,
+      aspectRatio: requestedAspectRatios[0] ?? '4:5',
+      selectedSkillId: selectedSkill?.id,
+      visualPreference: visualPreferenceData,
+    });
+    const renderedRatioPrompts = Object.fromEntries(
+      requestedAspectRatios.map((ratio) => [
+        ratio,
+        renderPromptForImageGeneration({
+          spec: promptSpec,
+          basePrompt: ratioPrompts[ratio] || corePrompt,
+          aspectRatio: ratio,
+          selectedSkillId: selectedSkill?.id,
+          visualPreference: visualPreferenceData,
+        }),
+      ])
+    );
     const guidanceProduct: CommerceAdProductState = {
       images: input.product?.images ?? [],
       brand: productData.brand ?? input.product?.brand ?? '',
@@ -1341,9 +1404,7 @@ export async function runCommerceAdAgentTurn(
       type: 'upsertBatchGenerate',
       data: {
         generationMode: 'detailPages',
-        aspectRatios: readStringArray(batchRecord, 'aspectRatios').length > 0
-          ? readStringArray(batchRecord, 'aspectRatios')
-          : input.batch?.aspectRatios ?? ['4:5'],
+        aspectRatios: requestedAspectRatios,
         variantsPerRatio: input.batch?.variantsPerRatio ?? 1,
         batchCount: input.batch?.batchCount ?? 1,
         corePrompt,
@@ -1353,6 +1414,9 @@ export async function runCommerceAdAgentTurn(
             appendVisualPreferenceToPrompt(prompt, visualPreferenceData),
           ])
         ),
+        promptSpec,
+        renderedCorePrompt,
+        renderedRatioPrompts,
         detailPages: mergedBrief.detailPages ?? [],
         detailPageIds: (mergedBrief.detailPages ?? []).map((page) => page.id),
         detailPageCount: mergedBrief.detailPages?.length ?? 0,

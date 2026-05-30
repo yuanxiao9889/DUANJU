@@ -3878,6 +3878,8 @@
       "statusPlanCreated": "方案节点已创建或更新。"
     },
     "agentPlan": {
+      "promptStructure": "Prompt 结构",
+      "promptStructureReady": "结构化 Prompt 已就绪",
       "summary": "方案摘要",
       "productUnderstanding": "商品理解",
       "creativeDirection": "创意方向",

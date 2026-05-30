@@ -23,7 +23,7 @@ import {
   buildVisualPreferencePatch,
 } from "@/features/commerce-ad/application/commerceAdVisualPreference";
 import { normalizeCommerceAdVisualPreferenceState } from "@/features/commerce-ad/types";
-import type { CommerceAdDetailPage } from "@/features/commerce-ad/types";
+import type { CommerceAdDetailPage, CommercePromptSpec } from "@/features/commerce-ad/types";
 import {
   getImageModel,
   getModelProvider,
@@ -273,6 +273,37 @@ function ChipList({ items, fallbackText = "" }: { items: string[]; fallbackText?
           {item}
         </span>
       ))}
+    </div>
+  );
+}
+
+function PromptSpecSummary({ spec }: { spec?: CommercePromptSpec }) {
+  if (!spec) {
+    return null;
+  }
+
+  const rows = [
+    ["任务", spec.task],
+    ["产品主体", spec.subject],
+    ["广告目标", spec.audienceAndGoal],
+    ["视觉方向", spec.artDirection],
+    ["构图", spec.composition],
+    ["文案策略", spec.copyStrategy],
+    ["平台适配", spec.platformAdaptation],
+    ["参考图使用", spec.referenceUsage],
+  ].filter(([, value]) => value.trim().length > 0);
+  const checklist = [...spec.negativeConstraints, ...spec.qualityChecklist].filter(Boolean);
+
+  if (rows.length === 0 && checklist.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      {rows.map(([label, value]) => (
+        <FieldRow key={label} label={label} value={value} />
+      ))}
+      <ChipList items={checklist.slice(0, 8)} />
     </div>
   );
 }
@@ -1133,7 +1164,8 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
   const currentBatchCount = Math.max(1, Math.min(20, Math.round(Number(data.batchCount) || 1)));
   const imageCount = currentRatios.length * currentVariantsPerRatio * currentBatchCount;
   const referenceImages = data.referenceImages.slice(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT);
-  const canStartGeneration = data.prompt.trim().length > 0 && imageCount > 0 && data.status !== "generating";
+  const effectivePrompt = data.renderedPrompt || data.prompt;
+  const canStartGeneration = (effectivePrompt.trim().length > 0 || Boolean(data.promptSpec)) && imageCount > 0 && data.status !== "generating";
   const productionSummary = [
     selectedImageModel.displayName,
     selectedResolution.label,
@@ -1143,7 +1175,7 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
     }).join(" / "),
     t("commerceAd.agentPlan.imageCountSummary", { count: imageCount }),
   ].filter(Boolean).join(" · ");
-  const hasAdvancedContent = referenceImages.length > 0 || data.riskNotes.length > 0 || data.prompt.trim().length > 0;
+  const hasAdvancedContent = referenceImages.length > 0 || data.riskNotes.length > 0 || effectivePrompt.trim().length > 0 || Boolean(data.promptSpec);
 
   const updatePlan = useCallback((patch: Partial<CommerceAgentPlanNodeData>) => {
     updateNodeData(id, patch);
@@ -1314,7 +1346,7 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
           summary={[
             referenceImages.length > 0 ? t("commerceAd.agentPlan.referenceImageCount", { count: referenceImages.length }) : "",
             data.riskNotes.length > 0 ? t("commerceAd.agentPlan.riskCount", { count: data.riskNotes.length }) : "",
-            data.prompt.trim() ? t("commerceAd.agentPlan.promptReady") : "",
+            effectivePrompt.trim() ? t("commerceAd.agentPlan.promptReady") : "",
           ].filter(Boolean).join(" · ")}
           defaultOpen={false}
         >
@@ -1345,12 +1377,26 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
                 </p>
               </div>
             ) : null}
+            {data.promptSpec ? (
+              <CompactDisclosure
+                title={t("commerceAd.agentPlan.promptStructure")}
+                summary={t("commerceAd.agentPlan.promptStructureReady")}
+                defaultOpen={false}
+              >
+                <PromptSpecSummary spec={data.promptSpec} />
+              </CompactDisclosure>
+            ) : null}
             <ChipList items={data.riskNotes} />
             <TextAreaControl
               label={t("commerceAd.agentPlan.prompt")}
-              value={data.prompt}
+              value={effectivePrompt}
               rows={5}
-              onChange={(value) => updatePlan({ prompt: value, status: "ready", lastError: null } as Partial<CommerceAgentPlanNodeData>)}
+              onChange={(value) => updatePlan({
+                prompt: value,
+                renderedPrompt: value,
+                status: "ready",
+                lastError: null,
+              } as Partial<CommerceAgentPlanNodeData>)}
             />
           </div>
         </CompactDisclosure>

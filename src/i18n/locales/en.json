@@ -4139,6 +4139,8 @@
       "productUnderstanding": "Product understanding",
       "creativeDirection": "Creative direction",
       "prompt": "Core prompt",
+      "promptStructure": "Prompt structure",
+      "promptStructureReady": "Structured prompt ready",
       "details": "Plan details",
       "promptReady": "Prompt ready",
       "imageCountSummary": "{{count}} images",

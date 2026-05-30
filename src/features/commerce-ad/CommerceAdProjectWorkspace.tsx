@@ -58,6 +58,10 @@ import {
 } from '@/features/commerce-ad/application/commerceAdAgent';
 import { getCommerceAgentSkills } from '@/features/commerce-ad/application/commerceAgentSkills';
 import {
+  buildCommercePromptSpecFallback,
+  renderPromptForImageGeneration,
+} from '@/features/commerce-ad/application/commercePromptSpec';
+import {
   BRAND_ACCENT_PRESETS,
   VISUAL_PREFERENCE_OPTION_KEYS,
   buildVisualPreferencePatch,
@@ -1571,7 +1575,7 @@ function buildDetailPageGenerationBatch(
   };
 }
 
-function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAdGenerationBatch {
+function buildLegacyAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAdGenerationBatch {
   const aspectRatios = plan.aspectRatios.length > 0 ? plan.aspectRatios : ['4:5'];
   const variantsPerRatio = Math.max(1, Math.min(8, Math.round(Number(plan.variantsPerRatio) || 1)));
   const batchCount = Math.max(1, Math.min(20, Math.round(Number(plan.batchCount) || 1)));
@@ -1679,6 +1683,71 @@ function mergeProductState(
   };
 }
 
+function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAdGenerationBatch {
+  if (!plan.promptSpec && !plan.renderedPrompt) {
+    return buildLegacyAgentPlanGenerationBatch(plan);
+  }
+
+  const aspectRatios = plan.aspectRatios.length > 0 ? plan.aspectRatios : ['4:5'];
+  const variantsPerRatio = Math.max(1, Math.min(8, Math.round(Number(plan.variantsPerRatio) || 1)));
+  const batchCount = Math.max(1, Math.min(20, Math.round(Number(plan.batchCount) || 1)));
+  const batchId = `commerce-agent-plan-batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const promptSpec = plan.promptSpec ?? buildCommercePromptSpecFallback({
+    selectedSkillId: plan.selectedSkillId,
+    prompt: plan.prompt,
+    referenceImageNotes: plan.referenceImageNotes,
+    aspectRatios,
+  });
+  const buildPrompt = (aspectRatio: string): string => renderPromptForImageGeneration({
+    spec: promptSpec,
+    basePrompt: plan.renderedPrompt || plan.prompt,
+    aspectRatio,
+    selectedSkillId: plan.selectedSkillId,
+  });
+  const renderedCorePrompt = buildPrompt(aspectRatios[0] ?? '4:5');
+  const renderedRatioPrompts = Object.fromEntries(aspectRatios.map((ratio) => [ratio, buildPrompt(ratio)]));
+  const images: CommerceAdGeneratedImageRecord[] = aspectRatios.flatMap((aspectRatio) => (
+    Array.from({ length: batchCount }, (_, batchIndex) => (
+      Array.from({ length: variantsPerRatio }, (_, variantIndex): CommerceAdGeneratedImageRecord => ({
+        id: [
+          batchId,
+          `ratio-${aspectRatio.replace(/[^a-z0-9]+/gi, '-')}`,
+          `batch-${batchIndex + 1}`,
+          `variant-${variantIndex + 1}`,
+        ].join('-'),
+        aspectRatio,
+        detailPageTitle: [
+          aspectRatio,
+          batchCount > 1 ? `Batch ${batchIndex + 1}` : '',
+          variantsPerRatio > 1 ? `Variant ${variantIndex + 1}` : '',
+        ].filter(Boolean).join(' / '),
+        nodeId: null,
+        prompt: renderedRatioPrompts[aspectRatio] || renderedCorePrompt,
+        status: 'queued',
+        imageUrl: null,
+        previewImageUrl: null,
+        error: null,
+      }))
+    )).flat()
+  ));
+
+  return {
+    id: batchId,
+    createdAt: Date.now(),
+    corePrompt: renderedCorePrompt,
+    promptSpec,
+    renderedCorePrompt,
+    renderedRatioPrompts,
+    aspectRatios,
+    variantsPerRatio,
+    batchCount,
+    generationMode: 'legacyRatios',
+    detailPageCount: 0,
+    detailPages: [],
+    images,
+  };
+}
+
 function composeAgentPlanState(input: {
   text: string;
   images: CommerceAdProductImage[];
@@ -1701,6 +1770,7 @@ function composeAgentPlanState(input: {
   const batch = batchAction?.type === 'upsertBatchGenerate' ? batchAction.data : null;
   const defaultPlan = createDefaultCommerceAgentPlanState();
   const prompt = [
+    batch?.renderedCorePrompt,
     batch?.corePrompt,
     brief?.normalizedBrief,
     brief?.headline,
@@ -1723,6 +1793,24 @@ function composeAgentPlanState(input: {
     previousRatios: input.previousPlan?.aspectRatios ?? [],
     fallbackRatios: input.fallbackRatios,
   });
+  const promptSpec = batch?.promptSpec
+    ?? input.previousPlan?.promptSpec
+    ?? buildCommercePromptSpecFallback({
+      selectedSkillId: input.selectedSkillId,
+      product,
+      brief,
+      prompt,
+      referenceImageNotes: input.images.length > 0
+        ? composeProductImageReferenceNotes(input.images)
+        : input.previousPlan?.referenceImageNotes,
+      aspectRatios: resolvedAspectRatios,
+    });
+  const renderedPrompt = renderPromptForImageGeneration({
+    spec: promptSpec,
+    basePrompt: batch?.renderedCorePrompt || prompt || input.previousPlan?.prompt,
+    aspectRatio: resolvedAspectRatios[0] ?? '4:5',
+    selectedSkillId: input.selectedSkillId,
+  });
 
   return {
     ...defaultPlan,
@@ -1736,6 +1824,8 @@ function composeAgentPlanState(input: {
       ...(brief?.sellingPoints ?? []).slice(0, 4),
     ].filter(Boolean).join('\n') || input.previousPlan?.creativeDirection || '',
     prompt: prompt || input.previousPlan?.prompt || '',
+    promptSpec,
+    renderedPrompt,
     referenceImages: input.images.length > 0 ? input.images : input.previousPlan?.referenceImages ?? [],
     referenceImageNotes: input.images.length > 0
       ? composeProductImageReferenceNotes(input.images)
@@ -4367,7 +4457,9 @@ function CommerceAdWorkspaceInner() {
 
   const handleGenerate = useCallback(async () => {
     const corePrompt =
-      batchNode?.data.corePrompt
+      batchNode?.data.renderedCorePrompt
+      || batchNode?.data.renderedRatioPrompts?.[currentRatios[0] ?? '4:5']
+      || batchNode?.data.corePrompt
       || briefNode?.data.normalizedBrief
       || productNode?.data.lockedDocumentInfo
       || productNode?.data.userIdeaInfo
@@ -4613,7 +4705,8 @@ function CommerceAdWorkspaceInner() {
       plan.size || resolveCommerceDefaultResolution(selectedPlanModel),
       { extraParams: {} }
     );
-    if (!plan.prompt.trim()) {
+    const executablePlanPrompt = plan.renderedPrompt || plan.prompt;
+    if (!executablePlanPrompt.trim() && !plan.promptSpec) {
       updateNodeData(planNode.id, {
         status: 'failed',
         lastError: t('commerceAd.agentPlan.needPrompt'),
@@ -5091,6 +5184,9 @@ function CommerceAdWorkspaceInner() {
                 size: agentPlanNode.data.size,
                 corePrompt: agentPlanNode.data.prompt,
                 ratioPrompts: {},
+                promptSpec: agentPlanNode.data.promptSpec,
+                renderedCorePrompt: agentPlanNode.data.renderedPrompt,
+                renderedRatioPrompts: {},
                 detailPages: [],
                 detailPageIds: [],
                 detailPageCount: 0,
