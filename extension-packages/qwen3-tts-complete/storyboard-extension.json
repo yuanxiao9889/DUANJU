@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "description": "Full offline Qwen3 TTS runtime package for Storyboard Copilot. This package is assembled from the local integrated bundle and replaces the mock runtime with the official inference stack.",
   "runtime": "python-bridge",
+  "startupHealthTimeoutMs": 180000,
   "entry": {
     "kind": "python",
     "python": "runtime/python/python.exe",

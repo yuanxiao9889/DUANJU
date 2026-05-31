@@ -3866,12 +3866,16 @@
         "ecommerce": "电商",
         "branding": "品牌"
       },
-      "skillOptions": {
-        "adCreative": {
-          "title": "广告创意",
-          "description": "为 Instagram、Facebook、TikTok、LinkedIn、YouTube、Google 和 X 设计平台适配广告素材。"
-        }
-      },
+        "skillOptions": {
+          "ad-creative": {
+            "title": "广告创意",
+            "description": "为 Instagram、Facebook、TikTok、LinkedIn、YouTube、Google 和 X 设计平台适配广告素材。"
+          },
+          "ai-stylist-model-conversion": {
+            "title": "AI造型师:高转化模特图",
+            "description": "瞬时生成多款专业模特造型，全方位展现商品潜力，触达更广泛受众并提升销售转化。"
+          }
+        },
       "removeChatImage": "删除图片",
       "chatImagesUploaded": "已添加 {{count}} 张图片到对话输入区。",
       "chatImagesOnly": "请上传图片文件。",

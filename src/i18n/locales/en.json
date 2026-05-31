@@ -4123,12 +4123,16 @@
         "ecommerce": "E-Commerce",
         "branding": "Branding"
       },
-      "skillOptions": {
-        "adCreative": {
-          "title": "Ad Creative",
-          "description": "Design platform-fit ad assets for Instagram, Facebook, TikTok, LinkedIn, YouTube, Google, and X."
-        }
-      },
+        "skillOptions": {
+          "ad-creative": {
+            "title": "Ad Creative",
+            "description": "Design platform-fit ad assets for Instagram, Facebook, TikTok, LinkedIn, YouTube, Google, and X."
+          },
+          "ai-stylist-model-conversion": {
+            "title": "AI Stylist: High-Converting Model Images",
+            "description": "Instantly create multiple professional model styling directions to reveal product potential, reach broader audiences, and lift conversion."
+          }
+        },
       "removeChatImage": "Remove image",
       "chatImagesUploaded": "Added {{count}} image(s) to the chat input.",
       "chatImagesOnly": "Please upload image files.",

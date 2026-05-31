@@ -57,7 +57,7 @@ import {
   buildCommerceAdAgentVisiblePrompt,
   runCommerceAdAgentTurn,
 } from '@/features/commerce-ad/application/commerceAdAgent';
-import { getCommerceAgentSkills } from '@/features/commerce-ad/application/commerceAgentSkills';
+import { AI_STYLIST_SKILL_ID, getCommerceAgentSkills } from '@/features/commerce-ad/application/commerceAgentSkills';
 import {
   buildCommercePromptSpecFallback,
   renderPromptForImageGeneration,
@@ -159,6 +159,24 @@ const COMMERCE_AGENT_MODULES = [
   { id: 'campaignPoster', icon: Megaphone },
   { id: 'sceneImage', icon: Images },
 ] as const;
+const COMMERCE_AGENT_SKILL_ICON_MAP: Record<string, typeof Megaphone> = {
+  megaphone: Megaphone,
+  shirt: Shirt,
+  sparkles: Sparkles,
+  package: PackageCheck,
+  images: Images,
+  book: BookOpen,
+};
+const AI_STYLIST_VARIATION_DIRECTIONS = [
+  'Look 1：高端时尚主视觉，精致模特姿态，近景或半身构图，突出面部气质、材质高光和奢华留白。',
+  'Look 2：生活方式转化图，自然动作，真实使用或穿搭场景，中景构图，强调商品进入日常后的吸引力。',
+  'Look 3：动态社媒感画面，轻微运动姿态或转身动作，画面更有能量，适合短视频封面和社媒种草。',
+  'Look 4：细节信任图，手部/肩颈/腰线/包袋佩戴等商品关键区域更清楚，强调版型、比例、材质或配件尺度。',
+  'Look 5：受众扩展图，更换模特气质、发型妆容、年龄层或场景语境，但保持同一品牌视觉系统。',
+  'Look 6：编辑大片图，更强摄影构图、低角度或侧逆光，强调时尚杂志质感和高级商业审美。',
+  'Look 7：清爽电商图，干净背景、正面清晰展示、姿态克制，适合作为商品列表或详情首屏。',
+  'Look 8：氛围故事图，加入更完整环境线索和轻道具，强调使用场景、生活方式和情绪价值。',
+];
 type CommerceAgentModuleId = (typeof COMMERCE_AGENT_MODULES)[number]['id'];
 type CommerceAgentTask =
   | 'chat'
@@ -363,8 +381,12 @@ function hasMinimumExecutableAdState(
   state: CommerceAdAgentThreadState,
   skill: CommerceAgentSkill | null
 ): boolean {
-  return Boolean(state.imageAnalysis) && getSkillRequiredSlots(skill)
+  const hasRequiredSlots = getSkillRequiredSlots(skill)
     .every((slotKey) => hasSlotValue(state.confirmedSlots[slotKey]));
+  if (skill?.id === AI_STYLIST_SKILL_ID) {
+    return hasRequiredSlots;
+  }
+  return Boolean(state.imageAnalysis) && hasRequiredSlots;
 }
 
 function isDefaultAgentThreadState(state: CommerceAdAgentThreadState): boolean {
@@ -379,10 +401,12 @@ function isDefaultAgentThreadState(state: CommerceAdAgentThreadState): boolean {
 
 function isEmptyCommerceAgentDraftThread(input: {
   messages: CommerceAdAgentMessage[];
+  draft: string;
   chatImages: CommerceAdProductImage[];
   state: CommerceAdAgentThreadState;
 }): boolean {
   return input.messages.length === 0
+    && input.draft.trim().length === 0
     && input.chatImages.length === 0
     && isDefaultAgentThreadState(input.state);
 }
@@ -405,6 +429,9 @@ function isAgentReadyForSkillWork(
       || hasSlotValue(state.confirmedSlots.visualDirection)
       || hasSlotValue(state.confirmedSlots.style)
       || hasSlotValue(state.confirmedSlots.outputFormat);
+  }
+  if (skill.id === AI_STYLIST_SKILL_ID) {
+    return computeMissingAgentSlots(state, skill).length === 0;
   }
   return computeMissingAgentSlots(state, skill).length === 0
     && (Boolean(state.imageAnalysis) || Object.keys(state.confirmedSlots).length > 0);
@@ -671,6 +698,26 @@ function isGuidanceQuestionAnswered(
   return Boolean(slotKey && hasSlotValue(state.confirmedSlots[slotKey]));
 }
 
+function buildAiStylistBackgroundQuestion(): CommerceAdAgentGuidance['questions'][number] {
+  return {
+    id: 'stylist-background-mode',
+    label: '这组模特图是否需要场景背景？',
+    allowMultiple: false,
+    options: [
+      {
+        id: 'no-background',
+        label: '不需要背景',
+        value: '背景：不需要背景，生成白色/浅灰无缝影棚背景，干净电商棚拍，不要生活方式场景',
+      },
+      {
+        id: 'with-background',
+        label: '需要背景',
+        value: '背景：需要背景，请根据模特造型风格匹配合适的场景背景',
+      },
+    ],
+  };
+}
+
 function normalizeAgentGuidanceForState(
   guidance: CommerceAdAgentGuidance | undefined,
   state: CommerceAdAgentThreadState,
@@ -721,7 +768,16 @@ function normalizeAgentGuidanceForState(
           return !slotKey || missingSlots.includes(slotKey);
         })
         .slice(0, 2);
-  const usesCreativeGuidanceLoop = skill?.id === 'ad-creative' || !skill;
+  const shouldAskAiStylistBackground = skill?.id === AI_STYLIST_SKILL_ID
+    && !hasSlotValue(state.confirmedSlots.backgroundMode)
+    && !filteredQuestions.some((question) => findSlotKeyInGuidanceText(`${question.id} ${question.label}`, skill) === 'backgroundMode');
+  const guidanceQuestions = shouldAskAiStylistBackground
+    ? [buildAiStylistBackgroundQuestion(), ...filteredQuestions].slice(0, 2)
+    : filteredQuestions;
+  const visibleMissingFields = shouldAskAiStylistBackground
+    ? filteredMissingFields.filter((field) => findSlotKeyInGuidanceText(field, skill) !== 'backgroundMode')
+    : filteredMissingFields;
+  const usesCreativeGuidanceLoop = Boolean(skill) || !skill;
   const hasConfirmedDirection = hasSlotValue(state.confirmedSlots.visualDirection)
     || hasSlotValue(state.confirmedSlots.outputFormat);
   const creativeGuidanceKind = resolveCreativeGuidanceKind({
@@ -760,8 +816,8 @@ function normalizeAgentGuidanceForState(
     ...baseGuidance,
     panelTitle: moreOptionsFallback?.panelTitle || baseGuidance.panelTitle || (usesCreativeGuidanceLoop ? resolveCreativeGuidancePanelTitle(creativeGuidanceKind) : undefined),
     guidanceKind: moreOptionsFallback?.guidanceKind || (usesCreativeGuidanceLoop ? creativeGuidanceKind : guidance.guidanceKind),
-    missingFields: filteredMissingFields.length > 0 ? filteredMissingFields : (skill && !shouldTreatAsReadyForGuidance ? missingSlotLabels : baseGuidance.missingFields),
-    questions: filteredQuestions.length > 0 ? filteredQuestions : (isGenericMode && !shouldTreatAsReadyForGuidance ? baseGuidance.questions.slice(0, 2) : filteredQuestions),
+    missingFields: visibleMissingFields.length > 0 ? visibleMissingFields : (skill && !shouldTreatAsReadyForGuidance ? missingSlotLabels.filter((field) => !shouldAskAiStylistBackground || findSlotKeyInGuidanceText(field, skill) !== 'backgroundMode') : baseGuidance.missingFields),
+    questions: guidanceQuestions.length > 0 ? guidanceQuestions : (isGenericMode && !shouldTreatAsReadyForGuidance ? baseGuidance.questions.slice(0, 2) : guidanceQuestions),
     designDirections: moreOptionsFallback?.designDirections ?? (shouldShowDesignDirections ? baseGuidance.designDirections.slice(0, 3) : []),
     quickReplies: moreOptionsFallback?.quickReplies ?? (shouldTreatAsReadyForGuidance && !shouldShowDesignDirections ? [] : baseGuidance.quickReplies.slice(0, 3)),
     readinessHint: moreOptionsFallback?.readinessHint || baseGuidance.readinessHint,
@@ -778,6 +834,31 @@ function resolveAgentNextAction(
     return requestedAction === 'generate' ? 'generate' : requestedAction === 'plan' ? 'plan' : 'ready';
   }
   return requestedAction;
+}
+
+function shouldCreatePlanAfterGuidanceLoop(input: {
+  skill: CommerceAgentSkill | null;
+  state: CommerceAdAgentThreadState;
+  hasExistingPlan: boolean;
+  nextAction?: CommerceAgentNextAction;
+  isOneShotExplorationTurn: boolean;
+}): boolean {
+  if (input.isOneShotExplorationTurn) {
+    return false;
+  }
+  if (
+    input.nextAction === 'ready'
+    || input.nextAction === 'plan'
+    || input.nextAction === 'generate'
+    || input.hasExistingPlan
+    || isAgentReadyForSkillWork(input.state, input.skill)
+  ) {
+    return true;
+  }
+  return Boolean(
+    input.skill
+    && input.state.guidanceRound >= COMMERCE_AGENT_MIN_CREATIVE_GUIDANCE_ROUNDS
+  );
 }
 
 function inferAdAgentTurnIntent(input: {
@@ -832,6 +913,12 @@ function extractConfirmedSlotsFromText(
   })();
   const visualDirection = (() => {
     if (/高端|质感|高级|精品|奢华/.test(normalized)) return '高端单品主视觉';
+    if (/高端时尚|奢侈|珠宝|腕表|香氛|quiet luxury/i.test(normalized)) return '高端时尚模特造型';
+    if (/活力|青春|运动|街头|潮流|校园/.test(normalized)) return '活力青春模特造型';
+    if (/可爱|甜美|软萌|少女|俏皮/.test(normalized)) return '甜美可爱模特造型';
+    if (/轻熟|通勤|职场|都市/.test(normalized)) return '轻熟通勤模特造型';
+    if (/户外|机能|露营|徒步|旅行/.test(normalized)) return '户外机能模特造型';
+    if (/未来|科技|赛博|智能|金属/.test(normalized)) return '未来科技模特造型';
     if (/生活方式|场景|居家|户外/.test(normalized)) return '生活方式场景';
     if (/ugc|达人|原生|真实/.test(lower)) return 'UGC 原生广告';
     if (/促销|优惠|折扣|限时/.test(normalized)) return '促销利益点海报';
@@ -863,8 +950,67 @@ function extractConfirmedSlotsFromText(
   if (cta) patch.cta = cta;
   if (brandInfo) patch.brandInfo = brandInfo;
   if (audience) patch.audience = audience;
+  if (audience) patch.targetAudience = audience;
   if (sellingPoint) patch.sellingPoint = sellingPoint;
   if (outputFormat) patch.outputFormat = outputFormat;
+
+  const modelProfile = (() => {
+    const match = normalized.match(/(?:模特|模特人设|模特类型)[：: ]?([^；;\n]+)/);
+    if (match?.[1]?.trim()) return match[1].trim();
+    if (/都市通勤|通勤/.test(normalized)) return '都市通勤模特';
+    if (/年轻|Gen Z|社交|种草/i.test(normalized)) return '年轻社媒感模特';
+    if (/品质|精致|高端|高级/.test(normalized)) return '品质精致型模特';
+    return '';
+  })();
+  const stylingScenario = (() => {
+    const match = normalized.match(/(?:造型场景|穿搭场景|使用场景|场景)[：: ]?([^；;\n]+)/);
+    if (match?.[1]?.trim()) return match[1].trim();
+    if (/通勤|办公室|职场/.test(normalized)) return '都市通勤场景';
+    if (/日常|生活方式|街拍|咖啡|出街/.test(normalized)) return '日常生活方式场景';
+    if (/棚拍|电商|白底|干净/.test(normalized)) return '干净电商棚拍';
+    return '';
+  })();
+  const lookCount = (() => {
+    const match = normalized.match(/(\d+)\s*(?:套|组|个)?(?:造型|look|looks)/i);
+    if (match?.[1]) return `${match[1]} 套造型`;
+    if (/三套|3套/.test(normalized)) return '3 套造型';
+    if (/五套|5套/.test(normalized)) return '5 套造型';
+    return '';
+  })();
+  const productFit = (() => {
+    const match = normalized.match(/(?:版型|穿着重点|佩戴重点|露出重点|面料|材质)[：: ]?([^；;\n]+)/);
+    return match?.[1]?.trim() ?? '';
+  })();
+  const copyStrategy = (() => {
+    if (/不要(?:加|出现|生成)?(?:文字|文案|标题|字幕|字)|无字(?:版)?|不带(?:文字|文案|标题|字幕)/.test(normalized)) return '无文字版，预留干净留白';
+    const match = normalized.match(/(?:文案|文字|标题|CTA)[：: ]?([^；;\n]+)/i);
+    return match?.[1]?.trim() ?? '';
+  })();
+  const productCategory = (() => {
+    const match = normalized.match(/(?:商品|产品|品类|类目|搭配品类)[：: ]?([^；;\n]+)/);
+    if (match?.[1]?.trim()) return match[1].trim();
+    if (/珠宝|项链|戒指|耳环|腕表|奢侈|香氛|美妆/.test(normalized)) return '珠宝/腕表/奢侈品/香氛美妆类';
+    if (/运动|球鞋|瑜伽|健身|冲锋衣|户外/.test(normalized)) return '运动户外/鞋服配件类';
+    if (/包|手袋|背包|托特/.test(normalized)) return '包袋配饰类';
+    if (/裙|衬衫|大衣|外套|成衣|服装|穿搭/.test(normalized)) return '服装穿搭类';
+    return '';
+  })();
+  const backgroundMode = (() => {
+    if (/不需要背景|不要背景|无背景|白底|白色背景|浅灰背景|影棚|棚拍|studio|white background/i.test(normalized)) {
+      return '不需要背景：白色/浅灰无缝影棚背景，干净电商棚拍，不要生活方式场景';
+    }
+    if (/需要背景|要背景|匹配背景|场景背景|生活方式背景|外景|酒店|街拍|户外|咖啡馆|艺术空间/.test(normalized)) {
+      return '需要背景：根据模特造型风格匹配合适场景背景';
+    }
+    return '';
+  })();
+  if (modelProfile) patch.modelProfile = modelProfile;
+  if (stylingScenario) patch.stylingScenario = stylingScenario;
+  if (lookCount) patch.lookCount = lookCount;
+  if (productFit) patch.productFit = productFit;
+  if (copyStrategy) patch.copyStrategy = copyStrategy;
+  if (productCategory) patch.productCategory = productCategory;
+  if (backgroundMode) patch.backgroundMode = backgroundMode;
 
   Object.entries(skill?.slotAliases ?? {}).forEach(([slotKey, aliases]) => {
     if (patch[slotKey]) {
@@ -1481,6 +1627,9 @@ function resolveCommerceAgentPlanAspectRatios(input: {
   previousRatios: string[];
   fallbackRatios: string[];
 }): string[] {
+  if (input.selectedSkillId === AI_STYLIST_SKILL_ID) {
+    return resolveCommerceAspectRatiosForModel(input.model, ['9:16']).slice(0, 1);
+  }
   const platformHints = collectPlatformHintsFromAgentContext({
     selectedSkillId: input.selectedSkillId,
     text: input.text,
@@ -1637,7 +1786,8 @@ function buildDetailPageGenerationBatch(
 }
 
 function buildLegacyAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAdGenerationBatch {
-  const aspectRatios = plan.aspectRatios.length > 0 ? plan.aspectRatios : ['4:5'];
+  const isAiStylistPlan = plan.selectedSkillId === AI_STYLIST_SKILL_ID;
+  const aspectRatios = isAiStylistPlan ? ['9:16'] : (plan.aspectRatios.length > 0 ? plan.aspectRatios : ['4:5']);
   const variantsPerRatio = Math.max(1, Math.min(8, Math.round(Number(plan.variantsPerRatio) || 1)));
   const batchCount = Math.max(1, Math.min(20, Math.round(Number(plan.batchCount) || 1)));
   const batchId = `commerce-agent-plan-batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1690,7 +1840,9 @@ function buildLegacyAgentPlanGenerationBatch(plan: CommerceAgentPlanState): Comm
           variantsPerRatio > 1 ? `Variant ${variantIndex + 1}` : '',
         ].filter(Boolean).join(' / '),
         nodeId: null,
-        prompt: buildPrompt(aspectRatio),
+        prompt: isAiStylistPlan
+          ? appendAiStylistVariantPrompt(buildPrompt(aspectRatio), aspectRatio, batchIndex, variantIndex)
+          : buildPrompt(aspectRatio),
         status: 'queued',
         imageUrl: null,
         previewImageUrl: null,
@@ -1711,6 +1863,55 @@ function buildLegacyAgentPlanGenerationBatch(plan: CommerceAgentPlanState): Comm
     detailPages: [],
     images,
   };
+}
+
+function appendAiStylistVariantPrompt(
+  basePrompt: string,
+  aspectRatio: string,
+  batchIndex: number,
+  variantIndex: number
+): string {
+  const normalizedBasePrompt = normalizeGuidanceToken(basePrompt);
+  const wantsNoBackground = normalizedBasePrompt.includes('不需要背景')
+    || normalizedBasePrompt.includes('不要背景')
+    || normalizedBasePrompt.includes('无背景')
+    || normalizedBasePrompt.includes('白底')
+    || normalizedBasePrompt.includes('白色背景')
+    || normalizedBasePrompt.includes('浅灰背景')
+    || normalizedBasePrompt.includes('影棚')
+    || normalizedBasePrompt.includes('棚拍')
+    || normalizedBasePrompt.includes('whitebackground')
+    || normalizedBasePrompt.includes('studio');
+  const globalIndex = batchIndex * 8 + variantIndex;
+  const direction = AI_STYLIST_VARIATION_DIRECTIONS[globalIndex % AI_STYLIST_VARIATION_DIRECTIONS.length];
+  const modelSeeds = wantsNoBackground
+    ? [
+        '更换模特气质、发型妆容、姿态和镜头距离，背景保持白色/浅灰无缝影棚',
+        '更换姿势、手部动作、身体朝向和表情，背景保持干净棚拍',
+        '更换穿搭层次、配饰搭配、商品露出方式和构图重心，不加入任何生活场景',
+        '更换光位、机位和裁切方式，背景只允许白色或浅灰影棚背景',
+      ]
+    : [
+        '更换模特气质、发型妆容、姿态和镜头距离',
+        '更换姿势、手部动作、身体朝向和表情',
+        '更换场景深度、道具关系、背景光影和取景角度',
+        '更换穿搭层次、配饰搭配、商品露出方式和构图重心',
+      ];
+  const seed = modelSeeds[(batchIndex + variantIndex) % modelSeeds.length];
+  const backgroundRule = wantsNoBackground
+    ? '背景规则：用户选择不需要背景。必须使用白色或极浅灰无缝影棚背景，干净电商棚拍光线；禁止生成酒店、街景、艺术空间、户外、咖啡馆、居家、奢华室内等任何场景背景；不要出现道具化环境。'
+    : '背景规则：用户选择需要背景或未排除背景。可以根据造型风格匹配合适场景背景，但背景必须服务模特和商品，不要喧宾夺主。';
+  return [
+    basePrompt,
+    '',
+    'AI造型师批量出图要求：本批次所有图片必须保持同一品牌风格、同一视觉调性、同一商品/品类设定和一致的商业审美。',
+    `输出比例固定为 ${aspectRatio} 竖版模特图，优先适配 9:16 手机屏、短视频封面、社媒竖版展示。`,
+    backgroundRule,
+    `当前变体：第 ${batchIndex + 1} 组 / 第 ${variantIndex + 1} 张。${direction}`,
+    `差异化要求：${seed}；不要生成与其他变体几乎相同的模特、姿态、背景或构图。`,
+    '随机性要求：在保持风格一致的前提下，提高模特外貌气质、动作、镜头、场景细节和商品展示方式的变化。每张都要像同一品牌 campaign 下的不同 Look。',
+    '一致性要求：不要改变商品核心外观、颜色、材质、版型、图案、logo 位置或已确认的品牌调性。',
+  ].join('\n');
 }
 
 function dedupeStrings(values: string[]): string[] {
@@ -1749,7 +1950,8 @@ function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAd
     return buildLegacyAgentPlanGenerationBatch(plan);
   }
 
-  const aspectRatios = plan.aspectRatios.length > 0 ? plan.aspectRatios : ['4:5'];
+  const isAiStylistPlan = plan.selectedSkillId === AI_STYLIST_SKILL_ID;
+  const aspectRatios = isAiStylistPlan ? ['9:16'] : (plan.aspectRatios.length > 0 ? plan.aspectRatios : ['4:5']);
   const variantsPerRatio = Math.max(1, Math.min(8, Math.round(Number(plan.variantsPerRatio) || 1)));
   const batchCount = Math.max(1, Math.min(20, Math.round(Number(plan.batchCount) || 1)));
   const batchId = `commerce-agent-plan-batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1783,7 +1985,14 @@ function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAd
           variantsPerRatio > 1 ? `Variant ${variantIndex + 1}` : '',
         ].filter(Boolean).join(' / '),
         nodeId: null,
-        prompt: renderedRatioPrompts[aspectRatio] || renderedCorePrompt,
+        prompt: isAiStylistPlan
+          ? appendAiStylistVariantPrompt(
+              renderedRatioPrompts[aspectRatio] || renderedCorePrompt,
+              aspectRatio,
+              batchIndex,
+              variantIndex
+            )
+          : renderedRatioPrompts[aspectRatio] || renderedCorePrompt,
         status: 'queued',
         imageUrl: null,
         previewImageUrl: null,
@@ -1830,13 +2039,15 @@ function composeAgentPlanState(input: {
   const brief = briefAction?.type === 'upsertBrief' ? briefAction.data : null;
   const batch = batchAction?.type === 'upsertBatchGenerate' ? batchAction.data : null;
   const defaultPlan = createDefaultCommerceAgentPlanState();
-  const prompt = [
+  const promptBase = [
     batch?.renderedCorePrompt,
     batch?.corePrompt,
     brief?.normalizedBrief,
     brief?.headline,
     input.text,
   ].find((value) => value?.trim())?.trim() ?? '';
+  const backgroundModePrompt = collectCommerceSlotStrings(input.confirmedSlots?.backgroundMode).join('\n');
+  const prompt = [promptBase, backgroundModePrompt].filter((value) => value?.trim()).join('\n\n');
   const riskNotes = input.previousPlan
     ? dedupeStrings([
     ...(product?.inference?.uncertaintyNotes ?? []),
@@ -2924,13 +3135,11 @@ function CommerceAdWorkspaceInner() {
     createDefaultCommerceAdVisualPreferenceState()
   ));
   const availableSkills = useMemo<CommerceAgentSkill[]>(() => getCommerceAgentSkills().map((skill) => (
-    skill.id === 'ad-creative'
-      ? {
-          ...skill,
-          title: t('commerceAd.agent.skillOptions.adCreative.title'),
-          description: t('commerceAd.agent.skillOptions.adCreative.description'),
-        }
-      : skill
+    {
+      ...skill,
+      title: t(`commerceAd.agent.skillOptions.${skill.id}.title`, { defaultValue: skill.title }),
+      description: t(`commerceAd.agent.skillOptions.${skill.id}.description`, { defaultValue: skill.description }),
+    }
   )), [t]);
 
   const stopThinkingTypewriter = useCallback(() => {
@@ -3090,12 +3299,9 @@ function CommerceAdWorkspaceInner() {
       if (threadMatch) {
         return threadMatch as CanvasNode & { data: CommerceAgentPlanNodeData };
       }
-      if (activeThreadId !== COMMERCE_AGENT_DEFAULT_THREAD_ID) {
-        return null;
-      }
-      return resolveActiveStageNode<CommerceAgentPlanNodeData>(nodes, CANVAS_NODE_TYPES.commerceAgentPlan, selectedNodeId);
+      return null;
     },
-    [activeThreadId, nodes, selectedNodeId]
+    [activeThreadId, nodes]
   );
   const visualPreferenceNode = useMemo(
     () => resolveActiveStageNode<CommerceVisualPreferenceNodeData>(nodes, CANVAS_NODE_TYPES.commerceVisualPreference, selectedNodeId),
@@ -3200,17 +3406,16 @@ function CommerceAdWorkspaceInner() {
 
   useEffect(() => {
     setAgentThreadState((current) => {
-      if (current.skillId === (selectedSkill?.id ?? '')) {
-        return current;
-      }
-      return mergeAgentThreadState(
-        createDefaultAgentThreadState(selectedSkill),
-        {
-          imageAnalysis: current.imageAnalysis,
+    if (current.skillId === (selectedSkill?.id ?? '')) {
+      return current;
+    }
+    return mergeAgentThreadState(
+      createDefaultAgentThreadState(selectedSkill),
+      {
           planVersion: current.planVersion,
-        },
-        selectedSkill
-      );
+      },
+      selectedSkill
+    );
     });
   }, [selectedSkill]);
 
@@ -3509,6 +3714,7 @@ function CommerceAdWorkspaceInner() {
     }
     if (isEmptyCommerceAgentDraftThread({
       messages,
+      draft,
       chatImages,
       state: agentThreadState,
     })) {
@@ -5491,14 +5697,13 @@ function CommerceAdWorkspaceInner() {
           delete next[assistantMessageId];
           return next;
         });
-        const shouldCreateOrUpdatePlan =
-          !isOneShotExplorationTurn
-          && (
-            nextAction === 'ready'
-            || nextAction === 'plan'
-            || nextAction === 'generate'
-            || Boolean(agentPlanNode?.data?.agentThreadId === activeThreadId)
-          );
+        const shouldCreateOrUpdatePlan = shouldCreatePlanAfterGuidanceLoop({
+          skill: selectedSkill,
+          state: finalAgentThreadState,
+          hasExistingPlan: Boolean(agentPlanNode?.data?.agentThreadId === activeThreadId),
+          nextAction,
+          isOneShotExplorationTurn,
+        });
         if (shouldCreateOrUpdatePlan) {
           setStatusText(t('commerceAd.agentPlan.thinkingStepPlan'));
           const fallbackImageModel = getImageModel(
@@ -6005,6 +6210,7 @@ function CommerceAdWorkspaceInner() {
                 <div className="ui-scrollbar max-h-[360px] space-y-1 overflow-y-auto p-3">
                   {availableSkills.map((skill) => {
                     const isSelected = skill.id === selectedSkillId;
+                    const SkillIcon = COMMERCE_AGENT_SKILL_ICON_MAP[skill.iconKey] ?? Sparkles;
                     return (
                       <button
                         key={skill.id}
@@ -6024,7 +6230,7 @@ function CommerceAdWorkspaceInner() {
                             ? 'bg-text-dark text-bg-dark'
                             : 'bg-bg-dark text-accent'
                         }`}>
-                          <Megaphone className="h-4.5 w-4.5" />
+                          <SkillIcon className="h-4.5 w-4.5" />
                         </span>
                         <span className="min-w-0">
                           <span className="flex items-center gap-2 text-sm font-medium">

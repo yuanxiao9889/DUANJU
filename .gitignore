@@ -13,6 +13,9 @@ dist-ssr
 *.local
 build/extensions/
 build/downloads/
+extension-packages/qwen3-tts-complete/runtime/models/
+extension-packages/qwen3-tts-complete/runtime/outputs/
+extension-packages/qwen3-tts-complete/runtime/python/
 
 # Editor directories and files
 .vscode/*

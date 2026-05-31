@@ -23,6 +23,7 @@ import {
   buildCommercePromptSpecFallback,
   renderPromptForImageGeneration,
 } from '@/features/commerce-ad/application/commercePromptSpec';
+import { AI_STYLIST_SKILL_ID } from '@/features/commerce-ad/application/commerceAgentSkills';
 
 export interface CommerceAdAgentTurnInput {
   userMessage: string;
@@ -69,7 +70,9 @@ function isLegacyCommerceDetailRule(line: string): boolean {
 export function buildCommerceAdAgentVisiblePrompt(input: CommerceAdAgentTurnInput): string {
   const skill = input.selectedSkill ?? null;
   const missingSlots = input.threadState?.missingSlots ?? [];
-  const isReady = missingSlots.length === 0 && Boolean(input.threadState?.imageAnalysis || input.product?.images?.length);
+  const canPlanWithoutImage = skill?.id === AI_STYLIST_SKILL_ID;
+  const isReady = missingSlots.length === 0
+    && (canPlanWithoutImage || Boolean(input.threadState?.imageAnalysis || input.product?.images?.length));
   return [
     'You are the visible chat voice of a Chinese design agent in a node-canvas app.',
     'Write natural Simplified Chinese for the user. Do not output JSON.',
@@ -1039,11 +1042,14 @@ export async function runCommerceAdAgentTurn(
         '',
         'Core runtime rules:',
         '- Treat the selected skill manifest as the source of truth for required slots, workflow stages, output artifacts, quality checklist, and prompt instructions.',
+        '- Do not borrow 广告创意-specific platform/copy rules for other skills unless their manifest asks for ads. For AI造型师, prioritize model styling, look variation, product-on-model fidelity, pose, scene, and conversion fit.',
+        '- Some skills can work without product images. For AI造型师, if no image is provided, build a model styling plan from the user brief, infer suitable product/category directions, and use guidance to ask for product/category only when it materially changes the result.',
+        '- For AI造型师 with no image, do not populate fake imageAnalysis. Instead put text-brief observations in guidance.confirmedFacts, product.inference, brief, visualPreference, and promptSpec. The assistant should say it is using the requirement brief to recommend model styling directions.',
         '- Use Current thread state as task memory. Preserve confirmedSlots unless the user clearly changes them.',
         '- Merge only newly confirmed slot values into threadStatePatch.confirmedSlots. Do not invent user facts.',
         '- Never list confirmedSlots as missingFields. Ask only for requiredSlots still missing after this user turn.',
         '- If requiredSlots are still missing, set nextAction to ask and keep the response in guidance/assistant only; do not pretend a final production plan is ready.',
-        '- If all requiredSlots are known and imageAnalysis or product information exists, set nextAction to ready or plan and produce the concrete skill output.',
+        '- If all requiredSlots are known and imageAnalysis, product information, or a text-only skill brief exists, set nextAction to ready or plan and produce the concrete skill output.',
         '- The app supports an intelligent creative guidance loop. Use Current thread state guidanceRound and shownGuidanceKinds to avoid repeating the same guidance.',
         '- For creative skills, provide at least two meaningful guidance rounds by default when useful: round 1 guidanceKind=recommendation/panelTitle=推荐方向, round 2 guidanceKind=optimization/panelTitle=优化建议. Use round 3 guidanceKind=final_suggestion/panelTitle=成稿建议 only when direction is still vague or a final craft decision would improve output.',
         '- After the default 2-3 guidance rounds, move toward nextAction=ready or plan unless the user explicitly asks for more directions, refinement, a different style, or more fashionable/high-end options.',

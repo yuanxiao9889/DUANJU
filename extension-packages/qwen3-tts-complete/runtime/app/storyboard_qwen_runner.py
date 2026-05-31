@@ -10,6 +10,7 @@ import shutil
 import sys
 import time
 import traceback
+import importlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -40,8 +41,6 @@ def configure_stdio() -> None:
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("PYTHONUTF8", "1")
 configure_stdio()
-
-import numpy as np
 
 def normalize_local_path(path: Path) -> Path:
     path_text = str(path)
@@ -74,18 +73,40 @@ if SOX_DIR.exists():
 
 sys.path.insert(0, str(APP_DIR))
 
-import soundfile as sf  # noqa: E402
-import torch  # noqa: E402
-from qwen_tts import Qwen3TTSModel, VoiceClonePromptItem  # noqa: E402
-
 MODEL_PATHS = {
     "base": MODELS_DIR / "Qwen3-TTS-12Hz-1.7B-Base",
     "voice_design": MODELS_DIR / "Qwen3-TTS-12Hz-1.7B-VoiceDesign",
     "tokenizer": MODELS_DIR / "Qwen3-TTS-Tokenizer-12Hz",
 }
 
-MODEL_CACHE: Dict[str, Qwen3TTSModel] = {}
+np = None
+sf = None
+torch = None
+Qwen3TTSModel = None
+VoiceClonePromptItem = None
+
+MODEL_CACHE: Dict[str, Any] = {}
 SERVER_RESPONSE_PREFIX = "__SC_EXTENSION_RESPONSE__:"
+
+
+def ensure_ml_dependencies() -> None:
+    global np, sf, torch, Qwen3TTSModel, VoiceClonePromptItem
+
+    if (
+        np is not None
+        and sf is not None
+        and torch is not None
+        and Qwen3TTSModel is not None
+        and VoiceClonePromptItem is not None
+    ):
+        return
+
+    np = importlib.import_module("numpy")
+    sf = importlib.import_module("soundfile")
+    torch = importlib.import_module("torch")
+    qwen_tts = importlib.import_module("qwen_tts")
+    Qwen3TTSModel = getattr(qwen_tts, "Qwen3TTSModel")
+    VoiceClonePromptItem = getattr(qwen_tts, "VoiceClonePromptItem")
 
 
 def debug_log(message: str) -> None:
@@ -131,10 +152,12 @@ def resolve_language(value: Optional[str]) -> str:
 def resolve_device(requested: Optional[str]) -> str:
     if requested and requested.strip():
         return requested.strip()
+    ensure_ml_dependencies()
     return "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
 def resolve_dtype(requested: Optional[str], device: str) -> torch.dtype:
+    ensure_ml_dependencies()
     normalized = (requested or "").strip().lower()
     if normalized in {"bf16", "bfloat16"}:
         return torch.bfloat16
@@ -192,6 +215,8 @@ def ensure_model_speech_tokenizer(model_key: str) -> None:
 def clear_model_cache() -> None:
     MODEL_CACHE.clear()
     gc.collect()
+    if torch is None:
+        return
     if torch.cuda.is_available():
         try:
             torch.cuda.empty_cache()
@@ -200,6 +225,7 @@ def clear_model_cache() -> None:
 
 
 def get_model(model_key: str, device: str, dtype_name: Optional[str]) -> Qwen3TTSModel:
+    ensure_ml_dependencies()
     cache_key = f"{model_key}|{device}|{dtype_name or 'auto'}"
     if cache_key in MODEL_CACHE:
         return MODEL_CACHE[cache_key]
@@ -356,6 +382,7 @@ def split_text_by_pauses(text: str, config: Dict[str, float]) -> List[tuple[str,
     return segments or [(normalized_text.strip(), 0.0)]
 
 def normalize_waveform(wav: Any) -> np.ndarray:
+    ensure_ml_dependencies()
     waveform = np.asarray(wav, dtype=np.float32)
     waveform = np.squeeze(waveform)
     if waveform.ndim > 1:
@@ -364,6 +391,7 @@ def normalize_waveform(wav: Any) -> np.ndarray:
 
 
 def build_silence(sample_rate: int, duration: float) -> np.ndarray:
+    ensure_ml_dependencies()
     silence_len = max(0, int(duration * sample_rate))
     return np.zeros((silence_len,), dtype=np.float32)
 
@@ -391,6 +419,7 @@ def save_voice_metadata(
 
 
 def load_voice_prompt_file(prompt_file: str) -> List[VoiceClonePromptItem]:
+    ensure_ml_dependencies()
     try:
         voice_prompt = torch.load(prompt_file, map_location="cpu", weights_only=False)
     except TypeError:
@@ -529,13 +558,18 @@ def save_audio_outputs(
 def command_health() -> Dict[str, Any]:
     ensure_runtime_dirs()
     checks = ensure_required_paths()
+    cuda_available = False
+    device_count = 0
+    if torch is not None:
+        cuda_available = torch.cuda.is_available()
+        device_count = torch.cuda.device_count() if cuda_available else 0
     return {
       "ok": all(checks.values()),
       "command": "health",
       "checks": checks,
       "pythonExecutable": sys.executable,
-      "cudaAvailable": torch.cuda.is_available(),
-      "deviceCount": torch.cuda.device_count() if torch.cuda.is_available() else 0,
+      "cudaAvailable": cuda_available,
+      "deviceCount": device_count,
     }
 
 
