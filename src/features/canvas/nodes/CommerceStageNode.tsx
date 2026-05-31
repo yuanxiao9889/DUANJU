@@ -167,9 +167,11 @@ function TextAreaControl({
 function FieldRow({
   label,
   value,
+  contentClassName = "",
 }: {
   label: string;
   value: string | null | undefined;
+  contentClassName?: string;
 }) {
   const normalizedValue = value?.trim();
   if (!normalizedValue) {
@@ -179,7 +181,7 @@ function FieldRow({
   return (
     <div className="rounded-lg border border-white/[0.07] bg-black/[0.08] px-3 py-2">
       <div className="text-[11px] text-text-muted">{label}</div>
-      <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-text-dark">
+      <div className={`mt-1 whitespace-pre-wrap break-words text-sm leading-5 text-text-dark ${contentClassName}`}>
         {normalizedValue}
       </div>
     </div>
@@ -1232,7 +1234,11 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
 
   return (
     <div className={`${SCRIPT_NODE_SCROLL_AREA_CLASS} space-y-3`}>
-      <FieldRow label={t("commerceAd.agentPlan.summary")} value={data.summary} />
+      <FieldRow
+        label={t("commerceAd.agentPlan.summary")}
+        value={data.summary}
+        contentClassName="nodrag nowheel max-h-40 overflow-y-auto pr-1"
+      />
       <FieldRow label={t("commerceAd.agentPlan.productUnderstanding")} value={data.productUnderstanding} />
       <FieldRow label={t("commerceAd.agentPlan.creativeDirection")} value={data.creativeDirection} />
       <CompactDisclosure

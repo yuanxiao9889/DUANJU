@@ -13,6 +13,7 @@ import {
   ImagePlus,
   Loader2,
   Megaphone,
+  MessageSquare,
   MessageSquarePlus,
   PanelTop,
   PackageCheck,
@@ -378,12 +379,10 @@ function isDefaultAgentThreadState(state: CommerceAdAgentThreadState): boolean {
 
 function isEmptyCommerceAgentDraftThread(input: {
   messages: CommerceAdAgentMessage[];
-  draft: string;
   chatImages: CommerceAdProductImage[];
   state: CommerceAdAgentThreadState;
 }): boolean {
   return input.messages.length === 0
-    && input.draft.trim().length === 0
     && input.chatImages.length === 0
     && isDefaultAgentThreadState(input.state);
 }
@@ -2900,6 +2899,7 @@ function CommerceAdWorkspaceInner() {
   const [structuredProgressByMessageId, setStructuredProgressByMessageId] = useState<Record<string, string[]>>({});
   const [newThreadAnimationKey, setNewThreadAnimationKey] = useState(0);
   const [agentPanelWidth, setAgentPanelWidth] = useState(readCommerceAgentPanelWidth);
+  const [isAgentPanelCollapsed, setIsAgentPanelCollapsed] = useState(false);
   const [isChatDragActive, setIsChatDragActive] = useState(false);
   const [detailInputMode, setDetailInputMode] = useState<CommerceAdProductState['detailInputMode']>('auto');
   const [lockedDocumentInfo, setLockedDocumentInfo] = useState('');
@@ -3509,7 +3509,6 @@ function CommerceAdWorkspaceInner() {
     }
     if (isEmptyCommerceAgentDraftThread({
       messages,
-      draft,
       chatImages,
       state: agentThreadState,
     })) {
@@ -3525,7 +3524,6 @@ function CommerceAdWorkspaceInner() {
     setActiveThreadId(threadId);
     setMessages(DEFAULT_AGENT_MESSAGES);
     setAgentThreadState(createDefaultAgentThreadState(selectedSkill));
-    setDraft('');
     setChatImages([]);
     setSelectedGuidanceChoiceKeys([]);
     setStatusText(null);
@@ -5634,11 +5632,28 @@ function CommerceAdWorkspaceInner() {
             onOpenSettings={() => openSettingsDialog({ category: 'providers' })}
           />
         ) : null}
+        {isAgentPanelCollapsed ? (
+          <button
+            type="button"
+            className="absolute right-3 top-1/2 z-30 inline-flex -translate-y-1/2 flex-col items-center gap-2.5 rounded-full border border-border-dark/70 bg-surface-dark px-2.5 py-3.5 text-xs font-medium text-text-dark shadow-[0_12px_30px_rgba(0,0,0,0.32)] transition hover:border-text-dark/20 hover:bg-bg-dark"
+            onClick={() => setIsAgentPanelCollapsed(false)}
+            aria-label={t('commerceAd.agent.openChat')}
+            title={t('commerceAd.agent.openChat')}
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span className="flex flex-col items-center gap-1.5 leading-none">
+              {Array.from(t('commerceAd.agent.chatBubble')).map((char, index) => (
+                <span key={`${char}-${index}`}>{char}</span>
+              ))}
+            </span>
+          </button>
+        ) : null}
       </div>
-      <aside
-        className="relative flex h-full shrink-0 flex-col border-l border-border-dark/70 bg-surface-dark/95 shadow-2xl"
-        style={{ width: agentPanelWidth }}
-      >
+      {!isAgentPanelCollapsed ? (
+        <aside
+          className="relative flex h-full shrink-0 flex-col border-l border-border-dark/70 bg-surface-dark/95 shadow-2xl"
+          style={{ width: agentPanelWidth }}
+        >
         <div
           className="absolute bottom-0 left-0 top-0 z-20 w-1 cursor-col-resize transition hover:bg-accent/35"
           onPointerDown={handleAgentPanelResizeStart}
@@ -5651,6 +5666,18 @@ function CommerceAdWorkspaceInner() {
           >
             {activeThreadTitle}
           </div>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition hover:bg-text-dark/[0.08] hover:text-text-dark"
+            onClick={() => {
+              setIsThreadHistoryOpen(false);
+              setIsAgentPanelCollapsed(true);
+            }}
+            aria-label={t('commerceAd.agent.collapseChat')}
+            title={t('commerceAd.agent.collapseChat')}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
           <button
             type="button"
             className="inline-flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition hover:bg-text-dark/[0.08] hover:text-text-dark disabled:cursor-not-allowed disabled:opacity-45"
@@ -6016,7 +6043,8 @@ function CommerceAdWorkspaceInner() {
             ) : null}
           </div>
         </div>
-      </aside>
+        </aside>
+      ) : null}
       <CommerceDetailPageSetupModal
         isOpen={isDetailSetupOpen}
         onClose={() => setIsDetailSetupOpen(false)}
