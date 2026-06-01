@@ -22,6 +22,10 @@ const DEFAULT_DIRECTOR_STAGE_WIDTH = 1480;
 const DEFAULT_DIRECTOR_STAGE_HEIGHT = 920;
 const MIN_DIRECTOR_STAGE_WIDTH = 980;
 const MIN_DIRECTOR_STAGE_HEIGHT = 680;
+const DIRECTOR_STAGE_WORK_AREA_MARGIN = {
+  width: 48,
+  height: 72,
+};
 let currentWindowHandle: ReturnType<typeof getCurrentWindow> | null = null;
 
 export interface DirectorStageWindowContext {
@@ -133,12 +137,13 @@ export async function openDirectorStageWindow(title: string): Promise<WebviewWin
   const storedBounds = readStoredBounds();
   const hasStoredPosition = isFiniteNumber(storedBounds.x) && isFiniteNumber(storedBounds.y);
 
-  return new WebviewWindow(DIRECTOR_STAGE_WINDOW_LABEL, {
+  const directorStageWindow = new WebviewWindow(DIRECTOR_STAGE_WINDOW_LABEL, {
     title,
     width: storedBounds.width ?? DEFAULT_DIRECTOR_STAGE_WIDTH,
     height: storedBounds.height ?? DEFAULT_DIRECTOR_STAGE_HEIGHT,
     minWidth: MIN_DIRECTOR_STAGE_WIDTH,
     minHeight: MIN_DIRECTOR_STAGE_HEIGHT,
+    preventOverflow: DIRECTOR_STAGE_WORK_AREA_MARGIN,
     x: hasStoredPosition ? storedBounds.x : undefined,
     y: hasStoredPosition ? storedBounds.y : undefined,
     center: !hasStoredPosition,
@@ -150,7 +155,15 @@ export async function openDirectorStageWindow(title: string): Promise<WebviewWin
     shadow: true,
     visible: false,
     focus: false,
+    acceptFirstMouse: true,
+    dragDropEnabled: false,
   });
+
+  void directorStageWindow.once('tauri://error', (event) => {
+    console.error('Failed to create director stage window', event.payload);
+  });
+
+  return directorStageWindow;
 }
 
 export async function emitToDirectorStage<T>(event: string, payload?: T): Promise<boolean> {

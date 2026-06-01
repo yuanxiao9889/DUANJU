@@ -103,6 +103,7 @@ export function DetachedDirectorStageWindow() {
 
       await emitToMainWindow(DIRECTOR_STAGE_READY_EVENT);
       await appWindow.show();
+      await appWindow.setFocus();
       await syncWindowMaximizeState();
     };
 
