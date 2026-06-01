@@ -2,7 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import {
   getProjectRecord,
-  upsertProjectRecord,
+  upsertProjectGraphSnapshot,
 } from '@/commands/projectState';
 import {
   createCanvasRect,
@@ -370,8 +370,6 @@ async function resolveTargetProject(
   targetProjectId?: string | null,
   newProjectName?: string | null
 ): Promise<Project> {
-  const projectStore = useProjectStore.getState();
-
   if (targetProjectId) {
     if (targetProjectId === sourceProject.id) {
       throw new Error(i18n.t('project.canvasSelectionTransfer.errors.sameProject'));
@@ -394,12 +392,11 @@ async function resolveTargetProject(
     || i18n.t('project.canvasSelectionTransfer.defaultProjectName', {
       source: sourceProject.name,
     });
-  const createdProjectId = projectStore.createProject(nextProjectName, sourceProject.projectType);
-  const createdProject = projectStore.getCurrentProject();
-  const targetProject =
-    createdProject?.id === createdProjectId
-      ? createdProject
-      : createEmptyTargetProject(sourceProject, createdProjectId, nextProjectName);
+  const targetProject = createEmptyTargetProject(
+    sourceProject,
+    uuidv4(),
+    nextProjectName
+  );
 
   return {
     ...targetProject,
@@ -458,7 +455,8 @@ export async function transferCanvasSelectionToProject(
     updatedAt: Date.now(),
   };
 
-  await upsertProjectRecord(toProjectRecord(nextProject));
+  await upsertProjectGraphSnapshot(toProjectRecord(nextProject));
+  await projectStore.refreshProjectSummaries();
   projectStore.openProject(nextProject.id);
 
   return {

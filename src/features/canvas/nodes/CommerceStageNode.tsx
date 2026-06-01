@@ -23,7 +23,7 @@ import {
   buildVisualPreferencePatch,
 } from "@/features/commerce-ad/application/commerceAdVisualPreference";
 import { normalizeCommerceAdVisualPreferenceState } from "@/features/commerce-ad/types";
-import type { CommerceAdDetailPage, CommercePromptSpec } from "@/features/commerce-ad/types";
+import type { CommerceAdDetailPage, CommerceProductionAsset, CommercePromptSpec } from "@/features/commerce-ad/types";
 import {
   getImageModel,
   getModelProvider,
@@ -98,6 +98,55 @@ function resolveCommerceAspectRatiosForModel(
     ? model.defaultAspectRatio
     : model.aspectRatios[0]?.value;
   return defaultRatio ? [defaultRatio] : preferredRatios;
+}
+
+function parseAspectRatioValue(value: string): number | null {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!match) {
+    return null;
+  }
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) {
+    return null;
+  }
+  return width / height;
+}
+
+function resolveNearestSupportedAssetRatio(
+  preferredRatio: string,
+  supportedRatios: string[],
+): string {
+  if (supportedRatios.length === 0 || supportedRatios.includes(preferredRatio)) {
+    return preferredRatio || "1:1";
+  }
+  const preferredValue = parseAspectRatioValue(preferredRatio);
+  if (preferredValue === null) {
+    return supportedRatios.includes("1:1") ? "1:1" : supportedRatios[0];
+  }
+  return supportedRatios.reduce((best, candidate) => {
+    const bestValue = parseAspectRatioValue(best);
+    const candidateValue = parseAspectRatioValue(candidate);
+    if (candidateValue === null) {
+      return best;
+    }
+    if (bestValue === null) {
+      return candidate;
+    }
+    return Math.abs(candidateValue - preferredValue) < Math.abs(bestValue - preferredValue)
+      ? candidate
+      : best;
+  }, supportedRatios[0]);
+}
+
+function normalizeProductionAssetsForModel(
+  assets: CommerceProductionAsset[],
+  supportedRatios: string[],
+): CommerceProductionAsset[] {
+  return assets.map((asset) => ({
+    ...asset,
+    aspectRatio: resolveNearestSupportedAssetRatio(asset.aspectRatio || "1:1", supportedRatios),
+  }));
 }
 
 function dispatchCommerceSyncDownstream() {
@@ -307,6 +356,78 @@ function PromptSpecSummary({ spec }: { spec?: CommercePromptSpec }) {
       ))}
       <ChipList items={checklist.slice(0, 8)} />
     </div>
+  );
+}
+
+function ProductionAssetStatusBadge({ status }: { status: CommerceProductionAsset["status"] }) {
+  const tone = status === "failed"
+    ? "border-rose-300/35 bg-rose-500/12 text-rose-100"
+    : status === "running" || status === "queued"
+      ? "border-amber-300/35 bg-amber-500/12 text-amber-100"
+      : status === "succeeded"
+        ? "border-emerald-300/35 bg-emerald-500/12 text-emerald-100"
+        : "border-white/[0.08] bg-white/[0.04] text-text-muted";
+  const label = status === "failed"
+    ? "commerceAd.agentPlan.assetStatus.failed"
+    : status === "running"
+      ? "commerceAd.agentPlan.assetStatus.running"
+      : status === "queued"
+        ? "commerceAd.agentPlan.assetStatus.queued"
+        : status === "succeeded"
+          ? "commerceAd.agentPlan.assetStatus.succeeded"
+          : "commerceAd.agentPlan.assetStatus.idle";
+  const { t } = useTranslation();
+  return (
+    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${tone}`}>
+      {t(label)}
+    </span>
+  );
+}
+
+function ProductionAssetList({
+  title,
+  assets,
+}: {
+  title: string;
+  assets: CommerceProductionAsset[];
+}) {
+  const { t } = useTranslation();
+  if (assets.length === 0) {
+    return null;
+  }
+
+  return (
+    <CompactDisclosure
+      title={title}
+      summary={t("commerceAd.agentPlan.assetCount", { count: assets.length })}
+      defaultOpen={false}
+    >
+      <div className="space-y-1.5">
+        {assets.map((asset) => (
+          <CompactDisclosure
+            key={asset.id}
+            title={asset.title || asset.assetType}
+            summary={asset.aspectRatio}
+            defaultOpen={asset.status === "failed" || asset.status === "running"}
+          >
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-text-muted">
+                <ProductionAssetStatusBadge status={asset.status} />
+                <span>{asset.aspectRatio}</span>
+              </div>
+              <FieldRow label={t("commerceAd.agentPlan.assetBrief")} value={asset.goal} />
+              <FieldRow label={t("commerceAd.agentPlan.assetPrompt")} value={asset.prompt} contentClassName="max-h-44 overflow-y-auto pr-1" />
+              <FieldRow label={t("commerceAd.agentPlan.assetNegativePrompt")} value={asset.negativePrompt} />
+              {asset.error ? (
+                <div className="rounded-lg border border-rose-300/30 bg-rose-500/10 px-3 py-2 text-xs leading-5 text-rose-100">
+                  {asset.error}
+                </div>
+              ) : null}
+            </div>
+          </CompactDisclosure>
+        ))}
+      </div>
+    </CompactDisclosure>
   );
 }
 
@@ -1164,20 +1285,46 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
   );
   const currentVariantsPerRatio = Math.max(1, Math.min(8, Math.round(Number(data.variantsPerRatio) || 1)));
   const currentBatchCount = Math.max(1, Math.min(20, Math.round(Number(data.batchCount) || 1)));
-  const imageCount = currentRatios.length * currentVariantsPerRatio * currentBatchCount;
+  const isAmazonPlan = data.selectedSkillId === "amazon-product-listing";
+  const supportedAssetRatios = selectedImageModel.aspectRatios.map((ratio) => ratio.value);
+  const normalizedAssets = isAmazonPlan
+    ? normalizeProductionAssetsForModel(data.assets, supportedAssetRatios)
+    : data.assets;
+  const listingAssets = normalizedAssets.filter((asset) => asset.group === "listing");
+  const aplusAssets = normalizedAssets.filter((asset) => asset.group === "aplus");
+  const assetImageCount = normalizedAssets.length;
+  const assetStatusCounts = normalizedAssets.reduce((counts, asset) => {
+    counts[asset.status] = (counts[asset.status] ?? 0) + 1;
+    return counts;
+  }, {} as Record<CommerceProductionAsset["status"], number>);
+  const imageCount = isAmazonPlan && assetImageCount > 0
+    ? assetImageCount
+    : currentRatios.length * currentVariantsPerRatio * currentBatchCount;
   const referenceImages = data.referenceImages.slice(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT);
   const effectivePrompt = data.renderedPrompt || data.prompt;
-  const canStartGeneration = (effectivePrompt.trim().length > 0 || Boolean(data.promptSpec)) && imageCount > 0 && data.status !== "generating";
+  const canStartGeneration = (
+    isAmazonPlan
+      ? normalizedAssets.some((asset) => asset.prompt.trim().length > 0)
+      : (effectivePrompt.trim().length > 0 || Boolean(data.promptSpec))
+  ) && imageCount > 0 && data.status !== "generating";
   const productionSummary = [
     selectedImageModel.displayName,
     selectedResolution.label,
-    currentRatios.map((ratio) => {
-      const ratioOption = selectedImageModel.aspectRatios.find((item) => item.value === ratio);
-      return ratioOption?.label ?? ratio;
-    }).join(" / "),
+    isAmazonPlan
+      ? t("commerceAd.agentPlan.assetPlanMode")
+      : currentRatios.map((ratio) => {
+          const ratioOption = selectedImageModel.aspectRatios.find((item) => item.value === ratio);
+          return ratioOption?.label ?? ratio;
+        }).join(" / "),
     t("commerceAd.agentPlan.imageCountSummary", { count: imageCount }),
   ].filter(Boolean).join(" · ");
-  const hasAdvancedContent = referenceImages.length > 0 || data.riskNotes.length > 0 || effectivePrompt.trim().length > 0 || Boolean(data.promptSpec);
+  const amazonWorkbenchSummary = [
+    t("commerceAd.agentPlan.assetCount", { count: imageCount }),
+    assetStatusCounts.running ? t("commerceAd.agentPlan.runningCount", { count: assetStatusCounts.running }) : "",
+    assetStatusCounts.failed ? t("commerceAd.agentPlan.failedCount", { count: assetStatusCounts.failed }) : "",
+    assetStatusCounts.succeeded ? t("commerceAd.agentPlan.succeededCount", { count: assetStatusCounts.succeeded }) : "",
+  ].filter(Boolean).join(" · ");
+  const hasAdvancedContent = referenceImages.length > 0 || data.riskNotes.length > 0 || effectivePrompt.trim().length > 0 || Boolean(data.promptSpec) || normalizedAssets.length > 0;
 
   const updatePlan = useCallback((patch: Partial<CommerceAgentPlanNodeData>) => {
     updateNodeData(id, patch);
@@ -1242,11 +1389,21 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
       <FieldRow label={t("commerceAd.agentPlan.productUnderstanding")} value={data.productUnderstanding} />
       <FieldRow label={t("commerceAd.agentPlan.creativeDirection")} value={data.creativeDirection} />
       <CompactDisclosure
-        title={t("commerceAd.agentPlan.productionSettings")}
+        title={isAmazonPlan ? t("commerceAd.agentPlan.workbench") : t("commerceAd.agentPlan.productionSettings")}
         summary={productionSummary}
-        defaultOpen={false}
+        defaultOpen={isAmazonPlan}
       >
         <div className="space-y-3">
+          {isAmazonPlan ? (
+            <div className="rounded-lg border border-white/[0.06] bg-black/[0.06] px-3 py-2">
+              <div className="text-xs font-medium text-text-dark">
+                {amazonWorkbenchSummary || t("commerceAd.agentPlan.assetPlanMode")}
+              </div>
+              <div className="mt-1 text-[11px] leading-5 text-text-muted">
+                {t("commerceAd.agentPlan.assetPlanHint", { count: imageCount })}
+              </div>
+            </div>
+          ) : null}
           <label className="block text-[11px] text-text-muted">
             <span>{t("commerceAd.agent.imageProvider")}</span>
             <UiSelect
@@ -1275,6 +1432,7 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
               ))}
             </UiSelect>
           </label>
+          {!isAmazonPlan ? (
           <label className="block text-[11px] text-text-muted">
             <span>{t("commerceAd.agent.resolution")}</span>
             <UiSelect
@@ -1289,66 +1447,90 @@ function AgentPlanContent({ id, data }: { id: string; data: CommerceAgentPlanNod
               ))}
             </UiSelect>
           </label>
-          <div className="space-y-1.5">
-            <div className="text-[11px] text-text-muted">
-              {t("commerceAd.fields.ratios")}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {selectedImageModel.aspectRatios.map((ratio) => {
-                const active = currentRatios.includes(ratio.value);
-                return (
-                  <button
-                    key={ratio.value}
-                    type="button"
-                    onClick={() => toggleRatio(ratio.value)}
-                    className={`nodrag nowheel inline-flex h-8 items-center rounded-lg border px-2.5 text-xs font-medium transition-colors ${
-                      active
-                        ? "border-text-dark/30 bg-text-dark/10 text-text-dark"
-                        : "border-border-dark/70 bg-bg-dark text-text-muted hover:text-text-dark"
-                    }`}
-                  >
-                    {ratio.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block text-[11px] text-text-muted">
-              <span>{t("commerceAd.agent.imagesPerGroup")}</span>
-              <UiInput
-                type="number"
-                min={1}
-                max={8}
-                step={1}
-                value={currentVariantsPerRatio}
-                className="nodrag nowheel mt-1 h-9 bg-black/[0.08] text-xs"
-                onChange={(event) => updatePlan({
-                  variantsPerRatio: Math.max(1, Math.min(8, Math.round(event.target.valueAsNumber || 1))),
-                } as Partial<CommerceAgentPlanNodeData>)}
-              />
-            </label>
-            <label className="block text-[11px] text-text-muted">
-              <span>{t("commerceAd.agent.batchCount")}</span>
-              <UiInput
-                type="number"
-                min={1}
-                max={20}
-                step={1}
-                value={currentBatchCount}
-                className="nodrag nowheel mt-1 h-9 bg-black/[0.08] text-xs"
-                onChange={(event) => updatePlan({
-                  batchCount: Math.max(1, Math.min(20, Math.round(event.target.valueAsNumber || 1))),
-                } as Partial<CommerceAgentPlanNodeData>)}
-              />
-            </label>
-          </div>
-          <FieldRow label={t("commerceAd.fields.count")} value={String(imageCount)} />
+          ) : null}
+          {isAmazonPlan ? (
+            null
+          ) : (
+            <>
+              <div className="space-y-1.5">
+                <div className="text-[11px] text-text-muted">
+                  {t("commerceAd.fields.ratios")}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {selectedImageModel.aspectRatios.map((ratio) => {
+                    const active = currentRatios.includes(ratio.value);
+                    return (
+                      <button
+                        key={ratio.value}
+                        type="button"
+                        onClick={() => toggleRatio(ratio.value)}
+                        className={`nodrag nowheel inline-flex h-8 items-center rounded-lg border px-2.5 text-xs font-medium transition-colors ${
+                          active
+                            ? "border-text-dark/30 bg-text-dark/10 text-text-dark"
+                            : "border-border-dark/70 bg-bg-dark text-text-muted hover:text-text-dark"
+                        }`}
+                      >
+                        {ratio.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block text-[11px] text-text-muted">
+                  <span>{t("commerceAd.agent.imagesPerGroup")}</span>
+                  <UiInput
+                    type="number"
+                    min={1}
+                    max={8}
+                    step={1}
+                    value={currentVariantsPerRatio}
+                    className="nodrag nowheel mt-1 h-9 bg-black/[0.08] text-xs"
+                    onChange={(event) => updatePlan({
+                      variantsPerRatio: Math.max(1, Math.min(8, Math.round(event.target.valueAsNumber || 1))),
+                    } as Partial<CommerceAgentPlanNodeData>)}
+                  />
+                </label>
+                <label className="block text-[11px] text-text-muted">
+                  <span>{t("commerceAd.agent.batchCount")}</span>
+                  <UiInput
+                    type="number"
+                    min={1}
+                    max={20}
+                    step={1}
+                    value={currentBatchCount}
+                    className="nodrag nowheel mt-1 h-9 bg-black/[0.08] text-xs"
+                    onChange={(event) => updatePlan({
+                      batchCount: Math.max(1, Math.min(20, Math.round(event.target.valueAsNumber || 1))),
+                    } as Partial<CommerceAgentPlanNodeData>)}
+                  />
+                </label>
+              </div>
+              <FieldRow label={t("commerceAd.fields.count")} value={String(imageCount)} />
+            </>
+          )}
         </div>
       </CompactDisclosure>
+      {isAmazonPlan && normalizedAssets.length > 0 ? (
+        <>
+          <ProductionAssetList title={t("commerceAd.agentPlan.listingAssets")} assets={listingAssets} />
+          <ProductionAssetList title={t("commerceAd.agentPlan.aplusAssets")} assets={aplusAssets} />
+          <CompactDisclosure
+            title={t("commerceAd.agentPlan.complianceCheck")}
+            summary={t("commerceAd.agentPlan.complianceCount", {
+              count: normalizedAssets.reduce((total, asset) => total + asset.complianceNotes.length, 0),
+            })}
+            defaultOpen={false}
+          >
+            <ChipList
+              items={Array.from(new Set(normalizedAssets.flatMap((asset) => asset.complianceNotes)))}
+            />
+          </CompactDisclosure>
+        </>
+      ) : null}
       {hasAdvancedContent ? (
         <CompactDisclosure
-          title={t("commerceAd.agentPlan.details")}
+          title={isAmazonPlan ? t("commerceAd.agentPlan.corePrompt") : t("commerceAd.agentPlan.details")}
           summary={[
             referenceImages.length > 0 ? t("commerceAd.agentPlan.referenceImageCount", { count: referenceImages.length }) : "",
             data.riskNotes.length > 0 ? t("commerceAd.agentPlan.riskCount", { count: data.riskNotes.length }) : "",

@@ -123,6 +123,7 @@ export interface CommerceAdBatchGenerateState {
 export interface CommerceAdGeneratedImageRecord {
   id: string;
   aspectRatio: string;
+  productionAssetId?: string;
   detailPageId?: string;
   detailPageNo?: number;
   detailPageTitle?: string;
@@ -131,6 +132,36 @@ export interface CommerceAdGeneratedImageRecord {
   status: 'queued' | 'running' | 'succeeded' | 'failed';
   imageUrl: string | null;
   previewImageUrl: string | null;
+  error: string | null;
+}
+
+export type CommerceProductionAssetType =
+  | 'amazon_listing_main'
+  | 'amazon_listing_angle'
+  | 'amazon_listing_infographic'
+  | 'amazon_listing_specs'
+  | 'amazon_listing_lifestyle'
+  | 'amazon_listing_detail'
+  | 'amazon_listing_compare'
+  | 'amazon_aplus_logo'
+  | 'amazon_aplus_hero'
+  | 'amazon_aplus_banner'
+  | 'amazon_aplus_square'
+  | 'amazon_aplus_scene';
+
+export interface CommerceProductionAsset {
+  id: string;
+  group: 'listing' | 'aplus';
+  assetType: CommerceProductionAssetType;
+  title: string;
+  goal: string;
+  aspectRatio: string;
+  targetSize: string;
+  prompt: string;
+  negativePrompt: string;
+  complianceNotes: string[];
+  status: 'idle' | 'queued' | 'running' | 'succeeded' | 'failed';
+  resultNodeId: string | null;
   error: string | null;
 }
 
@@ -179,6 +210,7 @@ export interface CommerceAgentPlanState {
   prompt: string;
   promptSpec?: CommercePromptSpec;
   renderedPrompt: string;
+  assets: CommerceProductionAsset[];
   referenceImages: CommerceAdProductImage[];
   referenceImageNotes: string;
   riskNotes: string[];
@@ -386,6 +418,67 @@ function normalizeStringRecord(value: unknown): Record<string, string> {
       .map(([key, item]) => [key, normalizeString(item)])
       .filter(([, item]) => item.length > 0)
   );
+}
+
+function normalizeCommerceProductionAsset(value: unknown, index: number): CommerceProductionAsset | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Partial<CommerceProductionAsset>;
+  const title = normalizeString(record.title);
+  const goal = normalizeString(record.goal);
+  const prompt = normalizeString(record.prompt);
+  if (!title && !goal && !prompt) {
+    return null;
+  }
+  const knownAssetTypes: CommerceProductionAssetType[] = [
+    'amazon_listing_main',
+    'amazon_listing_angle',
+    'amazon_listing_infographic',
+    'amazon_listing_specs',
+    'amazon_listing_lifestyle',
+    'amazon_listing_detail',
+    'amazon_listing_compare',
+    'amazon_aplus_logo',
+    'amazon_aplus_hero',
+    'amazon_aplus_banner',
+    'amazon_aplus_square',
+    'amazon_aplus_scene',
+  ];
+  const group = record.group === 'aplus' ? 'aplus' : 'listing';
+  const assetType = knownAssetTypes.includes(record.assetType as CommerceProductionAssetType)
+    ? record.assetType as CommerceProductionAssetType
+    : group === 'aplus'
+      ? 'amazon_aplus_scene'
+      : 'amazon_listing_infographic';
+  const status = ['idle', 'queued', 'running', 'succeeded', 'failed'].includes(record.status ?? '')
+    ? record.status as CommerceProductionAsset['status']
+    : 'idle';
+
+  return {
+    id: normalizeString(record.id) || `commerce-production-asset-${index + 1}`,
+    group,
+    assetType,
+    title,
+    goal,
+    aspectRatio: normalizeString(record.aspectRatio) || '1:1',
+    targetSize: normalizeString(record.targetSize),
+    prompt,
+    negativePrompt: normalizeString(record.negativePrompt),
+    complianceNotes: normalizeStringArray(record.complianceNotes),
+    status,
+    resultNodeId: normalizeString(record.resultNodeId) || null,
+    error: normalizeString(record.error) || null,
+  };
+}
+
+export function normalizeCommerceProductionAssets(value: unknown): CommerceProductionAsset[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item, index) => normalizeCommerceProductionAsset(item, index))
+    .filter((item): item is CommerceProductionAsset => Boolean(item));
 }
 
 export function normalizeCommercePromptSpec(value: unknown): CommercePromptSpec | undefined {
@@ -721,6 +814,7 @@ export function createDefaultCommerceAgentPlanState(): CommerceAgentPlanState {
     prompt: '',
     promptSpec: undefined,
     renderedPrompt: '',
+    assets: [],
     referenceImages: [],
     referenceImageNotes: '',
     riskNotes: [],
@@ -754,6 +848,7 @@ export function normalizeCommerceAgentPlanState(value: unknown): CommerceAgentPl
     prompt: normalizeString(record.prompt),
     promptSpec: normalizeCommercePromptSpec(record.promptSpec),
     renderedPrompt: normalizeString(record.renderedPrompt),
+    assets: normalizeCommerceProductionAssets(record.assets),
     referenceImages: Array.isArray(record.referenceImages)
       ? record.referenceImages
           .map((item, index) => normalizeProductImage(item, index))
@@ -822,6 +917,7 @@ export function normalizeCommerceAdResultGroupState(value: unknown): CommerceAdR
                     return {
                       id: normalizeString(imageRecord.id) || `commerce-image-${imageIndex + 1}`,
                       aspectRatio: normalizeString(imageRecord.aspectRatio) || '1:1',
+                      productionAssetId: normalizeString(imageRecord.productionAssetId) || undefined,
                       detailPageId: normalizeString(imageRecord.detailPageId) || undefined,
                       detailPageNo: imageRecord.detailPageNo
                         ? Math.max(1, Math.round(Number(imageRecord.detailPageNo) || 1))

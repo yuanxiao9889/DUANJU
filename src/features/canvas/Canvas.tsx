@@ -4312,7 +4312,7 @@ export function Canvas() {
 
   const handleSelectionStart = useCallback(
     (event: ReactMouseEvent<Element, MouseEvent>) => {
-      const isAdditive = event.ctrlKey || event.metaKey;
+      const isAdditive = event.shiftKey;
       marqueeSelectionSessionRef.current = {
         startFlowPoint: toFlowPointFromMouseEvent(event),
         initialSelectedNodeIds: isAdditive

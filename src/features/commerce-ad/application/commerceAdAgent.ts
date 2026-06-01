@@ -12,10 +12,12 @@ import {
   type CommerceAdAgentThreadState,
   type CommerceAdAgentTurnIntent,
   type CommerceAdProductState,
+  type CommerceProductionAsset,
   type CommerceAdVisualPreferenceState,
   type CommerceAgentSkill,
   type CommercePromptSpec,
   createDefaultCommerceAdVisualPreferenceState,
+  normalizeCommerceProductionAssets,
   normalizeCommercePromptSpec,
   normalizeCommerceAdVisualPreferenceState,
 } from '@/features/commerce-ad/types';
@@ -23,7 +25,7 @@ import {
   buildCommercePromptSpecFallback,
   renderPromptForImageGeneration,
 } from '@/features/commerce-ad/application/commercePromptSpec';
-import { AI_STYLIST_SKILL_ID } from '@/features/commerce-ad/application/commerceAgentSkills';
+import { AI_STYLIST_SKILL_ID, AMAZON_PRODUCT_LISTING_SKILL_ID } from '@/features/commerce-ad/application/commerceAgentSkills';
 
 export interface CommerceAdAgentTurnInput {
   userMessage: string;
@@ -42,6 +44,7 @@ export interface CommerceAdAgentTurnInput {
 export interface CommerceAdAgentTurnResult {
   assistantMessage: CommerceAdAgentMessage;
   actions: CommerceAdAgentAction[];
+  productionAssets?: CommerceProductionAsset[];
   threadStatePatch?: Partial<CommerceAdAgentThreadState>;
   nextAction?: 'ask' | 'plan' | 'ready' | 'generate';
 }
@@ -202,6 +205,15 @@ function readRecordArray(record: Record<string, unknown>, key: string): Record<s
 
 function readPromptSpec(record: Record<string, unknown>): CommercePromptSpec | undefined {
   return normalizeCommercePromptSpec(record.promptSpec);
+}
+
+function readProductionAssets(record: Record<string, unknown>): CommerceProductionAsset[] {
+  const direct = normalizeCommerceProductionAssets(record.assets);
+  if (direct.length > 0) {
+    return direct;
+  }
+  const planRecord = readRecord(record, 'plan');
+  return normalizeCommerceProductionAssets(planRecord.assets);
 }
 
 function normalizeId(value: string, fallback: string): string {
@@ -732,6 +744,243 @@ function buildFallbackCorePrompt(product: CommerceAdProductState | null, brief: 
   ].filter(Boolean).join(' ');
 }
 
+function createAmazonAsset(input: {
+  index: number;
+  group: CommerceProductionAsset['group'];
+  assetType: CommerceProductionAsset['assetType'];
+  title: string;
+  goal: string;
+  aspectRatio: string;
+  targetSize: string;
+  prompt: string;
+  negativePrompt: string;
+  complianceNotes: string[];
+}): CommerceProductionAsset {
+  return {
+    id: `amazon-asset-${input.index + 1}-${input.assetType}`,
+    group: input.group,
+    assetType: input.assetType,
+    title: input.title,
+    goal: input.goal,
+    aspectRatio: input.aspectRatio,
+    targetSize: input.targetSize,
+    prompt: input.prompt,
+    negativePrompt: input.negativePrompt,
+    complianceNotes: input.complianceNotes,
+    status: 'idle',
+    resultNodeId: null,
+    error: null,
+  };
+}
+
+function shouldIncludeAmazonListing(scopeText: string): boolean {
+  return !/仅\s*a\+|only\s*a\+|a\+\s*only/i.test(scopeText);
+}
+
+function shouldIncludeAmazonAplus(scopeText: string): boolean {
+  return !/仅\s*(?:listing|主图|商品图)|listing\s*only|no\s*a\+|不要\s*a\+/i.test(scopeText);
+}
+
+export function buildAmazonProductionAssets(input: {
+  product: Partial<CommerceAdProductState> | null | undefined;
+  brief: Partial<CommerceAdBriefState> | null | undefined;
+  visualPreference?: Partial<CommerceAdVisualPreferenceState> | null;
+  basePrompt: string;
+  existingAssets?: CommerceProductionAsset[];
+}): CommerceProductionAsset[] {
+  if (input.existingAssets?.length) {
+    return input.existingAssets;
+  }
+
+  const productName = input.product?.productName?.trim()
+    || input.product?.brand?.trim()
+    || input.product?.category?.trim()
+    || input.product?.inference?.productType?.trim()
+    || '参考图中的商品';
+  const category = input.product?.category?.trim() || input.product?.inference?.productType?.trim() || 'Amazon 商品';
+  const sellingPoints = [
+    ...(input.brief?.sellingPoints ?? []),
+    ...(input.product?.inference?.visibleSellingPoints ?? []),
+  ].map((item) => item.trim()).filter(Boolean).slice(0, 5);
+  const sellingPointText = sellingPoints.length
+    ? sellingPoints.join('；')
+    : '围绕用户提供的商品信息提炼 3 个真实、可支持的核心卖点';
+  const styleText = [
+    input.brief?.style,
+    input.visualPreference?.summary,
+    input.visualPreference?.promptFragment,
+  ].map((item) => item?.trim()).filter(Boolean).join('\n');
+  const base = [
+    input.basePrompt.trim(),
+    `商品：${productName}`,
+    `类目/站点：${category}`,
+    `核心卖点：${sellingPointText}`,
+    styleText,
+    '必须保持参考图中的商品外观、结构、颜色、材质、Logo/标签位置和可识别细节，不得改变款式。',
+  ].filter(Boolean).join('\n');
+  const scopeText = [
+    input.brief?.usage,
+    input.brief?.platform,
+    input.brief?.normalizedBrief,
+    input.brief?.mustInclude,
+    input.brief?.constraints,
+  ].map((item) => item?.trim()).filter(Boolean).join('\n');
+  const includeListing = shouldIncludeAmazonListing(scopeText);
+  const includeAplus = shouldIncludeAmazonAplus(scopeText);
+  const sharedNoClaims = '不要编造价格、折扣、认证、奖项、医疗功效、法律承诺、性能保证或用户没有提供的品牌事实。';
+  const noExactText = '如果画面需要文字，只生成短标题/图标占位/排版意图；品牌名、长句和精确参数建议后期排版，避免 AI 生成不可读文字。';
+  const assets: CommerceProductionAsset[] = [];
+  const pushAsset = (asset: Omit<Parameters<typeof createAmazonAsset>[0], 'index'>) => {
+    assets.push(createAmazonAsset({ ...asset, index: assets.length }));
+  };
+
+  if (includeListing) {
+    pushAsset({
+      group: 'listing',
+      assetType: 'amazon_listing_main',
+      title: 'Listing 01 主图',
+      goal: '符合 Amazon 主图规范，纯白背景突出商品本体。',
+      aspectRatio: '1:1',
+      targetSize: '2000x2000',
+      prompt: [
+        base,
+        '生成 Amazon Listing 主图：纯白背景 RGB 255,255,255，商品单独出现，主体占画面约 85% 或以上，居中清晰，商业产品摄影光线，边缘干净，真实比例。',
+        '画面中不要出现任何文字、水印、徽章、道具、场景、人物、手、装饰物、额外配件或包装盒，除非包装本身就是售卖商品主体。',
+      ].join('\n\n'),
+      negativePrompt: '文字、水印、徽章、促销标签、道具、生活方式场景、人物、手、阴影过重、低清、变形、额外商品、错误包装。',
+      complianceNotes: ['主图纯白背景', '商品占比约 85%+', '无文字/水印/道具', sharedNoClaims],
+    });
+    pushAsset({
+      group: 'listing',
+      assetType: 'amazon_listing_angle',
+      title: 'Listing 02 多角度图',
+      goal: '展示商品正面、侧面、背面或关键角度，帮助买家理解结构。',
+      aspectRatio: '1:1',
+      targetSize: '2000x2000',
+      prompt: [base, '生成 Amazon 副图：在干净浅色背景上展示商品多角度组合，包含正面、侧面、背面或关键结构角度，排布有序，保留真实外观和比例。'].join('\n\n'),
+      negativePrompt: '错误角度、结构变形、杂乱背景、过多装饰、不可读文字、虚假功能。',
+      complianceNotes: ['角度清晰', '不改变商品结构', sharedNoClaims],
+    });
+    pushAsset({
+      group: 'listing',
+      assetType: 'amazon_listing_infographic',
+      title: 'Listing 03 核心卖点信息图',
+      goal: '用 3 个核心卖点建立第一轮转化理由。',
+      aspectRatio: '1:1',
+      targetSize: '2000x2000',
+      prompt: [base, `生成 Amazon 卖点信息图：商品主体清晰，围绕这些真实卖点做 3 个短信息区：${sellingPointText}。`, '使用英文短标题风格的排版占位、简洁图标占位和清晰留白，画面像专业 Amazon infographic。', noExactText].join('\n\n'),
+      negativePrompt: '长段文字、乱码、夸大承诺、价格折扣、认证徽章、医疗功效、杂乱排版。',
+      complianceNotes: ['仅使用已确认卖点', noExactText, sharedNoClaims],
+    });
+    pushAsset({
+      group: 'listing',
+      assetType: 'amazon_listing_specs',
+      title: 'Listing 04 尺寸/规格图',
+      goal: '说明尺寸、容量、材质、结构或包装规格。',
+      aspectRatio: '1:1',
+      targetSize: '2000x2000',
+      prompt: [base, '生成 Amazon 尺寸/规格图：展示商品结构、尺寸箭头、容量/材质/组件信息的版式意图，背景清爽，信息层级可信。', '只使用用户已提供或图片可见的规格信息；未知规格用留白占位，不要编造数字。'].join('\n\n'),
+      negativePrompt: '编造尺寸数字、错误材质、乱码文字、密集表格、低清标注。',
+      complianceNotes: ['未知规格不编造', '规格文字建议后期排版', sharedNoClaims],
+    });
+    pushAsset({
+      group: 'listing',
+      assetType: 'amazon_listing_lifestyle',
+      title: 'Listing 05 使用场景图',
+      goal: '把商品放入目标买家可理解的真实使用场景。',
+      aspectRatio: '1:1',
+      targetSize: '2000x2000',
+      prompt: [base, '生成 Amazon 生活方式场景图：在真实、干净、可信的使用场景中展示商品，场景服务于商品卖点，商品仍是第一视觉主体。', '构图自然、有购买想象力，避免过度广告化和杂乱道具。'].join('\n\n'),
+      negativePrompt: '商品过小、场景喧宾夺主、人物误导、脏乱背景、夸张效果、虚假使用结果。',
+      complianceNotes: ['场景支持真实用途', '商品主体清楚', sharedNoClaims],
+    });
+    pushAsset({
+      group: 'listing',
+      assetType: 'amazon_listing_detail',
+      title: 'Listing 06 细节特写图',
+      goal: '突出材质、纹理、接口、工艺或关键细节。',
+      aspectRatio: '1:1',
+      targetSize: '2000x2000',
+      prompt: [base, '生成 Amazon 细节特写图：使用微距/近景商业摄影展示商品材质、纹理、边缘、接口、工艺或关键部件，局部清晰，整体高级。', '可加入小范围放大框或局部拼贴版式，但不要生成虚假的结构。'].join('\n\n'),
+      negativePrompt: '错误材质、结构错位、过度锐化、脏污、低清、夸大功能。',
+      complianceNotes: ['细节来自参考图或用户信息', sharedNoClaims],
+    });
+    pushAsset({
+      group: 'listing',
+      assetType: 'amazon_listing_compare',
+      title: 'Listing 07 对比/包装/清单图',
+      goal: '展示包装内容、套装清单或可信对比，减少购买疑虑。',
+      aspectRatio: '1:1',
+      targetSize: '2000x2000',
+      prompt: [base, '生成 Amazon 对比/包装/清单图：根据商品类目选择最合适表达，可以是 in-the-box 清单、包装展示、使用前后场景对比或竞品差异版式。', '只表达用户提供或可见的内容，避免贬低竞品和不实对比。', noExactText].join('\n\n'),
+      negativePrompt: '虚假包装、未提供配件、攻击竞品、价格对比、乱码文字、夸大 Before/After。',
+      complianceNotes: ['不编造配件/包装', '对比需可支持', sharedNoClaims],
+    });
+  }
+
+  if (includeAplus) {
+    pushAsset({
+      group: 'aplus',
+      assetType: 'amazon_aplus_logo',
+      title: 'A+ 01 品牌条/Logo 模块',
+      goal: '建立品牌识别和页面开场。',
+      aspectRatio: '3:1',
+      targetSize: '600x180',
+      prompt: [base, '生成 Amazon A+ 品牌条模块：横向品牌开场视觉，简洁背景，商品或品牌符号居中，预留 Logo/品牌名后期排版空间。', '当前模型按 3:1 近似生成，后续导出裁切到 600x180。'].join('\n\n'),
+      negativePrompt: '不可读 Logo、复杂背景、过多文字、低清品牌字样。',
+      complianceNotes: ['目标尺寸 600x180', 'Logo 精度建议后期排版', sharedNoClaims],
+    });
+    pushAsset({
+      group: 'aplus',
+      assetType: 'amazon_aplus_hero',
+      title: 'A+ 02 Hero Banner',
+      goal: '用大横幅建立品牌场景和核心价值。',
+      aspectRatio: '16:9',
+      targetSize: '970x600',
+      prompt: [base, '生成 Amazon A+ Hero 横幅：宽幅品牌场景，商品清晰，背景干净高级，视觉重点明确，预留标题和短副标题后期排版区域。', '当前用 16:9 近似生成，后续裁切适配 970x600。'].join('\n\n'),
+      negativePrompt: '商品不清晰、场景杂乱、长文字、夸大承诺、低清。',
+      complianceNotes: ['目标尺寸 970x600', '后续裁切适配', noExactText, sharedNoClaims],
+    });
+    pushAsset({
+      group: 'aplus',
+      assetType: 'amazon_aplus_banner',
+      title: 'A+ 03 卖点横幅',
+      goal: '用横幅集中表达核心卖点和产品价值。',
+      aspectRatio: '3:1',
+      targetSize: '970x300',
+      prompt: [base, `生成 Amazon A+ 卖点横幅：宽横向构图，商品与 2-3 个短卖点区域平衡排布，卖点围绕：${sellingPointText}。`, '当前按 3:1 近似生成，后续裁切适配 970x300；文字只做短文案排版意图。'].join('\n\n'),
+      negativePrompt: '文字太多、信息拥挤、乱码、虚假认证、价格促销。',
+      complianceNotes: ['目标尺寸 970x300', noExactText, sharedNoClaims],
+    });
+    [1, 2, 3].forEach((item) => {
+      pushAsset({
+        group: 'aplus',
+        assetType: 'amazon_aplus_square',
+        title: `A+ 04-${item} 三卖点方图`,
+        goal: `展示第 ${item} 个 A+ 核心卖点方图。`,
+        aspectRatio: '1:1',
+        targetSize: '300x300',
+        prompt: [base, `生成 Amazon A+ 三卖点方图第 ${item} 张：方形模块，聚焦一个真实卖点或细节，商品/细节占画面主体，画面简洁，适合 300x300 模块。`, `可参考卖点：${sellingPoints[item - 1] || sellingPointText}。文字只做短标题占位。`].join('\n\n'),
+        negativePrompt: '长文字、乱码、低清、错误商品细节、虚假声明。',
+        complianceNotes: ['目标尺寸 300x300', '单图只讲一个卖点', sharedNoClaims],
+      });
+    });
+    pushAsset({
+      group: 'aplus',
+      assetType: 'amazon_aplus_scene',
+      title: 'A+ 05 场景/对比补充图',
+      goal: '补充使用场景、对比关系或品牌故事收束。',
+      aspectRatio: '16:9',
+      targetSize: '970x600',
+      prompt: [base, '生成 Amazon A+ 场景/对比补充图：宽幅构图，展示商品在真实使用环境中的价值，或以克制对比版式说明使用前后/普通方案与本产品差异。', '不编造数据，不做夸张 Before/After；预留短标题后期排版空间。'].join('\n\n'),
+      negativePrompt: '夸大对比、虚假效果、攻击竞品、乱码文字、场景杂乱。',
+      complianceNotes: ['目标尺寸 970x600', '不编造对比数据', sharedNoClaims],
+    });
+  }
+
+  return assets;
+}
+
 function composeVisualPreferencePromptFragment(
   visualPreference: CommerceAdVisualPreferenceState
 ): string {
@@ -1022,6 +1271,20 @@ export async function runCommerceAdAgentTurn(
           '4:5': '',
         },
       },
+      assets: [
+        {
+          id: '',
+          group: 'listing|aplus',
+          assetType: 'amazon_listing_main|amazon_listing_angle|amazon_listing_infographic|amazon_listing_specs|amazon_listing_lifestyle|amazon_listing_detail|amazon_listing_compare|amazon_aplus_logo|amazon_aplus_hero|amazon_aplus_banner|amazon_aplus_square|amazon_aplus_scene',
+          title: '',
+          goal: '',
+          aspectRatio: '1:1',
+          targetSize: '2000x2000',
+          prompt: '',
+          negativePrompt: '',
+          complianceNotes: [''],
+        },
+      ],
       batch: {
         generationMode: 'detailPages',
         aspectRatios: ['4:5'],
@@ -1058,6 +1321,15 @@ export async function runCommerceAdAgentTurn(
         '- Keep assistant to 1-2 concise Chinese sentences. Put image evidence in imageAnalysis and choices in guidance.',
         '- Use only the existing canvas artifacts: plan node and generated result nodes. Do not propose additional node types.',
         '- If information is missing, ask at most 1-2 high-impact questions and provide clickable options in guidance.',
+        selectedSkill.id === AMAZON_PRODUCT_LISTING_SKILL_ID
+          ? '- Amazon product listing skill only: when all requiredSlots are known, output assets[] as the complete per-image prompt plan. Do not use detailPages as the primary artifact for this skill. Set nextAction to generate when the plan is production-ready.'
+          : '',
+        selectedSkill.id === AMAZON_PRODUCT_LISTING_SKILL_ID
+          ? '- Amazon product listing skill only: assets[] must include Listing and/or A+ images according to imageSetScope. Each asset needs group, assetType, title, goal, aspectRatio, targetSize, prompt, negativePrompt, and complianceNotes.'
+          : '',
+        selectedSkill.id === AMAZON_PRODUCT_LISTING_SKILL_ID
+          ? '- Amazon product listing skill only: the main image asset must be 1:1, pure white background, product only, about 85%+ product fill, no text, no watermark, no props, no scene.'
+          : '',
         '',
         'Selected skill manifest:',
         JSON.stringify({
@@ -1264,6 +1536,9 @@ export async function runCommerceAdAgentTurn(
     const visualPreferenceRecord = readRecord(parsed, 'visualPreference');
     const batchRecord = readRecord(parsed, 'batch');
     const parsedPromptSpec = readPromptSpec(parsed);
+    const parsedAssets = selectedSkill?.id === AMAZON_PRODUCT_LISTING_SKILL_ID
+      ? readProductionAssets(parsed)
+      : [];
     const inferenceSummary = readString(inferenceRecord, 'summary');
     const inferenceVisualDescription = readString(inferenceRecord, 'visualDescription');
     const briefNormalizedBrief = readString(briefRecord, 'normalizedBrief');
@@ -1422,6 +1697,15 @@ export async function runCommerceAdAgentTurn(
       lastAnalyzedAt: productData.lastAnalyzedAt ?? input.product?.lastAnalyzedAt ?? null,
       lastError: productData.lastError ?? input.product?.lastError ?? null,
     };
+    const productionAssets = selectedSkill?.id === AMAZON_PRODUCT_LISTING_SKILL_ID
+      ? buildAmazonProductionAssets({
+          product: guidanceProduct,
+          brief: mergedBrief,
+          visualPreference: visualPreferenceData,
+          basePrompt: renderedCorePrompt || corePrompt || message,
+          existingAssets: parsedAssets,
+        })
+      : [];
     const guidance = selectedSkill
       ? normalizeGuidance(readGuidance(parsed))
       : mergeNoSkillGuidance(
@@ -1472,6 +1756,9 @@ export async function runCommerceAdAgentTurn(
         imageAnalysis
       ),
       actions,
+      productionAssets: selectedSkill?.id === AMAZON_PRODUCT_LISTING_SKILL_ID
+        ? productionAssets
+        : undefined,
       threadStatePatch,
       nextAction,
     };

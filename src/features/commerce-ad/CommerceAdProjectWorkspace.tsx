@@ -57,7 +57,7 @@ import {
   buildCommerceAdAgentVisiblePrompt,
   runCommerceAdAgentTurn,
 } from '@/features/commerce-ad/application/commerceAdAgent';
-import { AI_STYLIST_SKILL_ID, getCommerceAgentSkills } from '@/features/commerce-ad/application/commerceAgentSkills';
+import { AI_STYLIST_SKILL_ID, AMAZON_PRODUCT_LISTING_SKILL_ID, getCommerceAgentSkills } from '@/features/commerce-ad/application/commerceAgentSkills';
 import {
   buildCommercePromptSpecFallback,
   renderPromptForImageGeneration,
@@ -89,6 +89,7 @@ import {
   type CommerceAdGenerationBatch,
   type CommerceAdProductImage,
   type CommerceAdProductState,
+  type CommerceProductionAsset,
   type CommerceAdVisualPreferenceState,
   type CommerceAgentPlanState,
 } from '@/features/commerce-ad/types';
@@ -1945,7 +1946,13 @@ function mergeProductState(
   };
 }
 
-function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAdGenerationBatch {
+function buildAgentPlanGenerationBatch(
+  plan: CommerceAgentPlanState,
+  model?: ReturnType<typeof getImageModel>
+): CommerceAdGenerationBatch {
+  if (plan.selectedSkillId === AMAZON_PRODUCT_LISTING_SKILL_ID && plan.assets.length > 0) {
+    return buildAmazonAgentPlanGenerationBatch(plan, model);
+  }
   if (!plan.promptSpec && !plan.renderedPrompt) {
     return buildLegacyAgentPlanGenerationBatch(plan);
   }
@@ -2018,6 +2025,89 @@ function buildAgentPlanGenerationBatch(plan: CommerceAgentPlanState): CommerceAd
   };
 }
 
+function parseAspectRatioValue(value: string): number | null {
+  const match = value.trim().match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!match) {
+    return null;
+  }
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || height <= 0) {
+    return null;
+  }
+  return width / height;
+}
+
+function resolveNearestSupportedAspectRatio(
+  preferredRatio: string,
+  model?: ReturnType<typeof getImageModel>
+): string {
+  const supportedRatios = model?.aspectRatios.map((ratio) => ratio.value).filter(Boolean) ?? [];
+  if (supportedRatios.length === 0 || supportedRatios.includes(preferredRatio)) {
+    return preferredRatio || '1:1';
+  }
+  const preferredValue = parseAspectRatioValue(preferredRatio);
+  if (preferredValue === null) {
+    return supportedRatios.includes('1:1') ? '1:1' : supportedRatios[0];
+  }
+  return supportedRatios.reduce((best, candidate) => {
+    const bestValue = parseAspectRatioValue(best);
+    const candidateValue = parseAspectRatioValue(candidate);
+    if (candidateValue === null) {
+      return best;
+    }
+    if (bestValue === null) {
+      return candidate;
+    }
+    return Math.abs(candidateValue - preferredValue) < Math.abs(bestValue - preferredValue)
+      ? candidate
+      : best;
+  }, supportedRatios[0]);
+}
+
+function buildAmazonAgentPlanGenerationBatch(
+  plan: CommerceAgentPlanState,
+  model?: ReturnType<typeof getImageModel>
+): CommerceAdGenerationBatch {
+  const batchId = `commerce-amazon-plan-batch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  const assets = plan.assets.filter((asset) => asset.prompt.trim().length > 0);
+  const images: CommerceAdGeneratedImageRecord[] = assets.map((asset): CommerceAdGeneratedImageRecord => ({
+    id: [batchId, asset.id.replace(/[^a-z0-9\u4e00-\u9fa5]+/gi, '-')].join('-'),
+    aspectRatio: resolveNearestSupportedAspectRatio(asset.aspectRatio || '1:1', model),
+    productionAssetId: asset.id,
+    detailPageTitle: [
+      asset.title,
+      asset.group === 'aplus' ? 'A+' : 'Listing',
+    ].filter(Boolean).join(' · '),
+    nodeId: null,
+    prompt: [
+      asset.prompt,
+      asset.negativePrompt ? `负面约束：${asset.negativePrompt}` : '',
+      asset.complianceNotes.length ? `合规检查：${asset.complianceNotes.join('；')}` : '',
+    ].filter(Boolean).join('\n\n'),
+    status: 'queued',
+    imageUrl: null,
+    previewImageUrl: null,
+    error: null,
+  }));
+
+  return {
+    id: batchId,
+    createdAt: Date.now(),
+    corePrompt: plan.renderedPrompt || plan.prompt,
+    promptSpec: plan.promptSpec,
+    renderedCorePrompt: plan.renderedPrompt,
+    renderedRatioPrompts: {},
+    aspectRatios: Array.from(new Set(images.map((image) => image.aspectRatio))),
+    variantsPerRatio: 1,
+    batchCount: 1,
+    generationMode: 'legacyRatios',
+    detailPageCount: 0,
+    detailPages: [],
+    images,
+  };
+}
+
 function composeAgentPlanState(input: {
   text: string;
   images: CommerceAdProductImage[];
@@ -2026,6 +2116,7 @@ function composeAgentPlanState(input: {
   agentThreadId: string;
   confirmedSlots?: CommerceAdAgentThreadState['confirmedSlots'];
   resultActions: CommerceAdAgentAction[];
+  productionAssets?: CommerceProductionAsset[];
   fallbackModelId: string;
   fallbackProviderId: string;
   fallbackSize: string;
@@ -2098,6 +2189,9 @@ function composeAgentPlanState(input: {
     prompt: prompt || input.previousPlan?.prompt || '',
     promptSpec,
     renderedPrompt,
+    assets: input.selectedSkillId === AMAZON_PRODUCT_LISTING_SKILL_ID
+      ? input.productionAssets ?? input.previousPlan?.assets ?? []
+      : [],
     referenceImages: input.images.length > 0 ? input.images : input.previousPlan?.referenceImages ?? [],
     referenceImageNotes: input.images.length > 0
       ? composeProductImageReferenceNotes(input.images)
@@ -5009,7 +5103,7 @@ function CommerceAdWorkspaceInner() {
       providerId: selectedPlanModel.providerId,
       modelId: selectedPlanModel.id,
       size: selectedPlanResolution.value,
-    });
+    }, selectedPlanModel);
     const referenceImages = dedupeStrings(
       plan.referenceImages.map((image) => image.imageUrl)
     ).slice(0, COMMERCE_PRODUCT_REFERENCE_IMAGE_LIMIT);
@@ -5134,9 +5228,24 @@ function CommerceAdWorkspaceInner() {
       ],
       activeBatchId: submittedBatch.id,
     } as Partial<CanvasNodeData>);
+    const nextAssets = plan.assets.length > 0
+      ? plan.assets.map((asset) => {
+          const matchedImage = submittedImages.find((image) => image.productionAssetId === asset.id);
+          if (!matchedImage) {
+            return asset;
+          }
+          return {
+            ...asset,
+            status: matchedImage.status === 'failed' ? 'failed' : 'running',
+            resultNodeId: matchedImage.nodeId,
+            error: matchedImage.error,
+          };
+        })
+      : plan.assets;
     updateNodeData(planNode.id, {
       status: 'ready',
       lastError: null,
+      ...(plan.selectedSkillId === AMAZON_PRODUCT_LISTING_SKILL_ID ? { assets: nextAssets } : {}),
     } as Partial<CanvasNodeData>);
     setMessages((items) => [
       ...items,
@@ -5721,6 +5830,9 @@ function CommerceAdWorkspaceInner() {
             agentThreadId: activeThreadId,
             confirmedSlots: finalAgentThreadState.confirmedSlots,
             resultActions: agentResult.actions,
+            productionAssets: selectedSkillId === AMAZON_PRODUCT_LISTING_SKILL_ID
+              ? agentResult.productionAssets
+              : undefined,
             fallbackModelId: COMMERCE_DEFAULT_IMAGE_MODEL_ID,
             fallbackProviderId: fallbackImageModel.providerId,
             fallbackSize: COMMERCE_DEFAULT_RESOLUTION,
@@ -5729,6 +5841,13 @@ function CommerceAdWorkspaceInner() {
           });
           upsertAgentPlanNode(planState);
           setStatusText(t('commerceAd.agentPlan.statusPlanCreated'));
+          if (
+            selectedSkillId === AMAZON_PRODUCT_LISTING_SKILL_ID
+            && nextAction === 'generate'
+            && planState.assets.length > 0
+          ) {
+            setStatusText(t('commerceAd.agentPlan.statusPlanCreated'));
+          }
         } else {
           setStatusText(null);
         }
@@ -5773,6 +5892,7 @@ function CommerceAdWorkspaceInner() {
     clearThinkingTypewriter,
     enqueueAssistantMessageText,
     enqueueThinkingPreviewText,
+    handleGenerateFromAgentPlan,
     isThinking,
     messages,
     selectedSkillId,

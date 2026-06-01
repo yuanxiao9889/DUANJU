@@ -28,6 +28,7 @@ const AD_CREATIVE_PROMPT_INSTRUCTIONS = [
 
 export const AD_CREATIVE_SKILL_ID = 'ad-creative';
 export const AI_STYLIST_SKILL_ID = 'ai-stylist-model-conversion';
+export const AMAZON_PRODUCT_LISTING_SKILL_ID = 'amazon-product-listing';
 
 const AI_STYLIST_PROMPT_INSTRUCTIONS = [
   'Skill name: AI造型师:高转化模特图.',
@@ -79,8 +80,134 @@ const AI_STYLIST_PROMPT_INSTRUCTIONS = [
   '- If product print/logo/text must be exact, warn that final text/logo precision may need post-production or reference-preserving image editing.',
 ].join('\n');
 
+const AMAZON_PRODUCT_LISTING_PROMPT_INSTRUCTIONS = [
+  'Skill name: 亚马逊产品套图.',
+  'Primary goal: plan and generate a professional Amazon product image set: Listing gallery images plus standard A+ Content modules. Work as an Amazon listing visual strategist, ecommerce art director, prompt engineer, and compliance checker.',
+  '',
+  'Amazon image set defaults:',
+  '- Listing set defaults to 7 square 1:1 assets: main image, multi-angle image, core benefit infographic, specs/size image, lifestyle use-case image, detail close-up image, comparison/packaging/in-the-box image.',
+  '- Standard A+ defaults to 5 module groups: brand logo strip, hero banner, benefit banner, three square benefit images, scene/comparison support image.',
+  '- Current generation supports aspect ratios better than exact pixels. Store targetSize metadata for A+ modules such as 600x180, 970x600, 970x300, and 300x300; generate the closest supported ratio and note later crop/export when needed.',
+  '',
+  'Required information:',
+  '- marketplace/category, core selling points, image set scope, and visual direction are required before production.',
+  '- If any required slot is missing, ask concise guidance questions. Do not generate a final plan yet.',
+  '',
+  'Compliance and prompt rules:',
+  '- Main image must be pure white background, product only, product fills about 85% or more of the frame, no text, no watermark, no props, no badges, no lifestyle scene, no extra objects, no packaging unless packaging is the product being sold.',
+  '- Preserve product identity from reference images: structure, color, material, logo placement, label layout, scale, and distinctive details.',
+  '- Secondary listing images and A+ modules may use short copy layout intent, scenes, props, callouts, and comparison framing, but do not invent unsupported certifications, price, discount, medical effects, legal claims, or performance guarantees.',
+  '- For exact text/logo requirements, write prompts as layout intent and recommend post-production for precision.',
+  '- Every planned asset must include title, goal, assetType, group, aspectRatio, targetSize, prompt, negativePrompt, and complianceNotes.',
+  '- For Amazon output, prioritize clarity, trust, clean hierarchy, product accuracy, conversion logic, and international marketplace readability over decorative effects.',
+  '',
+  'Structured output expectations:',
+  '- Populate plan assets as the single source of truth for each generated image prompt.',
+  '- Listing assets should use aspectRatio 1:1 and targetSize 2000x2000 unless the user explicitly changes it.',
+  '- A+ logo strip should use aspectRatio 3:1 and targetSize 600x180.',
+  '- A+ hero and support scene can use 16:9 when 8:5 is unsupported and targetSize 970x600.',
+  '- A+ benefit banner should use aspectRatio 3:1 or 16:9 and targetSize 970x300.',
+  '- A+ square benefit images should use aspectRatio 1:1 and targetSize 300x300.',
+  '- If the user requests only Listing or only A+, create only that group.',
+].join('\n');
+
 export function getCommerceAgentSkills(): CommerceAgentSkill[] {
   return [
+    {
+      id: AMAZON_PRODUCT_LISTING_SKILL_ID,
+      title: '亚马逊产品套图',
+      description: '为 Amazon Listing 商品图和标准 A+ 内容自动规划套图结构、合规约束与逐张出图 Prompt。',
+      iconKey: 'package',
+      promptInstructions: AMAZON_PRODUCT_LISTING_PROMPT_INSTRUCTIONS,
+      requiredSlots: ['marketplaceCategory', 'sellingPoints', 'imageSetScope', 'visualDirection'],
+      optionalSlots: ['audience', 'competitorDifference', 'complianceLimits', 'aplusModuleCount', 'sceneMode', 'language', 'brandInfo', 'outputFormat'],
+      slotLabels: {
+        marketplaceCategory: '站点/类目',
+        sellingPoints: '核心卖点',
+        imageSetScope: '套图范围',
+        visualDirection: '视觉风格',
+        audience: '目标买家',
+        competitorDifference: '竞品差异',
+        complianceLimits: '合规限制',
+        aplusModuleCount: 'A+ 模块数量',
+        sceneMode: '是否含场景/模特',
+        language: '图片文案语言',
+        brandInfo: '品牌信息',
+        outputFormat: '输出格式',
+      },
+      slotAliases: {
+        marketplaceCategory: ['亚马逊站点', '站点', '类目', '品类', 'marketplace', 'category'],
+        sellingPoints: ['卖点', '核心卖点', '优势', 'feature', 'benefit'],
+        imageSetScope: ['套图', '范围', 'Listing', 'A+', '主图', '副图'],
+        visualDirection: ['风格', '视觉风格', '设计风格', '拍摄风格'],
+        audience: ['目标买家', '人群', '受众', '用户'],
+        competitorDifference: ['竞品', '差异', '差异化', '对比'],
+        complianceLimits: ['合规', '限制', '禁用', '不能写', '风险'],
+        aplusModuleCount: ['A+数量', '模块数量', 'A+模块'],
+        sceneMode: ['场景', '模特', '生活方式', '白底'],
+        language: ['语言', '英文', '中文', 'copy language'],
+        brandInfo: ['品牌', '品牌名', '品牌调性'],
+        outputFormat: ['尺寸', '比例', '格式'],
+      },
+      workflowStages: ['collecting', 'planning', 'ready', 'generating'],
+      outputArtifacts: ['方案节点', '逐张 Prompt', '生成结果节点'],
+      qualityChecklist: [
+        '主图是否纯白背景、无文字、无道具且主体占比约 85%+',
+        '每张图是否记录独立 Prompt、比例、目标尺寸和合规备注',
+        'A+ 模块是否保存目标尺寸并说明后续裁切适配',
+        '是否避免价格、折扣、认证、医疗功效等未确认声明',
+      ],
+      defaultQuestions: [
+        {
+          id: 'amazon-marketplace-category',
+          label: '这套图主要用于哪个 Amazon 站点和类目？',
+          allowMultiple: false,
+          options: [
+            { id: 'us-home', label: '美国站/家居', value: '站点/类目：Amazon US 家居/厨房/生活用品' },
+            { id: 'us-beauty', label: '美国站/美妆个护', value: '站点/类目：Amazon US 美妆个护' },
+            { id: 'us-electronics', label: '美国站/电子配件', value: '站点/类目：Amazon US 电子/配件' },
+            { id: 'eu-general', label: '欧洲站/通用', value: '站点/类目：Amazon EU 通用消费品' },
+          ],
+        },
+        {
+          id: 'amazon-image-scope',
+          label: '这次要生成哪些亚马逊素材？',
+          allowMultiple: false,
+          options: [
+            { id: 'listing-and-aplus', label: 'Listing + A+', value: '套图范围：生成 7 张 Listing 商品图和标准 A+ 内容模块' },
+            { id: 'listing-only', label: '仅 Listing', value: '套图范围：仅生成 7 张 Listing 商品图' },
+            { id: 'aplus-only', label: '仅 A+', value: '套图范围：仅生成标准 A+ 内容模块' },
+          ],
+        },
+        {
+          id: 'amazon-selling-points',
+          label: '套图最需要突出什么卖点？',
+          allowMultiple: true,
+          options: [
+            { id: 'material-quality', label: '材质品质', value: '核心卖点：材质品质、耐用性和细节做工' },
+            { id: 'easy-use', label: '易用省心', value: '核心卖点：易用、省时、省空间、解决日常痛点' },
+            { id: 'giftable', label: '送礼/套装', value: '核心卖点：包装完整、适合送礼、清单清晰' },
+            { id: 'premium-design', label: '高级设计', value: '核心卖点：外观高级、设计感、适合现代生活方式' },
+          ],
+        },
+        {
+          id: 'amazon-visual-direction',
+          label: '视觉风格更偏哪种？',
+          allowMultiple: false,
+          options: [
+            { id: 'clean-amazon', label: 'Amazon 极简清爽', value: '视觉风格：Amazon 海外极简，白底清爽，信息层级清晰，可信专业' },
+            { id: 'premium-lifestyle', label: '高级生活方式', value: '视觉风格：高级生活方式摄影，干净场景，柔和自然光，突出商品质感' },
+            { id: 'conversion-infographic', label: '转化信息图', value: '视觉风格：转化导向信息图，短标题、清晰图标占位和卖点分层' },
+          ],
+        },
+      ],
+      quickOptions: [
+        '生成完整 Amazon Listing + A+ 套图',
+        '先检查主图是否合规',
+        '突出卖点并做成英文版图片文案',
+        '只做 7 张 Listing 商品图',
+      ],
+    },
     {
       id: AD_CREATIVE_SKILL_ID,
       title: '广告创意',
